@@ -2,10 +2,12 @@
 
 mod config;
 mod introspect;
+mod script;
 
 pub use config::{ConnConfig, SslMode};
 pub use introspect::{introspect, IntrospectOptions};
-pub use mysql_async::Pool;
+pub use mysql_async::{Conn, Pool};
+pub use script::{execute_script, kill_query, split_statements, ColumnInfo, ResultSet, Statement, StatementResult, MAX_ROWS};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {

@@ -17,4 +17,6 @@ Integration tests use a local MySQL (`MYLODB_TEST_HOST/PORT/USER/PASSWORD`) and 
 
 ## Status
 
-- Phase 1 (in progress): connection manager (passwords in macOS Keychain), object tree, and the left-menu filter (`ord*`, `/regex/`, `type:view`, `db:shop`, `col:email`).
+- Phase 1 (done): connection manager (passwords in macOS Keychain), object tree, and the left-menu filter (`ord*`, `/regex/`, `type:view`, `db:shop`, `col:email`).
+- Phase 2 (done): SQL editor (CodeMirror, MySQL dialect), query tabs, run selection or all (⌘↵), cancel (`KILL QUERY`), multi-result tabs and messages, `DELIMITER` support, history with search, favorites with folders, and tab session restore. Double-click a table to open it.
+- Next: Phase 3 — data grid with paging, inline editing, form view, FK lookup, BLOB viewer, export.

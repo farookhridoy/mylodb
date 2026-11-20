@@ -15,6 +15,7 @@ export default function ObjectTree(props: {
   index: Node[];
   matches: Set<number> | null; // null = no filter active
   terms: string[];
+  onOpenTable(database: string, table: string): void;
 }) {
   const [open, setOpen] = useState<Set<string>>(new Set());
   const tree = useMemo(() => buildTree(props.index, props.matches), [props.index, props.matches]);
@@ -57,7 +58,8 @@ export default function ObjectTree(props: {
                             const nk = `${gk}/${n.name}`;
                             return (
                               <li key={nk}>
-                                <div className="row-item leaf" onClick={() => cols && toggle(nk)}>
+                                <div className="row-item leaf" onClick={() => cols && toggle(nk)}
+                                     onDoubleClick={() => (g.kind === "table" || g.kind === "view") && props.onOpenTable(db.name, n.name)}>
                                   <span className="chev">{cols ? (isOpen(nk) ? "▾" : "▸") : ""}</span>
                                   <Highlight text={n.name} terms={props.terms} />
                                   {n.parent && <span className="dim"> · {n.parent}</span>}

@@ -39,12 +39,27 @@ function filtered(t, spec) {
   }
   return rows;
 }
-const nodes = () => [
-  { database: "shop", kind: "database", name: "shop", parent: null },
-  { database: "shop", kind: "table", name: "customers", parent: null },
-  { database: "shop", kind: "table", name: "orders", parent: null },
-  ...Object.keys(meta).flatMap((t) => meta[t].columns.map(([name]) => ({ database: "shop", kind: "column", name, parent: t }))),
-];
+const colNodes = (db) => (db === "shop" ? Object.keys(meta).flatMap((t) => meta[t].columns.map(([name]) => ({ database: "shop", kind: "column", name, parent: t }))) : []);
+/** The names-only index (what connect returns). `window.__bigServer = { dbs, tables }` adds a huge fake server. */
+const nodes = () => {
+  const out = [
+    { database: "shop", kind: "database", name: "shop", parent: null },
+    { database: "shop", kind: "table", name: "customers", parent: null },
+    { database: "shop", kind: "table", name: "orders", parent: null },
+  ];
+  const big = window.__bigServer;
+  if (big) {
+    for (let d = 0; d < big.dbs; d++) {
+      const db = "db" + String(d).padStart(4, "0");
+      out.push({ database: db, kind: "database", name: db, parent: null });
+      for (let t = 0; t < big.tables; t++) out.push({ database: db, kind: "table", name: "t_" + String(t).padStart(5, "0"), parent: null });
+    }
+    if (big.hugeDb) for (let t = 0; t < big.hugeDb; t++) out.push({ database: "db0000", kind: "table", name: "huge_" + t, parent: null });
+  }
+  return out;
+};
+window.__loaded = new Set();
+const currentIndex = () => [...nodes(), ...[...window.__loaded].flatMap(colNodes)];
 const colDef = ([name, d, ai, nullable]) => ({
   name, original_name: name, data_type: d === "int" ? "int" : d, params: d === "varchar" ? "40" : d === "decimal" ? "10,2" : null, unsigned: false, zerofill: false,
   nullable: !!nullable, default: { kind: "none" }, auto_increment: !!ai, charset: null, collation: null, comment: "", on_update: null, generated: null, invisible: false,
@@ -88,10 +103,11 @@ const handlers = {
   account_drop: (a) => { window.__dropped = a; return null; },
   list_connections: () => [{ id: 1, name: "Local", color: "#4f8cff", host: "127.0.0.1", port: 3306, user: "root", database: null, ssl: "disabled" }],
   connect: (a) => {
+    window.__loaded = new Set(); window.__index = nodes();
     window.__connectTrust = (window.__connectTrust || []).concat([a.trustFingerprint]);
     if (window.__sshMode === "unknown" && !a.trustFingerprint) throw { kind: "unknown_host", host: "bastion:22", fingerprint: "SHA256:abc123" };
     if (window.__sshMode === "changed" && !window.__forgot) throw { kind: "host_key_changed", host: "bastion:22", expected: "SHA256:old", actual: "SHA256:new" };
-    return nodes();
+    return window.__index;
   },
   forget_ssh_host: () => { window.__forgot = true; return null; },
   test_connection: (a) => {
@@ -99,7 +115,7 @@ const handlers = {
     if (a.connection.ssh && !a.trustFingerprint) throw { kind: "unknown_host", host: a.connection.ssh.host + ":" + a.connection.ssh.port, fingerprint: "SHA256:abc123" };
     return { version: "9.7.2", ssl_cipher: a.connection.ssl !== "disabled" ? "TLS_AES_256_GCM_SHA384" : null, via_ssh: !!a.connection.ssh };
   },
-  refresh_index: () => { window.__refreshed = (window.__refreshed || 0) + 1; return nodes(); },
+  refresh_index: () => { window.__refreshed = (window.__refreshed || 0) + 1; window.__index = currentIndex(); return window.__index; },
   disconnect: () => null, session_get: () => null, session_set: () => null, history_list: () => [], favorites_list: () => [],
   list_databases: () => ["shop"], filter_index: () => [],
   table_meta: (a) => metaOf(a.table),
@@ -192,7 +208,7 @@ Object.assign(handlers, {
   csv_sniff: () => ";",
   csv_preview: (a) => { window.__previews = (window.__previews || []).concat([JSON.parse(JSON.stringify(a))]); return { headers: ["id", "name", "qty"], rows: [["1", "Ann", "5"], ["2", "Bob", ""]], column_count: 3, more: false }; },
   csv_infer: () => [{ name: "id", column_type: "int" }, { name: "name", column_type: "varchar(255)" }, { name: "qty", column_type: "int" }],
-  csv_create_table: (a) => { window.__created = JSON.parse(JSON.stringify(a)); return nodes(); },
+  csv_create_table: (a) => { window.__created = JSON.parse(JSON.stringify(a)); return currentIndex(); },
   import_csv_job: async (a) => { window.__import = JSON.parse(JSON.stringify(a)); await job(a.jobId, "Importing", "1 rows", window.__jobMs ?? 600);
     return { rows_read: 2, affected_rows: 2, errors: window.__importErrors ?? [], ragged_rows: 0, aborted: false, rolled_back: false, warnings: ["the table uses the MyISAM engine, which has no transactions"], elapsed_ms: 12 }; },
   run_sql_source_job: async (a) => { window.__run = JSON.parse(JSON.stringify(a)); await job(a.jobId, "Running script", "10 statements", 300);
@@ -202,6 +218,33 @@ Object.assign(handlers, {
   cancel_job: (a) => { window.__cancelled = a.jobId; window.__cancelFlag = true; return null; },
   export_query: (a) => { window.__exportQuery = JSON.parse(JSON.stringify(a)); if (/delete/i.test(a.sql)) throw "only SELECT statements can be exported"; return { rows: 42, warnings: [] }; },
   export_table: (a) => { window.__exportTable = JSON.parse(JSON.stringify(a)); return { rows: 3, warnings: ["1 cell(s) longer than 32767 characters were cut to Excel's limit"] }; },
+});
+
+// ---- scoped filter and lazy columns (mirror the backend's behaviour) ----
+Object.assign(handlers, {
+  load_columns: (a) => {
+    window.__loadCalls = (window.__loadCalls || []).concat([a.db]);
+    const start = window.__index.length;
+    if (window.__loaded.has(a.db)) return { start, nodes: [] };
+    const cols = colNodes(a.db);
+    window.__loaded.add(a.db);
+    window.__index = window.__index.concat(cols);
+    return { start, nodes: cols };
+  },
+  filter_index: (a) => {
+    window.__filterCalls = (window.__filterCalls || []).concat([{ query: a.query, scope: a.scope }]);
+    const terms = a.query.split(/\s+/).filter((t) => t && !t.includes(":") && !/[*?/]/.test(t)).map((t) => t.toLowerCase());
+    const colTerm = /(^|\s)col:(\S+)/i.exec(a.query)?.[2]?.toLowerCase();
+    const hits = [];
+    window.__index.forEach((n, i) => {
+      if (a.scope) {
+        if (n.database !== a.scope || n.kind === "database") return;
+        if (colTerm) { if (n.kind === "column" && n.name.toLowerCase().includes(colTerm)) hits.push(i); return; }
+        if (n.kind !== "column" && terms.every((t) => n.name.toLowerCase().includes(t))) hits.push(i);
+      } else if (n.kind === "database" && terms.every((t) => n.name.toLowerCase().includes(t))) hits.push(i);
+    });
+    return hits;
+  },
 });
 window.__TAURI_INTERNALS__ = {
   transformCallback: (cb) => { const id = ++window.__cbSeq; window.__cbs[id] = cb; return id; },

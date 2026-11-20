@@ -48,6 +48,15 @@ async fn introspects_and_filters_all_object_kinds() {
         }
         assert!(!index.iter().any(|n| n.database == "mysql"), "system dbs excluded by default");
 
+        // columns are opt-in: the default index has names only, and one database's columns load separately
+        let names_only = introspect(&pool, &IntrospectOptions::default()).await?;
+        assert!(!names_only.iter().any(|n| n.kind == Kind::Column), "connecting must not load every column on the server");
+        let cols = myq_driver::introspect_columns(&pool, &db).await?;
+        assert!(cols.iter().all(|c| c.database == db && c.kind == Kind::Column && c.parent.is_some()));
+        let orders: Vec<&str> = cols.iter().filter(|c| c.parent.as_deref() == Some("orders")).map(|c| c.name.as_str()).collect();
+        assert_eq!(orders, ["id", "email"], "columns come back in table order");
+        assert!(myq_driver::introspect_columns(&pool, "no_such_database_xyz").await?.is_empty());
+
         let hits = Filter::parse(&format!("db:{db} type:view ord")).unwrap().apply(&index);
         assert_eq!(hits.len(), 1);
         assert_eq!(index[hits[0]].name, "v_orders");

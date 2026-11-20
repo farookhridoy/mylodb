@@ -46,7 +46,7 @@ export function blankTable(opts: ServerOptions | null): TableDef {
 type Tab = "columns" | "indexes" | "fks" | "options" | "sql";
 
 export default function TableDesigner(props: {
-  connectionId: number; db: string; table: string | null; nodes: Node[];
+  connectionId: number; db: string; table: string | null; nodes: Node[]; ensureColumns(db: string): Promise<unknown>;
   onApplied(newName: string, statements: string[]): void;
   onOpenData(db: string, table: string): void;
 }) {
@@ -88,6 +88,8 @@ export default function TableDesigner(props: {
     return () => { live = false; clearTimeout(t); };
   }, [draft, original, db]);
 
+  // the foreign key editor needs the columns of the referenced database as well as of this one
+  useEffect(() => { props.ensureColumns(db); }, [db]); // eslint-disable-line react-hooks/exhaustive-deps
   const dbs = useMemo(() => props.nodes.filter((n) => n.kind === "database").map((n) => n.name), [props.nodes]);
   const tablesOf = (schema: string) => props.nodes.filter((n) => n.database === schema && (n.kind === "table")).map((n) => n.name);
   const columnsOf = (schema: string, table: string) => props.nodes.filter((n) => n.database === schema && n.kind === "column" && n.parent === table).map((n) => n.name);
@@ -310,7 +312,7 @@ export default function TableDesigner(props: {
             </div>
             <div className="dz-edit">
               {draft.foreign_keys[selFk] ? (
-                <FkEditor fk={draft.foreign_keys[selFk]} db={db} dbs={dbs} localColumns={draft.columns.map((c) => c.name)}
+                <FkEditor fk={draft.foreign_keys[selFk]} db={db} dbs={dbs} ensureColumns={props.ensureColumns} localColumns={draft.columns.map((c) => c.name)}
                   tablesOf={tablesOf} columnsOf={columnsOf}
                   onChange={(f) => set({ foreign_keys: draft.foreign_keys.map((x, k) => (k === selFk ? f : x)) })} />
               ) : <div className="empty">No foreign keys</div>}
@@ -403,11 +405,12 @@ function IndexEditor(props: { ix: IndexDef; columns: string[]; onChange(ix: Inde
 }
 
 function FkEditor(props: {
-  fk: ForeignKeyDef; db: string; dbs: string[]; localColumns: string[];
+  fk: ForeignKeyDef; db: string; dbs: string[]; localColumns: string[]; ensureColumns(db: string): Promise<unknown>;
   tablesOf(schema: string): string[]; columnsOf(schema: string, table: string): string[]; onChange(f: ForeignKeyDef): void;
 }) {
   const { fk } = props;
   const schema = fk.ref_schema ?? props.db;
+  useEffect(() => { props.ensureColumns(schema); }, [schema]); // eslint-disable-line react-hooks/exhaustive-deps
   const refCols = fk.ref_table ? props.columnsOf(schema, fk.ref_table) : [];
   const setPair = (i: number, local: string | null, remote: string | null) => {
     const columns = [...fk.columns]; const ref_columns = [...fk.ref_columns];

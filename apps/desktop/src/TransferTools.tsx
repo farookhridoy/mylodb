@@ -54,7 +54,7 @@ function ProgressBar({ p, running, onCancel }: { p: JobProgress | null; running:
   );
 }
 
-export default function TransferTools(props: { connectionId: number; nodes: Node[]; preset: TransferPreset; onSchemaChanged(): void }) {
+export default function TransferTools(props: { connectionId: number; nodes: Node[]; preset: TransferPreset; onSchemaChanged(): void; ensureColumns(db: string): Promise<unknown> }) {
   const [tab, setTab] = useState<TransferTab>(props.preset.tab ?? "backup");
   useEffect(() => { if (props.preset.tab) setTab(props.preset.tab); }, [props.preset]);
   const names: [TransferTab, string][] = [["backup", "Backup"], ["restore", "Restore / run script"], ["import", "Import CSV"], ["export", "Export query"]];
@@ -222,7 +222,7 @@ function Restore({ connectionId, nodes, onSchemaChanged }: { connectionId: numbe
 const ENCODINGS = ["utf-8", "windows-1252", "iso-8859-1", "iso-8859-15", "utf-16le", "utf-16be", "shift_jis", "gbk", "big5", "euc-kr", "windows-1251", "koi8-r"];
 const DELIMS: [string, string][] = [[",", "Comma ,"], [";", "Semicolon ;"], ["\t", "Tab"], ["|", "Pipe |"]];
 
-function ImportCsv({ connectionId, nodes, preset, onSchemaChanged }: { connectionId: number; nodes: Node[]; preset: TransferPreset; onSchemaChanged(): void }) {
+function ImportCsv({ connectionId, nodes, preset, onSchemaChanged, ensureColumns }: { connectionId: number; nodes: Node[]; preset: TransferPreset; onSchemaChanged(): void; ensureColumns(db: string): Promise<unknown> }) {
   const dbs = useMemo(() => nodes.filter((n) => n.kind === "database").map((n) => n.name), [nodes]);
   const [path, setPath] = useState("");
   const [fmt, setFmt] = useState<CsvFormat>({ delimiter: ",", quote: '"', has_header: true, encoding: "utf-8", null_text: null, trim: false });
@@ -240,6 +240,7 @@ function ImportCsv({ connectionId, nodes, preset, onSchemaChanged }: { connectio
   const [emptyNull, setEmptyNull] = useState(true);
   const [confirmTruncate, setConfirmTruncate] = useState(false);
   const job = useJob<ImportResult>();
+  useEffect(() => { if (db) ensureColumns(db); }, [db]); // eslint-disable-line react-hooks/exhaustive-deps
   const tables = useMemo(() => nodes.filter((n) => n.database === db && n.kind === "table").map((n) => n.name), [nodes, db]);
   const tableCols = useMemo(() => nodes.filter((n) => n.database === db && n.kind === "column" && n.parent === table).map((n) => n.name), [nodes, db, table]);
 

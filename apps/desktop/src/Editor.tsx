@@ -1,6 +1,6 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 import { basicSetup } from "codemirror";
-import { EditorState, Prec } from "@codemirror/state";
+import { Compartment, EditorState, Prec } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
 import { autocompletion, type CompletionContext, type CompletionResult } from "@codemirror/autocomplete";
 import { editorApi, type SuggestionKind } from "./api";
@@ -35,6 +35,8 @@ const Editor = forwardRef<EditorHandle, {
   /** Connection and database used to resolve names for autocomplete. */
   connectionId: number;
   database: string | null;
+  /** Dark editor colours (the light theme uses the app's own colours). */
+  dark: boolean;
 }>(function Editor(props, ref) {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
@@ -42,6 +44,9 @@ const Editor = forwardRef<EditorHandle, {
   const current = useRef(props.tabId);
   const cb = useRef(props);
   cb.current = props;
+  // the colour theme sits in a compartment so it can change without recreating the editor or losing undo history
+  const themeSlot = useRef(new Compartment());
+  const themeFor = (dark: boolean) => (dark ? oneDark : []);
 
   /** Ask the Rust engine for candidates. Ranked and capped there, so CodeMirror must not filter again. */
   const completionSource = async (ctx: CompletionContext): Promise<CompletionResult | null> => {
@@ -66,7 +71,7 @@ const Editor = forwardRef<EditorHandle, {
       extensions: [
         basicSetup,
         sql({ dialect: MySQL, upperCaseKeywords: true }),
-        oneDark,
+        themeSlot.current.of(themeFor(cb.current.dark)),
         autocompletion({ override: [completionSource], icons: true }),
         // highest precedence: the default keymap binds Mod-Enter to "insert blank line"
         Prec.highest(keymap.of([
@@ -91,9 +96,15 @@ const Editor = forwardRef<EditorHandle, {
     states.current.set(current.current, v.state);
     current.current = props.tabId;
     v.setState(states.current.get(props.tabId) ?? makeState(props.initialDoc));
+    v.dispatch({ effects: themeSlot.current.reconfigure(themeFor(props.dark)) });
     v.focus();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.tabId]);
+
+  useEffect(() => {
+    view.current?.dispatch({ effects: themeSlot.current.reconfigure(themeFor(props.dark)) });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.dark]);
 
   useImperativeHandle(ref, () => ({
     runnableText() {

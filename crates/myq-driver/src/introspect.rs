@@ -69,3 +69,13 @@ pub async fn introspect(pool: &Pool, opts: &IntrospectOptions) -> Result<Vec<Nod
     }
     Ok(out)
 }
+
+/// Column nodes of one database (parent = table). Loaded on demand: the columns of a whole server can be
+/// hundreds of thousands of rows and are only needed for the databases the user actually works in.
+pub async fn introspect_columns(pool: &Pool, database: &str) -> Result<Vec<Node>> {
+    let mut conn = pool.get_conn().await?;
+    let rows: Vec<(String, String)> = conn
+        .exec("SELECT TABLE_NAME, COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? ORDER BY TABLE_NAME, ORDINAL_POSITION", (database,))
+        .await?;
+    Ok(rows.into_iter().map(|(table, name)| Node { database: database.to_string(), kind: Kind::Column, name, parent: Some(table) }).collect())
+}

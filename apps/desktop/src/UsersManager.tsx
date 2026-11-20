@@ -18,7 +18,7 @@ const blank = (): Draft => ({
   edit: { user: "", host: "localhost", password: "", plugin: null, locked: false, expire_password: false },
 });
 
-export default function UsersManager(props: { connectionId: number; nodes: Node[] }) {
+export default function UsersManager(props: { connectionId: number; nodes: Node[]; ensureColumns(db: string): Promise<unknown> }) {
   const cid = props.connectionId;
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [draft, setDraft] = useState<Draft | null>(null);
@@ -70,6 +70,8 @@ export default function UsersManager(props: { connectionId: number; nodes: Node[
 
   const setEdit = (p: Partial<AccountEdit>) => draft && setDraft({ ...draft, edit: { ...draft.edit, ...p } });
   const scope = draft?.scopes.find((s) => scopeKey(s) === selScope);
+  // column privileges list the table's columns, which are loaded per database
+  useEffect(() => { if (scope?.level === "table") props.ensureColumns(scope.db); }, [scope?.level, scope && "db" in scope ? scope.db : null]); // eslint-disable-line react-hooks/exhaustive-deps
   const updateScope = (patch: Partial<ScopeGrant>) =>
     draft && setDraft({ ...draft, scopes: draft.scopes.map((s) => (scopeKey(s) === selScope ? ({ ...s, ...patch } as ScopeGrant) : s)) });
 

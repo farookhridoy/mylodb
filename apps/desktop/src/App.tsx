@@ -7,6 +7,7 @@ import DataGrid, { defaultView, type GridView } from "./DataGrid";
 import { PromptDialog, TypeConfirmDialog } from "./Dialogs";
 import TableDesigner from "./TableDesigner";
 import ServerTools from "./ServerTools";
+import { useTheme, type ThemePref } from "./theme";
 import TransferTools, { type TransferPreset } from "./TransferTools";
 import UsersManager from "./UsersManager";
 import Editor, { type EditorHandle } from "./Editor";
@@ -49,7 +50,14 @@ export default function App() {
   const [status, setStatus] = useState("Not connected");
   const [query, setQuery] = useState("");
   const [matches, setMatches] = useState<Set<number> | null>(null);
+  /// The database the current matches were computed for (null: the matches are database names).
+  const [matchScope, setMatchScope] = useState<string | null>(null);
   const [filterError, setFilterError] = useState<string | null>(null);
+  /// The database selected in the tree: the filter searches inside it ("Filter tables in …").
+  const [selectedDb, setSelectedDb] = useState<string | null>(null);
+  const [columnsLoaded, setColumnsLoaded] = useState<Set<string>>(new Set());
+  const colQueue = useRef<Promise<unknown>>(Promise.resolve());
+  const filterInput = useRef<HTMLInputElement>(null);
   const [dialog, setDialog] = useState<SavedConnection | "new" | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [side, setSide] = useState<Side>("objects");
@@ -71,6 +79,7 @@ export default function App() {
   const [typeConfirm, setTypeConfirm] = useState<React.ComponentProps<typeof TypeConfirmDialog> | null>(null);
   const [restored, setRestored] = useState(false);
 
+  const theme = useTheme();
   const editor = useRef<EditorHandle>(null);
   const filterSeq = useRef(0);
   const runIds = useRef<Record<string, string>>({});
@@ -89,6 +98,8 @@ export default function App() {
     try {
       if (activeId !== null && activeId !== id) await api.disconnect(activeId);
       const idx = await api.connect(id, trust);
+      setSelectedDb(null); setColumnsLoaded(new Set()); setMatches(null); setMatchScope(null);
+      colQueue.current = Promise.resolve();
       let restoredTabs: QueryTab[] = [];
       let restoredActive = "";
       try {
@@ -132,23 +143,48 @@ export default function App() {
     return () => clearTimeout(t);
   }, [tabs, activeTab, activeId, restored]);
 
+  // ---- columns are loaded per database, on demand ----
+  // Loads run one at a time, in order, so the positions the backend appended them at match this list.
+  const ensureColumns = useCallback((db: string): Promise<unknown> => {
+    if (activeId === null) return Promise.resolve();
+    const id = activeId;
+    const next = colQueue.current.then(async () => {
+      let already = false;
+      setColumnsLoaded((s) => { already = s.has(db); return s; });
+      if (already) return;
+      const r = await api.loadColumns(id, db);
+      if (r.nodes.length === 0 && r.start === 0) return;
+      setIndex((prev) => (prev.length === r.start ? [...prev, ...r.nodes] : prev));
+      setColumnsLoaded((s) => new Set(s).add(db));
+    }).catch(() => {});
+    colQueue.current = next;
+    return next;
+  }, [activeId]);
+
+  // autocomplete in the editor needs the columns of the database it is working in
+  useEffect(() => { if (editorTab?.database) ensureColumns(editorTab.database); }, [editorTab?.database, ensureColumns]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ---- filter ----
+  // Scoped to the selected database; with none selected it matches database names only.
   useEffect(() => {
     if (activeId === null) return;
-    if (!query.trim()) { setMatches(null); setFilterError(null); return; }
+    if (!query.trim()) { setMatches(null); setMatchScope(null); setFilterError(null); return; }
     const mine = ++filterSeq.current;
     const t = setTimeout(async () => {
       try {
-        const hits = await api.filterIndex(activeId, query);
+        // a column filter needs the columns of the database it searches
+        if (selectedDb && /(^|\s)(col:|type:column)/i.test(query)) await ensureColumns(selectedDb);
+        const hits = await api.filterIndex(activeId, query, selectedDb);
         if (mine !== filterSeq.current) return;
         setMatches(new Set(hits));
+        setMatchScope(selectedDb);
         setFilterError(null);
       } catch (e) {
         if (mine === filterSeq.current) setFilterError(String(e));
       }
-    }, 80);
+    }, 150);
     return () => clearTimeout(t);
-  }, [query, activeId]);
+  }, [query, activeId, selectedDb, ensureColumns]);
 
   const terms = useMemo(
     () => query.split(/\s+/).filter((t) => t && !/[:*?/]/.test(t)).map((t) => t.toLowerCase()),
@@ -366,6 +402,7 @@ export default function App() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!e.metaKey || activeId === null) return;
+      if (e.shiftKey && e.key.toLowerCase() === "b") { e.preventDefault(); setSide("objects"); const focus = () => filterInput.current?.focus(); focus(); setTimeout(focus, 0); /* the second call covers the objects tab not being mounted yet */ return; }
       if (e.key === "t") { e.preventDefault(); addTab("", tab?.database ?? null); }
       if (e.key === "w") { e.preventDefault(); if (tab) closeTab(tab.id); }
     };
@@ -386,6 +423,10 @@ export default function App() {
           <button title="Delete connection" disabled={!active} onClick={() => setConfirmDelete(true)}>🗑</button>
           <button title="Users and privileges" disabled={activeId === null} onClick={openUsers}>👤</button>
  <button title="Backup, restore, import and export" disabled={activeId === null} onClick={() => openTransfer()}>⇅</button>
+          <button className="theme-toggle" title={`Theme: ${theme.pref} (click to change)`}
+            onClick={() => { const order: ThemePref[] = ["system", "light", "dark"]; theme.setPref(order[(order.indexOf(theme.pref) + 1) % 3]); }}>
+            {theme.pref === "system" ? "◐" : theme.pref === "light" ? "☀" : "☾"}
+          </button>
           <button title="Server: processes, variables, status, maintenance, logs" disabled={activeId === null} onClick={openServer}>🖥</button>
         </div>
         <div className="side-tabs">
@@ -399,7 +440,9 @@ export default function App() {
           <>
             <div className="filter">
               <input
-                placeholder="Filter objects…  ord*  /regex/  type:view  db:shop  col:email"
+                ref={filterInput}
+                placeholder={selectedDb ? `Filter tables in ${selectedDb}` : "Filter databases"}
+                title={"Filter (⇧⌘B). Click a database to filter inside it.\nord  ·  ord*  ·  /regex/  ·  type:view  ·  col:email"}
                 value={query}
                 disabled={activeId === null}
                 onChange={(e) => setQuery(e.target.value)}
@@ -412,7 +455,8 @@ export default function App() {
             <div className="tree-wrap">
               {activeId === null
                 ? <div className="empty">Create or select a connection</div>
-                : <ObjectTree index={index} matches={matches} terms={terms} onOpenTable={(d, t) => openTable(d, t)} onTableMenu={tableMenu} onDatabaseMenu={databaseMenu} />}
+                : <ObjectTree index={index} matches={matches} scope={matchScope} terms={terms} selectedDb={selectedDb} onSelectDb={setSelectedDb}
+                    columnsLoaded={columnsLoaded} ensureColumns={ensureColumns} onOpenTable={(d, t) => openTable(d, t)} onTableMenu={tableMenu} onDatabaseMenu={databaseMenu} />}
             </div>
           </>
         )}
@@ -481,19 +525,19 @@ export default function App() {
                   </label>
                 </div>
                 <div className="editor-wrap">
-                  <Editor ref={editor} tabId={editorTab.id} initialDoc={editorTab.sql} onChange={(sql) => patchTab(editorTab.id, { sql })} onRun={run} onFormat={formatSql} connectionId={activeId} database={editorTab.database} />
+                  <Editor ref={editor} tabId={editorTab.id} initialDoc={editorTab.sql} onChange={(sql) => patchTab(editorTab.id, { sql })} onRun={run} onFormat={formatSql} connectionId={activeId} database={editorTab.database} dark={theme.resolved === "dark"} />
                 </div>
                 <ResultsPane run={runs[editorTab.id]} analysis={analyses[editorTab.id]} />
               </div>
             )}
             {tab.kind === "designer" && tab.table && (
-              <TableDesigner key={`${activeId}:${tab.id}`} connectionId={activeId} db={tab.table.db} table={tab.table.name} nodes={index}
+              <TableDesigner key={`${activeId}:${tab.id}`} connectionId={activeId} db={tab.table.db} table={tab.table.name} nodes={index} ensureColumns={ensureColumns}
                 onOpenData={(d, t) => openTable(d, t)}
                 onApplied={async (name) => { await reloadIndex(); patchTab(tab.id, { title: name, table: { db: tab.table!.db, name } }); }} />
             )}
-            {tab.kind === "transfer" && <TransferTools key={`${activeId}:${tab.id}`} connectionId={activeId} nodes={index} preset={tab.transfer ?? {}} onSchemaChanged={() => reloadIndex()} />}
+            {tab.kind === "transfer" && <TransferTools key={`${activeId}:${tab.id}`} connectionId={activeId} nodes={index} ensureColumns={ensureColumns} preset={tab.transfer ?? {}} onSchemaChanged={() => reloadIndex()} />}
             {tab.kind === "server" && <ServerTools key={`${activeId}:${tab.id}`} connectionId={activeId} nodes={index} />}
-            {tab.kind === "users" && <UsersManager key={`${activeId}:${tab.id}`} connectionId={activeId} nodes={index} />}
+            {tab.kind === "users" && <UsersManager key={`${activeId}:${tab.id}`} connectionId={activeId} nodes={index} ensureColumns={ensureColumns} />}
             {isTable(tab) && tab.table && tab.table.name && (
               <DataGrid key={`${activeId}:${tab.id}`} connectionId={activeId} db={tab.table.db} table={tab.table.name}
                 initial={tab.grid ?? defaultView()} onViewChange={(grid) => patchTab(tab.id, { grid })}

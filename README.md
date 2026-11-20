@@ -11,7 +11,7 @@ cd apps/desktop
 npm install
 npm run tauri dev      # launches the app with hot reload
 cargo test             # from the repo root: Rust unit + MySQL integration tests
-npm run e2e            # UI tests of the grid, designer, users manager, editor, server tools and transfers (needs `npm run dev` running and CHROME_PATH set)
+npm run e2e            # UI tests of the grid, designer, users manager, editor, server tools, transfers, tree and theme (needs `npm run dev` running and CHROME_PATH set)
 ```
 
 Integration tests use a local MySQL (`MYLODB_TEST_HOST/PORT/USER/PASSWORD`) and create/drop only their own `mylodb_itest_*` database.
@@ -25,4 +25,5 @@ Integration tests use a local MySQL (`MYLODB_TEST_HOST/PORT/USER/PASSWORD`) and 
 - Phase 5 (done): context-aware autocomplete (tables, columns, aliases, `db.` qualifiers, functions, keywords; quoting of reserved/special names; works from the in-memory object index, so no server round trip), SQL formatter (indent, keyword case; selection or whole script; ⇧⌘F), Explain / Explain Analyze with plain-language hints and a collapsible JSON plan, and a query profiler (stage timings from `SHOW PROFILE` plus the rows read, sorts and temp tables the statement caused). Autocomplete rebuilds after DDL and from the tree's ⟳ button.
 - Phase 6 (done): SSH tunnelling (password or private key; the host key is shown for confirmation on first use and a changed key blocks the connection), SSL modes (verify, verify CA only, skip verify) with CA and client certificate files, a *Test connection* button, and a Server tab: overview with live queries/s and connections, process list (stop query / kill connection), global variables (edit with confirmation, server warnings shown), status with per-second rates, CHECK / ANALYZE / OPTIMIZE / REPAIR for many tables at once, and logs (error log, slow queries, binary logs and events, log settings).
 - Phase 7 (done): backup to SQL (structure, data, views, routines, triggers, events; one consistent snapshot; one file or a file per table; optional .zip; timestamped names; cancellable, partial output removed), restore from a .sql file, a .zip or a folder (streamed from disk, errors listed with line numbers), CSV import (delimiter detection, preview, encodings, column mapping, insert/skip/update/replace, all-or-nothing or continue-on-error, create a table from the file), and export of tables or any SELECT to CSV, JSON, SQL INSERT, XML, HTML or Excel.
-- Next: Phase 8 — first public beta (signed `.dmg`, Homebrew cask, documentation).
+- Tree and theme update: the object-tree filter is scoped to the selected database ("Filter tables in …") and database names only when none is selected; columns load per database on demand and groups are paged, so very large servers stay fast; ⇧⌘B focuses the filter. Light, dark and system themes.
+- Next: see [docs/PLAN_VS_CURRENT.md](docs/PLAN_VS_CURRENT.md) for the comparison with the product plan. Production Safety and the Large Data Engine come first, then the beta release.

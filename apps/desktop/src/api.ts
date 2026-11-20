@@ -47,7 +47,9 @@ export const api = {
   testConnection: (connection: SavedConnection, trustFingerprint?: string) => invoke<TestResult>("test_connection", { connection, trustFingerprint: trustFingerprint ?? null }),
   forgetSshHost: (id: number) => invoke<void>("forget_ssh_host", { id }),
   disconnect: (id: number) => invoke<void>("disconnect", { id }),
-  filterIndex: (id: number, query: string) => invoke<number[]>("filter_index", { id, query }),
+  /** `scope` = the selected database: only its objects are searched. Without one, only database names are. */
+  filterIndex: (id: number, query: string, scope: string | null) => invoke<number[]>("filter_index", { id, query, scope }),
+  loadColumns: (id: number, db: string) => invoke<{ start: number; nodes: Node[] }>("load_columns", { id, db }),
 };
 
 export interface ColumnInfo { name: string; type_name: string; binary: boolean }

@@ -3,7 +3,7 @@
 use myq_data::{Assign, Change, CellData, ColumnFilter, ExportOptions, LookupItem, Page, PageSpec, TableMeta, ApplyOutcome};
 use myq_admin::{Account, AccountEdit, Grants, ScopeGrant, Sql};
 use myq_schema::ddl::TableDef;
-use myq_driver::{execute_script, introspect, kill_query, pool, IntrospectOptions, Pool, StatementResult};
+use myq_driver::{execute_script, introspect, introspect_columns, kill_query, pool, IntrospectOptions, Pool, StatementResult};
 use myq_schema::filter::{Filter, Node};
 use myq_store::{Favorite, HistoryEntry, Keychain, SavedConnection, Store};
 use std::{collections::HashMap, sync::Mutex};
@@ -14,11 +14,50 @@ struct Session {
     #[allow(dead_code)]
     pool: Pool,
     index: Vec<Node>,
+    /// Index positions per database, so a filter scoped to one database never walks the whole server.
+    by_db: HashMap<String, Vec<usize>>,
+    /// Positions of the database nodes themselves (for filtering the database list by name).
+    db_positions: Vec<usize>,
+    /// Databases whose columns are in the index (they are loaded on demand, not at connect).
+    columns_loaded: std::collections::HashSet<String>,
     /// Autocomplete's view of the index, rebuilt whenever the index is.
     catalog: myq_sql::Catalog,
     /// Keeps the SSH tunnel alive for as long as the session lives (dropping it closes the tunnel).
     #[allow(dead_code)]
     tunnel: Option<myq_tunnel::Tunnel>,
+}
+
+impl Session {
+    fn new(pool: Pool, index: Vec<Node>, tunnel: Option<myq_tunnel::Tunnel>) -> Session {
+        let mut s = Session { pool, index: Vec::new(), by_db: HashMap::new(), db_positions: Vec::new(), columns_loaded: Default::default(), catalog: myq_sql::Catalog::default(), tunnel };
+        s.set_index(index);
+        s
+    }
+
+    /// Replace the index and rebuild everything derived from it.
+    fn set_index(&mut self, index: Vec<Node>) {
+        self.by_db.clear();
+        self.db_positions.clear();
+        for (i, n) in index.iter().enumerate() {
+            self.by_db.entry(n.database.clone()).or_default().push(i);
+            if n.kind == myq_schema::filter::Kind::Database {
+                self.db_positions.push(i);
+            }
+        }
+        self.catalog = myq_sql::Catalog::from_nodes(&index);
+        self.index = index;
+    }
+
+    /// Add the columns of `db`; returns where in the index they start. A database already loaded is left alone.
+    fn add_columns(&mut self, db: &str, cols: Vec<Node>) -> usize {
+        let start = self.index.len();
+        if self.columns_loaded.insert(db.to_string()) {
+            let mut index = std::mem::take(&mut self.index);
+            index.extend(cols);
+            self.set_index(index);
+        }
+        start
+    }
 }
 
 struct AppState {
@@ -107,8 +146,9 @@ async fn connect(state: tauri::State<'_, AppState>, id: i64, trust_fingerprint: 
     };
     let (cfg, tunnel) = establish(&state.store, cfg, ssh, trust_fingerprint).await?;
     let p = pool(&cfg);
-    let index = introspect(&p, &IntrospectOptions { include_columns: true, ..Default::default() }).await.map_err(err)?;
-    state.sessions.lock().unwrap().insert(id, Session { pool: p, catalog: myq_sql::Catalog::from_nodes(&index), index: index.clone(), tunnel });
+    // names only: columns are loaded per database when needed, so connecting to a huge server stays fast
+    let index = introspect(&p, &IntrospectOptions::default()).await.map_err(err)?;
+    state.sessions.lock().unwrap().insert(id, Session::new(p, index.clone(), tunnel));
     Ok(index)
 }
 
@@ -166,13 +206,52 @@ async fn disconnect(state: tauri::State<'_, AppState>, id: i64) -> Result<(), St
     Ok(())
 }
 
-/// Indices (into the index returned by `connect`) that match the filter query.
+/// Indices (into the session's index) that match the filter query.
+///
+/// With a `scope` (the selected database) only that database's objects are searched, like "Filter tables in
+/// sakila". Without one the query matches database names only, so typing never walks every table of the server.
 #[tauri::command]
-fn filter_index(state: tauri::State<AppState>, id: i64, query: String) -> Result<Vec<usize>, String> {
+fn filter_index(state: tauri::State<AppState>, id: i64, query: String, scope: Option<String>) -> Result<Vec<usize>, String> {
     let filter = Filter::parse(&query).map_err(|e| format!("{e:?}"))?;
     let sessions = state.sessions.lock().unwrap();
     let s = sessions.get(&id).ok_or_else(|| "not connected".to_string())?;
-    Ok(filter.apply(&s.index))
+    Ok(match scope {
+        Some(db) => s.by_db.get(&db).map_or_else(Vec::new, |positions| filter.apply_positions(&s.index, positions)),
+        None => filter.apply_positions(&s.index, &s.db_positions),
+    })
+}
+
+/// Columns of `db`, loaded on first use. Returns the position they were appended at and the nodes, so the UI
+/// can place them at the same positions as the backend (filter results are index positions).
+#[derive(serde::Serialize)]
+struct ColumnsLoaded {
+    start: usize,
+    nodes: Vec<Node>,
+}
+
+#[tauri::command]
+async fn load_columns(state: tauri::State<'_, AppState>, id: i64, db: String) -> Result<ColumnsLoaded, String> {
+    ensure_columns(&state, id, &db).await.map(|(start, nodes)| ColumnsLoaded { start, nodes })
+}
+
+/// Load a database's columns unless they are already there. Returns (start, new nodes); empty when nothing was added.
+async fn ensure_columns(state: &tauri::State<'_, AppState>, id: i64, db: &str) -> Result<(usize, Vec<Node>), String> {
+    let pool = {
+        let sessions = state.sessions.lock().unwrap();
+        let s = sessions.get(&id).ok_or("not connected")?;
+        if s.columns_loaded.contains(db) || !s.by_db.contains_key(db) {
+            return Ok((s.index.len(), vec![]));
+        }
+        s.pool.clone()
+    };
+    let cols = introspect_columns(&pool, db).await.map_err(err)?;
+    let mut sessions = state.sessions.lock().unwrap();
+    let s = sessions.get_mut(&id).ok_or("not connected")?;
+    if s.columns_loaded.contains(db) {
+        return Ok((s.index.len(), vec![])); // another request got there first
+    }
+    let start = s.add_columns(db, cols.clone());
+    Ok((start, cols))
 }
 
 /// Execute a script on a dedicated server connection. `run_id` lets the UI cancel it.
@@ -548,10 +627,26 @@ async fn binlog_events(state: tauri::State<'_, AppState>, id: i64, file: String,
 
 // ---- editor intelligence ----
 
-/// Autocomplete candidates at `cursor` (a UTF-16 offset). Pure lookup in the session's catalog:
-/// no server round trip, so it is cheap enough to run on every keystroke.
+/// Autocomplete candidates at `cursor` (a UTF-16 offset). A lookup in the session's catalog, cheap enough for every
+/// keystroke. The columns of the current database, and of any database the statement names, are loaded the first time.
 #[tauri::command]
-fn complete_sql(state: tauri::State<AppState>, id: i64, sql: String, cursor: usize, database: Option<String>) -> Result<myq_sql::Completions, String> {
+async fn complete_sql(state: tauri::State<'_, AppState>, id: i64, sql: String, cursor: usize, database: Option<String>) -> Result<myq_sql::Completions, String> {
+    let wanted: Vec<String> = {
+        let sessions = state.sessions.lock().unwrap();
+        let s = sessions.get(&id).ok_or("not connected")?;
+        let mut w: Vec<String> = database.iter().cloned().collect();
+        for word in sql.split(|c: char| !(c.is_alphanumeric() || c == '_' || c == '$')) {
+            if let Some(db) = s.by_db.keys().find(|d| d.eq_ignore_ascii_case(word)) {
+                if !w.contains(db) {
+                    w.push(db.clone());
+                }
+            }
+        }
+        w.into_iter().filter(|d| !s.columns_loaded.contains(d)).collect()
+    };
+    for db in wanted {
+        let _ = ensure_columns(&state, id, &db).await;
+    }
     let sessions = state.sessions.lock().unwrap();
     let s = sessions.get(&id).ok_or("not connected")?;
     Ok(myq_sql::complete(&sql, cursor, &s.catalog, database.as_deref(), 100))
@@ -618,13 +713,28 @@ fn ddl_preview(db: String, original: Option<TableDef>, desired: TableDef) -> Ddl
     }
 }
 
-/// Re-read the object index after the schema changed, so the tree and the filter see it.
+/// Re-read the object index after the schema changed, so the tree and the filter see it. Databases whose columns
+/// were loaded get them again, so what the UI already shows stays in step.
 async fn reindex(state: &tauri::State<'_, AppState>, id: i64) -> Result<Vec<Node>, String> {
-    let pool = state.sessions.lock().unwrap().get(&id).map(|s| s.pool.clone()).ok_or("not connected")?;
-    let index = introspect(&pool, &IntrospectOptions { include_columns: true, ..Default::default() }).await.map_err(err)?;
-    if let Some(s) = state.sessions.lock().unwrap().get_mut(&id) {
-        s.catalog = myq_sql::Catalog::from_nodes(&index);
-        s.index = index.clone();
+    let (pool, loaded) = {
+        let sessions = state.sessions.lock().unwrap();
+        let s = sessions.get(&id).ok_or("not connected")?;
+        let mut loaded: Vec<String> = s.columns_loaded.iter().cloned().collect();
+        loaded.sort();
+        (s.pool.clone(), loaded)
+    };
+    let mut index = introspect(&pool, &IntrospectOptions::default()).await.map_err(err)?;
+    let mut still = std::collections::HashSet::new();
+    for db in loaded {
+        if index.iter().any(|n| n.database == db) {
+            index.extend(introspect_columns(&pool, &db).await.map_err(err)?);
+            still.insert(db);
+        }
+    }
+    let mut sessions = state.sessions.lock().unwrap();
+    if let Some(s) = sessions.get_mut(&id) {
+        s.set_index(index.clone());
+        s.columns_loaded = still;
     }
     Ok(index)
 }
@@ -838,6 +948,7 @@ pub fn run() {
             connect,
             disconnect,
             filter_index,
+            load_columns,
             run_query,
             cancel_query,
             list_databases,

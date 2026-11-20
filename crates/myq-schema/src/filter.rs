@@ -130,6 +130,12 @@ impl Filter {
             && self.names.iter().all(|m| m.is_match(&n.name))
     }
 
+    /// Like `apply`, but only looks at the given index positions (for example one database's nodes),
+    /// so the cost depends on the size of that subset, not of the whole server.
+    pub fn apply_positions(&self, index: &[Node], positions: &[usize]) -> Vec<usize> {
+        positions.iter().copied().filter(|&i| index.get(i).is_some_and(|n| self.matches(n))).collect()
+    }
+
     /// Indices of matching nodes, in index order. The UI expands ancestors of each hit.
     pub fn apply(&self, index: &[Node]) -> Vec<usize> {
         index
@@ -191,6 +197,16 @@ mod tests {
     fn errors_are_reported() {
         assert!(matches!(Filter::parse("/(/"), Err(FilterError::InvalidRegex(_))));
         assert_eq!(Filter::parse("type:nope").unwrap_err(), FilterError::UnknownKind("nope".into()));
+    }
+
+    #[test]
+    fn a_subset_is_filtered_without_touching_the_rest() {
+        let idx = index();
+        let f = Filter::parse("ord").unwrap();
+        let shop: Vec<usize> = idx.iter().enumerate().filter(|(_, n)| n.database == "shop").map(|(i, _)| i).collect();
+        assert_eq!(f.apply_positions(&idx, &shop), vec![1, 2, 3]);
+        assert_eq!(f.apply_positions(&idx, &[5, 6]), Vec::<usize>::new(), "blog has no order*");
+        assert_eq!(f.apply_positions(&idx, &[999]), Vec::<usize>::new(), "out-of-range positions are ignored");
     }
 
     #[test]

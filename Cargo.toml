@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/myq-schema"]
+members = ["crates/myq-schema", "crates/myq-driver"]
 
 [workspace.package]
 version = "0.0.1"

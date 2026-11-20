@@ -1,0 +1,21 @@
+[package]
+name = "mylodb-desktop"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["sync"] }
+myq-schema = { path = "../../../crates/myq-schema" }
+myq-driver = { path = "../../../crates/myq-driver" }
+myq-store = { path = "../../../crates/myq-store" }
+
+[lib]
+name = "mylodb_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]

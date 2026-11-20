@@ -1,0 +1,12 @@
+[package]
+name = "myq-store"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+myq-driver = { path = "../myq-driver" }
+rusqlite = { version = "0.32", features = ["bundled"] }
+keyring = { version = "3", features = ["apple-native"] }
+serde = { version = "1", features = ["derive"] }
+thiserror = "2"

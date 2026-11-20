@@ -17,6 +17,8 @@ myq-driver = { path = "../../../crates/myq-driver" }
 myq-store = { path = "../../../crates/myq-store" }
 myq-data = { path = "../../../crates/myq-data" }
 myq-admin = { path = "../../../crates/myq-admin" }
+myq-sql = { path = "../../../crates/myq-sql" }
+myq-profile = { path = "../../../crates/myq-profile" }
 tauri-plugin-dialog = "2"
 base64 = "0.22"
 

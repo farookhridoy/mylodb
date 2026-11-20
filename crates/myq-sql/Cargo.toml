@@ -1,0 +1,10 @@
+[package]
+name = "myq-sql"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+myq-schema = { path = "../myq-schema" }
+sqlformat = "0.5"
+serde = { version = "1", features = ["derive"] }

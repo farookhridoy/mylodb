@@ -151,3 +151,29 @@ export const userApi = {
     invoke<number>("account_apply", { id, original, edit, desired }),
   drop: (id: number, user: string, host: string) => invoke<void>("account_drop", { id, user, host }),
 };
+
+// ---- editor intelligence ----
+export type SuggestionKind = "column" | "table" | "view" | "database" | "alias" | "function" | "keyword";
+export interface Suggestion { label: string; kind: SuggestionKind; detail: string | null; insert: string }
+export interface Completions { from: number; to: number; items: Suggestion[] }
+export interface FormatOptions {
+  indent: { style: "spaces"; width: number } | { style: "tab" };
+  keyword_case: "upper" | "lower" | "preserve";
+  lines_between_statements: number;
+}
+export interface Hint { severity: "warning" | "info" | "good"; message: string; table: string | null }
+export interface ExplainResult { plan: ResultSet; json: string | null; tree: string | null; hints: Hint[] }
+export interface ProfileResult {
+  elapsed_ms: number; rows_returned: number; stages: { name: string; ms: number }[]; stages_note: string | null;
+  counters: { name: string; value: number }[];
+}
+
+export const editorApi = {
+  complete: (id: number, sql: string, cursor: number, database: string | null) =>
+    invoke<Completions>("complete_sql", { id, sql, cursor, database }),
+  format: (sql: string, options: FormatOptions) => invoke<string>("format_sql", { sql, options }),
+  statementAt: (sql: string, cursor: number) => invoke<string | null>("statement_at", { sql, cursor }),
+  explain: (id: number, database: string | null, sql: string, analyze: boolean) =>
+    invoke<ExplainResult>("explain_query", { id, database, sql, analyze }),
+  profile: (id: number, database: string | null, sql: string) => invoke<ProfileResult>("profile_query", { id, database, sql }),
+};

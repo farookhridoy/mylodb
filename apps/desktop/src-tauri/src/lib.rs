@@ -14,6 +14,8 @@ struct Session {
     #[allow(dead_code)]
     pool: Pool,
     index: Vec<Node>,
+    /// Autocomplete's view of the index, rebuilt whenever the index is.
+    catalog: myq_sql::Catalog,
 }
 
 struct AppState {
@@ -57,7 +59,7 @@ async fn connect(state: tauri::State<'_, AppState>, id: i64) -> Result<Vec<Node>
     let index = introspect(&p, &IntrospectOptions { include_columns: true, ..Default::default() })
         .await
         .map_err(err)?;
-    state.sessions.lock().unwrap().insert(id, Session { pool: p, index: index.clone() });
+    state.sessions.lock().unwrap().insert(id, Session { pool: p, catalog: myq_sql::Catalog::from_nodes(&index), index: index.clone() });
     Ok(index)
 }
 
@@ -208,6 +210,40 @@ async fn export_table(state: tauri::State<'_, AppState>, id: i64, db: String, ta
     }
 }
 
+// ---- editor intelligence ----
+
+/// Autocomplete candidates at `cursor` (a UTF-16 offset). Pure lookup in the session's catalog:
+/// no server round trip, so it is cheap enough to run on every keystroke.
+#[tauri::command]
+fn complete_sql(state: tauri::State<AppState>, id: i64, sql: String, cursor: usize, database: Option<String>) -> Result<myq_sql::Completions, String> {
+    let sessions = state.sessions.lock().unwrap();
+    let s = sessions.get(&id).ok_or("not connected")?;
+    Ok(myq_sql::complete(&sql, cursor, &s.catalog, database.as_deref(), 100))
+}
+
+#[tauri::command]
+fn format_sql(sql: String, options: myq_sql::FormatOptions) -> Result<String, String> {
+    myq_sql::format_sql(&sql, &options).map_err(err)
+}
+
+/// The statement around `cursor` (a UTF-16 offset), for "explain the statement I am in".
+#[tauri::command]
+fn statement_at(sql: String, cursor: usize) -> Option<String> {
+    myq_sql::statement_at(&sql, myq_sql::utf16_to_byte(&sql, cursor)).map(|s| s.text)
+}
+
+#[tauri::command]
+async fn explain_query(state: tauri::State<'_, AppState>, id: i64, database: Option<String>, sql: String, analyze: bool) -> Result<myq_profile::ExplainResult, String> {
+    let mut c = conn_for(&state, id).await?;
+    myq_profile::explain(&mut c, database.as_deref(), &sql, analyze).await.map_err(err)
+}
+
+#[tauri::command]
+async fn profile_query(state: tauri::State<'_, AppState>, id: i64, database: Option<String>, sql: String) -> Result<myq_profile::ProfileResult, String> {
+    let mut c = conn_for(&state, id).await?;
+    myq_profile::profile(&mut c, database.as_deref(), &sql).await.map_err(err)
+}
+
 // ---- schema designer ----
 
 #[derive(serde::Serialize)]
@@ -251,6 +287,7 @@ async fn reindex(state: &tauri::State<'_, AppState>, id: i64) -> Result<Vec<Node
     let pool = state.sessions.lock().unwrap().get(&id).map(|s| s.pool.clone()).ok_or("not connected")?;
     let index = introspect(&pool, &IntrospectOptions { include_columns: true, ..Default::default() }).await.map_err(err)?;
     if let Some(s) = state.sessions.lock().unwrap().get_mut(&id) {
+        s.catalog = myq_sql::Catalog::from_nodes(&index);
         s.index = index.clone();
     }
     Ok(index)
@@ -495,7 +532,12 @@ pub fn run() {
             account_grants,
             account_preview,
             account_apply,
-            account_drop
+            account_drop,
+            complete_sql,
+            format_sql,
+            statement_at,
+            explain_query,
+            profile_query
         ])
         .run(tauri::generate_context!())
         .expect("error while running MyLoDB");

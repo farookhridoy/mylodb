@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api, queryApi, schemaApi, type Favorite, type Node, type SavedConnection, type TableOp } from "./api";
+import { api, editorApi, queryApi, schemaApi, type Favorite, type FormatOptions, type Node, type SavedConnection, type TableOp } from "./api";
+import AnalysisPane, { type Analysis } from "./AnalysisPane";
 import ConnectionDialog from "./ConnectionDialog";
 import ContextMenu, { type MenuItem } from "./ContextMenu";
 import DataGrid, { defaultView, type GridView } from "./DataGrid";
@@ -23,6 +24,14 @@ const isTable = (t: QueryTab | undefined) => t?.kind === "table";
 /** Tabs that are not SQL editors (the editor stays mounted behind them). */
 const isSql = (t: QueryTab | undefined) => !t || !t.kind || t.kind === "sql";
 type Side = "objects" | "history" | "favorites";
+
+const FORMAT_KEY = "mylodb.formatOptions";
+const DEFAULT_FORMAT: FormatOptions = { indent: { style: "spaces", width: 2 }, keyword_case: "upper", lines_between_statements: 1 };
+const loadFormat = (): FormatOptions => {
+  try { return { ...DEFAULT_FORMAT, ...JSON.parse(localStorage.getItem(FORMAT_KEY) ?? "{}") }; } catch { return DEFAULT_FORMAT; }
+};
+/** Statements that change the schema: the object index (and so autocomplete) must be rebuilt after them. */
+const isDdl = (sql: string) => /^\s*(?:\/\*[\s\S]*?\*\/\s*)*(create|alter|drop|rename|truncate)\b/i.test(sql);
 
 let counter = 0;
 const uid = () => `${Date.now().toString(36)}-${counter++}`;
@@ -49,6 +58,10 @@ export default function App() {
   const [panelKey, setPanelKey] = useState(0);
   const [treeMenu, setTreeMenu] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null);
   const lastSqlTab = useRef("");
+  const [analyses, setAnalyses] = useState<Record<string, Analysis>>({});
+  const [format, setFormat] = useState<FormatOptions>(loadFormat);
+  const [formatOpen, setFormatOpen] = useState(false);
+  const [formatError, setFormatError] = useState<string | null>(null);
   const [prompt, setPrompt] = useState<React.ComponentProps<typeof PromptDialog> | null>(null);
   const [typeConfirm, setTypeConfirm] = useState<React.ComponentProps<typeof TypeConfirmDialog> | null>(null);
   const [restored, setRestored] = useState(false);
@@ -174,6 +187,8 @@ export default function App() {
     }
     delete runIds.current[tabId];
     setRuns((r) => ({ ...r, [tabId]: state }));
+    // keep the tree and autocomplete in step with what the script just changed
+    if (state.results?.some((r) => !r.error && isDdl(r.sql))) schemaApi.refreshIndex(activeId).then(setIndex).catch(() => {});
     setPanelKey((k) => k + 1); // refresh history
   }, [activeId]);
 
@@ -276,6 +291,33 @@ export default function App() {
     setTreeMenu({ x: e.clientX, y: e.clientY, items });
   };
 
+  // ---- formatting and analysis ----
+  const saveFormat = (f: FormatOptions) => { setFormat(f); localStorage.setItem(FORMAT_KEY, JSON.stringify(f)); };
+
+  const formatSql = async () => {
+    const ed = editor.current;
+    if (!ed) return;
+    try {
+      ed.replaceRunnable(await editorApi.format(ed.runnableText(), format));
+      setFormatError(null);
+    } catch (e) { setFormatError(String(e)); setTimeout(() => setFormatError(null), 6000); }
+  };
+
+  const analyse = async (kind: "explain" | "analyze" | "profile") => {
+    if (activeId === null || !editorTab || !editor.current) return;
+    const tabId = editorTab.id;
+    const database = editorTab.database;
+    const sql = await editor.current.analysisTarget();
+    const start = { kind, sql, running: true, error: null, data: null } as Analysis;
+    setAnalyses((a) => ({ ...a, [tabId]: start }));
+    try {
+      const data = kind === "profile" ? await editorApi.profile(activeId, database, sql) : await editorApi.explain(activeId, database, sql, kind === "analyze");
+      setAnalyses((a) => ({ ...a, [tabId]: { ...start, running: false, data } as Analysis }));
+    } catch (e) {
+      setAnalyses((a) => ({ ...a, [tabId]: { ...start, running: false, error: String(e) } as Analysis }));
+    }
+  };
+
   const running = editorTab ? runs[editorTab.id]?.running : false;
   const insertIntoEditor = (sql: string) => editor.current?.insert(sql);
 
@@ -328,6 +370,7 @@ export default function App() {
                 onKeyDown={(e) => e.key === "Escape" && setQuery("")}
               />
               {query && <button className="clear" onClick={() => setQuery("")}>✕</button>}
+              <button className="refresh" disabled={activeId === null} title="Refresh objects and rebuild autocomplete" onClick={() => reloadIndex()}>⟳</button>
             </div>
             {filterError && <div className="error small">{filterError}</div>}
             <div className="tree-wrap">
@@ -366,6 +409,33 @@ export default function App() {
                   <button className="primary" disabled={running} onClick={run} title="Run selection or all (⌘↵)">▶ Run</button>
                   <button disabled={!running} onClick={cancel} title="Cancel running query">■ Cancel</button>
                   <button onClick={openFavDialog} title="Save to favorites">☆</button>
+                  <span className="sep" />
+                  <button onClick={formatSql} title="Format the selection or the whole script (⇧⌘F)">Format</button>
+                  <div className="popup-host">
+                    <button className="mini" title="Formatting options" onClick={() => setFormatOpen(!formatOpen)}>⚙</button>
+                    {formatOpen && (
+                      <div className="popup left" onMouseLeave={() => setFormatOpen(false)}>
+                        <label>Indent
+                          <select value={format.indent.style === "tab" ? "tab" : String((format.indent as { width: number }).width)}
+                            onChange={(e) => saveFormat({ ...format, indent: e.target.value === "tab" ? { style: "tab" } : { style: "spaces", width: Number(e.target.value) } })}>
+                            <option value="2">2 spaces</option><option value="4">4 spaces</option><option value="8">8 spaces</option><option value="tab">Tab</option>
+                          </select></label>
+                        <label>Keywords
+                          <select value={format.keyword_case} onChange={(e) => saveFormat({ ...format, keyword_case: e.target.value as FormatOptions["keyword_case"] })}>
+                            <option value="upper">UPPER CASE</option><option value="lower">lower case</option><option value="preserve">As typed</option>
+                          </select></label>
+                        <label>Blank lines between statements
+                          <select value={format.lines_between_statements} onChange={(e) => saveFormat({ ...format, lines_between_statements: Number(e.target.value) })}>
+                            <option value="0">0</option><option value="1">1</option><option value="2">2</option>
+                          </select></label>
+                      </div>
+                    )}
+                  </div>
+                  <span className="sep" />
+                  <button onClick={() => analyse("explain")} title="Explain the selected statement, or the one at the cursor">Explain</button>
+                  <button onClick={() => analyse("analyze")} title="EXPLAIN ANALYZE: runs the SELECT and shows real timings">Analyze</button>
+                  <button onClick={() => analyse("profile")} title="Run the SELECT and show stage timings and the work it caused">Profile</button>
+                  {formatError && <span className="error small">{formatError}</span>}
                   <span className="grow" />
                   <label className="dbsel">Database
                     <select value={editorTab.database ?? ""} onChange={(e) => patchTab(editorTab.id, { database: e.target.value || null })}>
@@ -375,9 +445,9 @@ export default function App() {
                   </label>
                 </div>
                 <div className="editor-wrap">
-                  <Editor ref={editor} tabId={editorTab.id} initialDoc={editorTab.sql} onChange={(sql) => patchTab(editorTab.id, { sql })} onRun={run} />
+                  <Editor ref={editor} tabId={editorTab.id} initialDoc={editorTab.sql} onChange={(sql) => patchTab(editorTab.id, { sql })} onRun={run} onFormat={formatSql} connectionId={activeId} database={editorTab.database} />
                 </div>
-                <ResultsPane run={runs[editorTab.id]} />
+                <ResultsPane run={runs[editorTab.id]} analysis={analyses[editorTab.id]} />
               </div>
             )}
             {tab.kind === "designer" && tab.table && (

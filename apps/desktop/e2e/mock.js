@@ -108,6 +108,37 @@ const handlers = {
     return { applied: a.changes.length, insert_ids: [] };
   },
 };
+
+// ---- editor intelligence ----
+Object.assign(handlers, {
+  run_query: (a) => [{ sql: a.sql, sets: [], affected_rows: 0, last_insert_id: null, warnings: 0, elapsed_ms: 1, error: null }],
+  complete_sql: (a) => {
+    const before = a.sql.slice(0, a.cursor);
+    const word = /[\w$`]*$/.exec(before)[0];
+    const from = a.cursor - word.length;
+    const inFrom = /\bFROM\s+[\w$`]*$/i.test(before);
+    const items = inFrom
+      ? [{ label: "orders", kind: "table", detail: "shop", insert: "orders" }, { label: "order items", kind: "table", detail: "shop", insert: "`order items`" }, { label: "customers", kind: "table", detail: "shop", insert: "customers" }]
+      : [{ label: "SELECT", kind: "keyword", detail: null, insert: "SELECT" }, { label: "COUNT", kind: "function", detail: "COUNT(expr)", insert: "COUNT(" }];
+    return { from, to: a.cursor, items: items.filter((i) => i.label.toLowerCase().startsWith(word.toLowerCase())) };
+  },
+  format_sql: (a) => a.sql.trim().replace(/\b(select|from|where)\b/gi, (m) => (a.options.keyword_case === "lower" ? m.toLowerCase() : m.toUpperCase())).replace(/\s+(FROM|WHERE|from|where)\b/g, (_, k) => "\n" + k).replace(/\n/g, a.options.indent.style === "tab" ? "\n\t" : "\n  "),
+  statement_at: (a) => { const parts = a.sql.split(";"); let pos = 0; for (const p of parts) { if (a.cursor <= pos + p.length) return p.trim() || null; pos += p.length + 1; } return parts.at(-1).trim() || null; },
+  explain_query: (a) => {
+    if (a.sql.includes("BAD")) throw "Server error: syntax error near 'BAD'";
+    return {
+      plan: { columns: [{ name: "id", type_name: "x", binary: false }, { name: "table", type_name: "x", binary: false }, { name: "type", type_name: "x", binary: false }, { name: "rows", type_name: "x", binary: false }],
+              rows: [["1", "orders", "ALL", "50000"]], total_rows: 1, truncated: false },
+      json: JSON.stringify({ query_block: { select_id: 1, cost_info: { query_cost: "5100.25" }, table: { table_name: "orders", access_type: "ALL", rows_examined_per_scan: 50000 } } }),
+      tree: a.analyze ? "-> Table scan on orders  (cost=5100 rows=50000) (actual time=0.1..12 rows=50000 loops=1)" : null,
+      hints: [{ severity: "warning", message: "Full table scan on `orders` (about 50000 rows).", table: "orders" }, { severity: "good", message: "`x` is answered from the index alone (covering index).", table: "x" }],
+    };
+  },
+  profile_query: (a) => {
+    if (a.sql.includes("DELETE")) throw "only SELECT statements can be profiled";
+    return { elapsed_ms: 42, rows_returned: 3, stages: [{ name: "executing", ms: 30 }, { name: "starting", ms: 0.04 }], stages_note: null, counters: [{ name: "Innodb_rows_read", value: 20000 }, { name: "Select_scan", value: 1 }] };
+  },
+});
 window.__TAURI_INTERNALS__ = {
   transformCallback: () => 0,
   invoke: async (cmd, args) => {

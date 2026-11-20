@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import AnalysisPane, { type Analysis } from "./AnalysisPane";
 import type { StatementResult } from "./api";
 
 export interface RunState {
@@ -8,9 +9,11 @@ export interface RunState {
   totalMs: number;
 }
 
-export default function ResultsPane({ run }: { run: RunState | undefined }) {
+export default function ResultsPane({ run, analysis }: { run: RunState | undefined; analysis?: Analysis }) {
   const sets = (run?.results ?? []).flatMap((s) => s.sets.map((set) => ({ sql: s.sql, set })));
-  const [tab, setTab] = useState<number | "messages">("messages");
+  const [tab, setTab] = useState<number | "messages" | "analysis">("messages");
+  // a new analysis takes focus
+  useEffect(() => { if (analysis) setTab("analysis"); }, [analysis]);
 
   // After each run, show the first result set when there is one, else the messages.
   useEffect(() => {
@@ -18,15 +21,17 @@ export default function ResultsPane({ run }: { run: RunState | undefined }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [run?.results, run?.running]);
 
-  if (!run) return <div className="empty">Run a query with ⌘↵</div>;
+  if (!run && !analysis) return <div className="empty">Run a query with ⌘↵</div>;
 
   const selected = typeof tab === "number" ? sets[tab] : undefined;
+  if (!run) return <div className="results"><div className="result-tabs"><button className="active">Analysis</button></div><div className="result-body">{analysis && <AnalysisPane a={analysis} />}</div></div>;
   return (
     <div className="results">
       <div className="result-tabs">
         {sets.map((_, i) => (
           <button key={i} className={tab === i ? "active" : ""} onClick={() => setTab(i)}>Result {i + 1}</button>
         ))}
+        {analysis && <button className={tab === "analysis" ? "active" : ""} onClick={() => setTab("analysis")}>{analysis.kind === "profile" ? "Profile" : "Explain"}</button>}
         <button className={tab === "messages" ? "active" : ""} onClick={() => setTab("messages")}>
           Messages{run.results?.some((r) => r.error) ? " ⚠" : ""}
         </button>
@@ -35,13 +40,13 @@ export default function ResultsPane({ run }: { run: RunState | undefined }) {
       </div>
       <div className="result-body">
         {run.error && <div className="error">{run.error}</div>}
-        {selected ? <Grid set={selected.set} /> : <Messages results={run.results ?? []} />}
+        {tab === "analysis" && analysis ? <AnalysisPane a={analysis} /> : selected ? <Grid set={selected.set} /> : <Messages results={run.results ?? []} />}
       </div>
     </div>
   );
 }
 
-function Grid({ set }: { set: StatementResult["sets"][number] }) {
+export function Grid({ set }: { set: StatementResult["sets"][number] }) {
   return (
     <>
       <div className="grid-scroll">

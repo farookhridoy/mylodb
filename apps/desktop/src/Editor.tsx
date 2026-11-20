@@ -1,16 +1,26 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 import { basicSetup } from "codemirror";
-import { EditorState } from "@codemirror/state";
+import { EditorState, Prec } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
+import { autocompletion, type CompletionContext, type CompletionResult } from "@codemirror/autocomplete";
+import { editorApi, type SuggestionKind } from "./api";
 import { MySQL, sql } from "@codemirror/lang-sql";
 import { oneDark } from "@codemirror/theme-one-dark";
 
 export interface EditorHandle {
   /** Selected text, or the whole document when nothing is selected. */
   runnableText(): string;
+  /** The selection if there is one, else the statement the cursor is in. */
+  analysisTarget(): Promise<string>;
+  /** Replace the selection (or the whole document when nothing is selected). */
+  replaceRunnable(text: string): void;
   insert(text: string): void;
   focus(): void;
 }
+
+const TYPE: Record<SuggestionKind, string> = {
+  column: "property", table: "class", view: "interface", database: "namespace", alias: "variable", function: "function", keyword: "keyword",
+};
 
 /**
  * One CodeMirror view shared by all tabs; each tab keeps its own EditorState
@@ -21,6 +31,10 @@ const Editor = forwardRef<EditorHandle, {
   initialDoc: string;
   onChange(doc: string): void;
   onRun(): void;
+  onFormat(): void;
+  /** Connection and database used to resolve names for autocomplete. */
+  connectionId: number;
+  database: string | null;
 }>(function Editor(props, ref) {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
@@ -29,6 +43,23 @@ const Editor = forwardRef<EditorHandle, {
   const cb = useRef(props);
   cb.current = props;
 
+  /** Ask the Rust engine for candidates. Ranked and capped there, so CodeMirror must not filter again. */
+  const completionSource = async (ctx: CompletionContext): Promise<CompletionResult | null> => {
+    const word = ctx.matchBefore(/[\w$`.]*/);
+    if (!ctx.explicit && (!word || word.from === word.to)) return null;
+    const doc = ctx.state.doc.toString();
+    const res = await editorApi.complete(cb.current.connectionId, doc, ctx.pos, cb.current.database).catch(() => null);
+    if (!res || res.items.length === 0 || ctx.aborted) return null;
+    return {
+      from: res.from,
+      to: res.to,
+      filter: false,
+      options: res.items.map((i, n) => ({
+        label: i.label, type: TYPE[i.kind], detail: i.detail ?? undefined, apply: i.insert, boost: -n,
+      })),
+    };
+  };
+
   const makeState = (doc: string) =>
     EditorState.create({
       doc,
@@ -36,7 +67,12 @@ const Editor = forwardRef<EditorHandle, {
         basicSetup,
         sql({ dialect: MySQL, upperCaseKeywords: true }),
         oneDark,
-        keymap.of([{ key: "Mod-Enter", run: () => (cb.current.onRun(), true) }]),
+        autocompletion({ override: [completionSource], icons: true }),
+        // highest precedence: the default keymap binds Mod-Enter to "insert blank line"
+        Prec.highest(keymap.of([
+          { key: "Mod-Enter", run: () => (cb.current.onRun(), true) },
+          { key: "Shift-Mod-f", run: () => (cb.current.onFormat(), true) },
+        ])),
         EditorView.updateListener.of((u) => u.docChanged && cb.current.onChange(u.state.doc.toString())),
         EditorView.theme({ "&": { height: "100%" }, ".cm-scroller": { fontFamily: "SF Mono, Menlo, monospace", fontSize: "13px" } }),
       ],
@@ -64,6 +100,20 @@ const Editor = forwardRef<EditorHandle, {
       const v = view.current!;
       const sel = v.state.selection.main;
       return sel.empty ? v.state.doc.toString() : v.state.sliceDoc(sel.from, sel.to);
+    },
+    async analysisTarget() {
+      const v = view.current!;
+      const sel = v.state.selection.main;
+      if (!sel.empty) return v.state.sliceDoc(sel.from, sel.to);
+      const found = await editorApi.statementAt(v.state.doc.toString(), sel.head).catch(() => null);
+      return found ?? v.state.doc.toString();
+    },
+    replaceRunnable(text) {
+      const v = view.current!;
+      const sel = v.state.selection.main;
+      const range = sel.empty ? { from: 0, to: v.state.doc.length } : { from: sel.from, to: sel.to };
+      v.dispatch({ changes: { ...range, insert: text }, selection: { anchor: range.from + text.length } });
+      v.focus();
     },
     insert(text) {
       const v = view.current!;

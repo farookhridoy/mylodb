@@ -84,7 +84,18 @@ const handlers = {
   account_apply: (a) => { window.__accountApplied = JSON.parse(JSON.stringify(a)); return 2; },
   account_drop: (a) => { window.__dropped = a; return null; },
   list_connections: () => [{ id: 1, name: "Local", color: "#4f8cff", host: "127.0.0.1", port: 3306, user: "root", database: null, ssl: "disabled" }],
-  connect: () => nodes(),
+  connect: (a) => {
+    window.__connectTrust = (window.__connectTrust || []).concat([a.trustFingerprint]);
+    if (window.__sshMode === "unknown" && !a.trustFingerprint) throw { kind: "unknown_host", host: "bastion:22", fingerprint: "SHA256:abc123" };
+    if (window.__sshMode === "changed" && !window.__forgot) throw { kind: "host_key_changed", host: "bastion:22", expected: "SHA256:old", actual: "SHA256:new" };
+    return nodes();
+  },
+  forget_ssh_host: () => { window.__forgot = true; return null; },
+  test_connection: (a) => {
+    window.__tested = (window.__tested || []).concat([JSON.parse(JSON.stringify(a))]);
+    if (a.connection.ssh && !a.trustFingerprint) throw { kind: "unknown_host", host: a.connection.ssh.host + ":" + a.connection.ssh.port, fingerprint: "SHA256:abc123" };
+    return { version: "9.7.2", ssl_cipher: a.connection.ssl !== "disabled" ? "TLS_AES_256_GCM_SHA384" : null, via_ssh: !!a.connection.ssh };
+  },
   refresh_index: () => { window.__refreshed = (window.__refreshed || 0) + 1; return nodes(); },
   disconnect: () => null, session_get: () => null, session_set: () => null, history_list: () => [], favorites_list: () => [],
   list_databases: () => ["shop"], filter_index: () => [],
@@ -138,6 +149,31 @@ Object.assign(handlers, {
     if (a.sql.includes("DELETE")) throw "only SELECT statements can be profiled";
     return { elapsed_ms: 42, rows_returned: 3, stages: [{ name: "executing", ms: 30 }, { name: "starting", ms: 0.04 }], stages_note: null, counters: [{ name: "Innodb_rows_read", value: 20000 }, { name: "Select_scan", value: 1 }] };
   },
+});
+
+// ---- server tools ----
+let procs = [
+  { id: 11, user: "app", host: "10.0.0.5:5001", db: "shop", command: "Query", time: 12, state: "Sending data", info: "SELECT * FROM orders WHERE note LIKE '%x%'" },
+  { id: 12, user: "app", host: "10.0.0.5:5002", db: "shop", command: "Sleep", time: 300, state: "", info: null },
+  { id: 13, user: "report", host: "localhost", db: null, command: "Query", time: 1, state: "executing", info: "SELECT COUNT(*) FROM customers" },
+  { id: 99, user: "root", host: "localhost", db: null, command: "Query", time: 0, state: "init", info: "SHOW FULL PROCESSLIST" },
+];
+let statusCalls = 0;
+Object.assign(handlers, {
+  server_info: () => ({ version: "9.7.2", version_comment: "MySQL Community Server", hostname: "mac", port: 3306, datadir: "/data/", charset: "utf8mb4", collation: "utf8mb4_0900_ai_ci", sql_mode: "STRICT_TRANS_TABLES", time_zone: "SYSTEM", max_connections: 151, uptime_seconds: 93784, ssl_cipher: null }),
+  process_list: () => { window.__plCalls = (window.__plCalls || 0) + 1; return { processes: JSON.parse(JSON.stringify(procs)), self_id: 99 }; },
+  kill_process: (a) => { window.__kills = (window.__kills || []).concat([{ id: a.processId, kind: a.kind }]); if (a.kind === "connection") procs = procs.filter((p) => p.id !== a.processId); return null; },
+  server_variables: (a) => a.scope === "global"
+    ? [{ name: "max_connections", value: "151", source: "COMPILED" }, { name: "sort_buffer_size", value: "262144", source: "DYNAMIC" }, { name: "version", value: "9.7.2", source: "COMPILED" }]
+    : [{ name: "max_connections", value: "151", source: null }],
+  server_status: () => { statusCalls++; return [["Uptime", String(1000 + statusCalls * 2)], ["Questions", String(1000 + statusCalls * 200)], ["Threads_connected", "7"], ["Threads_running", "2"], ["Slow_queries", "3"], ["Aborted_connects", "1"], ["Bytes_received", String(statusCalls * 4000)], ["Bytes_sent", String(statusCalls * 9000)], ["Innodb_buffer_pool_reads", "10"], ["Innodb_buffer_pool_read_requests", "1000"], ["Max_used_connections", "20"]]; },
+  set_global_variable: (a) => { window.__setVars = (window.__setVars || []).concat([{ name: a.name, value: a.value }]); return a.value === "bad" ? ["Warning 1292: Truncated incorrect max_connections value: 'bad'"] : []; },
+  maintain_tables: (a) => { window.__maint = (window.__maint || []).concat([JSON.parse(JSON.stringify(a))]); return a.tables.flatMap((t) => [{ table: `${a.db}.${t}`, op: a.operation.op, msg_type: "status", msg_text: "OK" }]).concat(a.operation.op === "repair" ? [{ table: `${a.db}.${a.tables[0]}`, op: "repair", msg_type: "note", msg_text: "The storage engine for the table doesn't support repair" }, { table: `${a.db}.ghost`, op: "repair", msg_type: "Error", msg_text: "Table doesn't exist" }] : []); },
+  log_settings: () => ({ general_log: false, slow_query_log: false, log_output: "FILE", long_query_time: "10.000000", log_queries_not_using_indexes: false, log_error: "stderr", slow_query_log_file: "/data/slow.log", general_log_file: "/data/general.log", log_bin: true, error_log_in_table: true }),
+  error_log: (a) => { window.__errLogArgs = JSON.parse(JSON.stringify(a)); return [{ time: "2026-11-20 10:00:00", level: "Error", source: "Server", text: "Disk almost full" }, { time: "2026-11-20 09:00:00", level: "Warning", source: "InnoDB", text: "Cannot allocate memory" }].filter((l) => a.levels.length === 0 || a.levels.includes(l.level)); },
+  slow_log: () => { throw "slow queries are not written to a table (log_output does not include TABLE); they go to the file named by `slow_query_log_file`"; },
+  binary_logs: () => [{ name: "binlog.000001", size: 1500 }, { name: "binlog.000002", size: 3 * 1024 * 1024 }],
+  binlog_events: (a) => { window.__binlogArgs = a; return [{ pos: 4, event_type: "Format_desc", end_pos: 126, info: "Server ver: 9.7.2" }, { pos: 126, event_type: "Query", end_pos: 200, info: "BEGIN" }]; },
 });
 window.__TAURI_INTERNALS__ = {
   transformCallback: () => 0,

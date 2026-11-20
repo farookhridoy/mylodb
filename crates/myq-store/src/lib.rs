@@ -1,6 +1,7 @@
 //! Local app store: saved connections in SQLite, passwords in the OS keychain.
 
 use myq_driver::{ConnConfig, SslMode};
+use myq_tunnel::{SshConfig, SshSecrets};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
@@ -11,32 +12,53 @@ pub enum Error {
     Sqlite(#[from] rusqlite::Error),
     #[error("keychain: {0}")]
     Keychain(#[from] keyring::Error),
+    #[error("stored SSH settings are unreadable: {0}")]
+    Json(#[from] serde_json::Error),
 }
 pub type Result<T> = std::result::Result<T, Error>;
 
-/// Where passwords live. The keychain in production; an in-memory map in tests.
+/// Which secret of a connection. Each lives under its own keychain entry.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Slot {
+    DbPassword,
+    SshPassword,
+    SshPassphrase,
+}
+
+impl Slot {
+    /// The database password keeps its original entry name so existing keychain items stay valid.
+    fn account(self, id: i64) -> String {
+        match self {
+            Slot::DbPassword => id.to_string(),
+            Slot::SshPassword => format!("{id}:ssh-password"),
+            Slot::SshPassphrase => format!("{id}:ssh-passphrase"),
+        }
+    }
+}
+
+/// Where secrets live. The keychain in production; an in-memory map in tests.
 pub trait SecretStore: Send + Sync {
-    fn set(&self, id: i64, secret: &str) -> Result<()>;
-    fn get(&self, id: i64) -> Result<Option<String>>;
-    fn delete(&self, id: i64) -> Result<()>;
+    fn set(&self, id: i64, slot: Slot, secret: &str) -> Result<()>;
+    fn get(&self, id: i64, slot: Slot) -> Result<Option<String>>;
+    fn delete(&self, id: i64, slot: Slot) -> Result<()>;
 }
 
 pub struct Keychain;
 const SERVICE: &str = "dev.mylodb.connection";
 
 impl SecretStore for Keychain {
-    fn set(&self, id: i64, secret: &str) -> Result<()> {
-        Ok(keyring::Entry::new(SERVICE, &id.to_string())?.set_password(secret)?)
+    fn set(&self, id: i64, slot: Slot, secret: &str) -> Result<()> {
+        Ok(keyring::Entry::new(SERVICE, &slot.account(id))?.set_password(secret)?)
     }
-    fn get(&self, id: i64) -> Result<Option<String>> {
-        match keyring::Entry::new(SERVICE, &id.to_string())?.get_password() {
+    fn get(&self, id: i64, slot: Slot) -> Result<Option<String>> {
+        match keyring::Entry::new(SERVICE, &slot.account(id))?.get_password() {
             Ok(p) => Ok(Some(p)),
             Err(keyring::Error::NoEntry) => Ok(None),
             Err(e) => Err(e.into()),
         }
     }
-    fn delete(&self, id: i64) -> Result<()> {
-        match keyring::Entry::new(SERVICE, &id.to_string())?.delete_credential() {
+    fn delete(&self, id: i64, slot: Slot) -> Result<()> {
+        match keyring::Entry::new(SERVICE, &slot.account(id))?.delete_credential() {
             Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
             Err(e) => Err(e.into()),
         }
@@ -51,15 +73,24 @@ pub struct SavedConnection {
     pub color: String,
     #[serde(flatten)]
     pub config: ConnConfig,
-    /// Only used on save: `Some` replaces the stored password, `None` keeps it.
+    /// Reach the server through this SSH server.
+    #[serde(default)]
+    pub ssh: Option<SshConfig>,
+    /// Only used on save: `Some` replaces the stored secret, `None` keeps it.
     #[serde(default)]
     pub new_password: Option<String>,
+    #[serde(default)]
+    pub new_ssh_password: Option<String>,
+    #[serde(default)]
+    pub new_ssh_passphrase: Option<String>,
 }
 
 pub struct Store {
     db: Connection,
     secrets: Box<dyn SecretStore>,
 }
+
+const ALL_SLOTS: [Slot; 3] = [Slot::DbPassword, Slot::SshPassword, Slot::SshPassphrase];
 
 impl Store {
     pub fn open(path: &Path, secrets: Box<dyn SecretStore>) -> Result<Store> {
@@ -68,6 +99,15 @@ impl Store {
 
     pub fn in_memory(secrets: Box<dyn SecretStore>) -> Result<Store> {
         Self::init(Connection::open_in_memory()?, secrets)
+    }
+
+    /// Add a column to an existing table when an older database lacks it.
+    fn ensure_column(db: &Connection, table: &str, column: &str, decl: &str) -> Result<()> {
+        let have: Vec<String> = db.prepare(&format!("PRAGMA table_info({table})"))?.query_map([], |r| r.get::<_, String>(1))?.collect::<std::result::Result<_, _>>()?;
+        if !have.iter().any(|c| c == column) {
+            db.execute(&format!("ALTER TABLE {table} ADD COLUMN {column} {decl}"), [])?;
+        }
+        Ok(())
     }
 
     fn init(db: Connection, secrets: Box<dyn SecretStore>) -> Result<Store> {
@@ -81,6 +121,10 @@ impl Store {
                 user TEXT NOT NULL,
                 database TEXT,
                 ssl TEXT NOT NULL DEFAULT 'disabled'
+            );
+            CREATE TABLE IF NOT EXISTS ssh_hosts (
+                host_port TEXT PRIMARY KEY,
+                fingerprint TEXT NOT NULL
             );
             CREATE TABLE IF NOT EXISTS history (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -102,6 +146,9 @@ impl Store {
                 state TEXT NOT NULL
             );",
         )?;
+        for col in ["ssl_ca", "ssl_cert", "ssl_key", "ssh"] {
+            Self::ensure_column(&db, "connections", col, "TEXT")?;
+        }
         Ok(Store { db, secrets })
     }
 
@@ -109,6 +156,7 @@ impl Store {
         match m {
             SslMode::Disabled => "disabled",
             SslMode::Required => "required",
+            SslMode::VerifyCa => "verifyca",
             SslMode::SkipVerify => "skipverify",
         }
     }
@@ -116,57 +164,92 @@ impl Store {
     fn ssl_parse(s: &str) -> SslMode {
         match s {
             "required" => SslMode::Required,
+            "verifyca" => SslMode::VerifyCa,
             "skipverify" => SslMode::SkipVerify,
             _ => SslMode::Disabled,
+        }
+    }
+
+    fn set_secret(&self, id: i64, slot: Slot, value: &Option<String>) -> Result<()> {
+        match value {
+            Some(v) if !v.is_empty() => self.secrets.set(id, slot, v),
+            _ => Ok(()),
         }
     }
 
     /// Insert or update; returns the id.
     pub fn save(&self, c: &SavedConnection) -> Result<i64> {
         let ssl = Self::ssl_str(c.config.ssl);
+        let ssh = c.ssh.as_ref().map(serde_json::to_string).transpose()?;
+        let (ca, cert, key) = (&c.config.ssl_ca, &c.config.ssl_cert, &c.config.ssl_key);
         let id = match c.id {
             Some(id) => {
                 self.db.execute(
-                    "UPDATE connections SET name=?1,color=?2,host=?3,port=?4,user=?5,database=?6,ssl=?7 WHERE id=?8",
-                    params![c.name, c.color, c.config.host, c.config.port, c.config.user, c.config.database, ssl, id],
+                    "UPDATE connections SET name=?1,color=?2,host=?3,port=?4,user=?5,database=?6,ssl=?7,ssl_ca=?8,ssl_cert=?9,ssl_key=?10,ssh=?11 WHERE id=?12",
+                    params![c.name, c.color, c.config.host, c.config.port, c.config.user, c.config.database, ssl, ca, cert, key, ssh, id],
                 )?;
                 id
             }
             None => {
                 self.db.execute(
-                    "INSERT INTO connections (name,color,host,port,user,database,ssl) VALUES (?1,?2,?3,?4,?5,?6,?7)",
-                    params![c.name, c.color, c.config.host, c.config.port, c.config.user, c.config.database, ssl],
+                    "INSERT INTO connections (name,color,host,port,user,database,ssl,ssl_ca,ssl_cert,ssl_key,ssh) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)",
+                    params![c.name, c.color, c.config.host, c.config.port, c.config.user, c.config.database, ssl, ca, cert, key, ssh],
                 )?;
                 self.db.last_insert_rowid()
             }
         };
-        if let Some(p) = &c.new_password {
-            self.secrets.set(id, p)?;
+        self.set_secret(id, Slot::DbPassword, &c.new_password)?;
+        match &c.ssh {
+            Some(_) => {
+                self.set_secret(id, Slot::SshPassword, &c.new_ssh_password)?;
+                self.set_secret(id, Slot::SshPassphrase, &c.new_ssh_passphrase)?;
+            }
+            // SSH switched off: its secrets are no longer needed, so they are not kept around
+            None => {
+                self.secrets.delete(id, Slot::SshPassword)?;
+                self.secrets.delete(id, Slot::SshPassphrase)?;
+            }
         }
         Ok(id)
     }
 
     pub fn list(&self) -> Result<Vec<SavedConnection>> {
-        let mut st = self
-            .db
-            .prepare("SELECT id,name,color,host,port,user,database,ssl FROM connections ORDER BY name COLLATE NOCASE")?;
+        let mut st = self.db.prepare(
+            "SELECT id,name,color,host,port,user,database,ssl,ssl_ca,ssl_cert,ssl_key,ssh FROM connections ORDER BY name COLLATE NOCASE",
+        )?;
         let rows = st.query_map([], |r| {
-            Ok(SavedConnection {
-                id: Some(r.get(0)?),
-                name: r.get(1)?,
-                color: r.get(2)?,
-                config: ConnConfig {
-                    host: r.get(3)?,
-                    port: r.get(4)?,
-                    user: r.get(5)?,
-                    password: None,
-                    database: r.get(6)?,
-                    ssl: Self::ssl_parse(&r.get::<_, String>(7)?),
+            let ssh: Option<String> = r.get(11)?;
+            Ok((
+                SavedConnection {
+                    id: Some(r.get(0)?),
+                    name: r.get(1)?,
+                    color: r.get(2)?,
+                    config: ConnConfig {
+                        host: r.get(3)?,
+                        port: r.get(4)?,
+                        user: r.get(5)?,
+                        password: None,
+                        database: r.get(6)?,
+                        ssl: Self::ssl_parse(&r.get::<_, String>(7)?),
+                        ssl_ca: r.get(8)?,
+                        ssl_cert: r.get(9)?,
+                        ssl_key: r.get(10)?,
+                    },
+                    ssh: None,
+                    new_password: None,
+                    new_ssh_password: None,
+                    new_ssh_passphrase: None,
                 },
-                new_password: None,
-            })
+                ssh,
+            ))
         })?;
-        Ok(rows.collect::<std::result::Result<_, _>>()?)
+        let mut out = Vec::new();
+        for row in rows {
+            let (mut c, ssh) = row?;
+            c.ssh = ssh.map(|j| serde_json::from_str(&j)).transpose()?;
+            out.push(c);
+        }
+        Ok(out)
     }
 
     /// Config with the password filled from the secret store, ready to connect.
@@ -175,17 +258,52 @@ impl Store {
         match found {
             None => Ok(None),
             Some(mut c) => {
-                c.config.password = self.secrets.get(id)?;
+                c.config.password = self.secrets.get(id, Slot::DbPassword)?;
                 Ok(Some(c.config))
             }
         }
+    }
+
+    /// The SSH settings of a connection with their secrets, or `None` when it connects directly.
+    pub fn ssh_for(&self, id: i64) -> Result<Option<(SshConfig, SshSecrets)>> {
+        let Some(c) = self.list()?.into_iter().find(|c| c.id == Some(id)) else { return Ok(None) };
+        let Some(ssh) = c.ssh else { return Ok(None) };
+        let secrets = SshSecrets { password: self.secrets.get(id, Slot::SshPassword)?, key_passphrase: self.secrets.get(id, Slot::SshPassphrase)? };
+        Ok(Some((ssh, secrets)))
+    }
+
+    /// A stored secret of an existing connection (used to test an edited, not yet saved, connection).
+    pub fn secret(&self, id: i64, slot: Slot) -> Result<Option<String>> {
+        self.secrets.get(id, slot)
     }
 
     pub fn delete(&self, id: i64) -> Result<()> {
         self.db.execute("DELETE FROM connections WHERE id=?1", params![id])?;
         self.db.execute("DELETE FROM history WHERE connection_id=?1", params![id])?;
         self.db.execute("DELETE FROM session WHERE connection_id=?1", params![id])?;
-        self.secrets.delete(id)
+        for slot in ALL_SLOTS {
+            self.secrets.delete(id, slot)?;
+        }
+        Ok(())
+    }
+
+    // ---- trusted SSH host keys ----
+
+    pub fn ssh_known(&self, host: &str, port: u16) -> Result<Option<String>> {
+        Ok(self.db.query_row("SELECT fingerprint FROM ssh_hosts WHERE host_port=?1", params![format!("{host}:{port}")], |r| r.get(0)).optional()?)
+    }
+
+    pub fn ssh_trust(&self, host: &str, port: u16, fingerprint: &str) -> Result<()> {
+        self.db.execute(
+            "INSERT INTO ssh_hosts (host_port, fingerprint) VALUES (?1, ?2) ON CONFLICT(host_port) DO UPDATE SET fingerprint=excluded.fingerprint",
+            params![format!("{host}:{port}"), fingerprint],
+        )?;
+        Ok(())
+    }
+
+    pub fn ssh_forget(&self, host: &str, port: u16) -> Result<()> {
+        self.db.execute("DELETE FROM ssh_hosts WHERE host_port=?1", params![format!("{host}:{port}")])?;
+        Ok(())
     }
 
     // ---- history ----
@@ -296,18 +414,18 @@ mod tests {
     use super::*;
     use std::{collections::HashMap, sync::Mutex};
 
-    #[derive(Default)]
-    struct Mem(Mutex<HashMap<i64, String>>);
+    #[derive(Default, Clone)]
+    struct Mem(std::sync::Arc<Mutex<HashMap<(i64, String), String>>>);
     impl SecretStore for Mem {
-        fn set(&self, id: i64, s: &str) -> Result<()> {
-            self.0.lock().unwrap().insert(id, s.into());
+        fn set(&self, id: i64, slot: Slot, s: &str) -> Result<()> {
+            self.0.lock().unwrap().insert((id, slot.account(id)), s.into());
             Ok(())
         }
-        fn get(&self, id: i64) -> Result<Option<String>> {
-            Ok(self.0.lock().unwrap().get(&id).cloned())
+        fn get(&self, id: i64, slot: Slot) -> Result<Option<String>> {
+            Ok(self.0.lock().unwrap().get(&(id, slot.account(id))).cloned())
         }
-        fn delete(&self, id: i64) -> Result<()> {
-            self.0.lock().unwrap().remove(&id);
+        fn delete(&self, id: i64, slot: Slot) -> Result<()> {
+            self.0.lock().unwrap().remove(&(id, slot.account(id)));
             Ok(())
         }
     }
@@ -324,8 +442,12 @@ mod tests {
                 password: None,
                 database: None,
                 ssl: SslMode::SkipVerify,
+        ..Default::default()
             },
+            ssh: None,
             new_password: Some("s3cret".into()),
+            new_ssh_password: None,
+            new_ssh_passphrase: None,
         }
     }
 
@@ -340,6 +462,99 @@ mod tests {
         assert_eq!(s.config_for(id).unwrap().unwrap().password.as_deref(), Some("s3cret"));
         let n: i64 = s.db.query_row("SELECT COUNT(*) FROM connections WHERE name LIKE '%s3cret%' OR host LIKE '%s3cret%'", [], |r| r.get(0)).unwrap();
         assert_eq!(n, 0);
+    }
+
+    fn ssh_conn() -> SavedConnection {
+        let mut c = conn("tunnelled");
+        c.ssh = Some(SshConfig { host: "bastion".into(), port: 2222, user: "deploy".into(), auth: myq_tunnel::SshAuth::Key { path: "~/.ssh/id_ed25519".into() } });
+        c.new_ssh_passphrase = Some("phrase".into());
+        c.config.ssl = SslMode::VerifyCa;
+        c.config.ssl_ca = Some("/etc/ssl/ca.pem".into());
+        c.config.ssl_cert = Some("/etc/ssl/client.pem".into());
+        c.config.ssl_key = Some("/etc/ssl/client.key".into());
+        c
+    }
+
+    #[test]
+    fn ssh_and_ssl_settings_roundtrip_with_secrets_in_their_own_slots() {
+        let mem = Mem::default();
+        let s = Store::in_memory(Box::new(mem.clone())).unwrap();
+        let id = s.save(&ssh_conn()).unwrap();
+        let back = &s.list().unwrap()[0];
+        assert_eq!(back.ssh.as_ref().unwrap().host, "bastion");
+        assert_eq!(back.config.ssl, SslMode::VerifyCa);
+        assert_eq!((back.config.ssl_ca.as_deref(), back.config.ssl_key.as_deref()), (Some("/etc/ssl/ca.pem"), Some("/etc/ssl/client.key")));
+        let (ssh, secrets) = s.ssh_for(id).unwrap().unwrap();
+        assert_eq!(ssh.port, 2222);
+        assert_eq!((secrets.password, secrets.key_passphrase.as_deref()), (None, Some("phrase")));
+        assert_eq!(s.secret(id, Slot::DbPassword).unwrap().as_deref(), Some("s3cret"), "database password is a separate entry");
+        // none of the secrets are in the SQLite file
+        let n: i64 = s.db.query_row("SELECT COUNT(*) FROM connections WHERE ssh LIKE '%phrase%' OR ssh LIKE '%s3cret%'", [], |r| r.get(0)).unwrap();
+        assert_eq!(n, 0);
+        // turning SSH off removes its secrets
+        let mut c = ssh_conn();
+        c.id = Some(id);
+        c.ssh = None;
+        c.new_ssh_passphrase = None;
+        s.save(&c).unwrap();
+        assert!(s.ssh_for(id).unwrap().is_none());
+        assert_eq!(s.secret(id, Slot::SshPassphrase).unwrap(), None);
+        assert_eq!(s.secret(id, Slot::DbPassword).unwrap().as_deref(), Some("s3cret"), "the database password stays");
+        // deleting removes every slot
+        let id2 = s.save(&ssh_conn()).unwrap();
+        s.delete(id2).unwrap();
+        assert_eq!(mem.0.lock().unwrap().keys().filter(|(i, _)| *i == id2).count(), 0);
+    }
+
+    #[test]
+    fn the_connection_payload_the_ui_sends() {
+        let c: SavedConnection = serde_json::from_str(
+            r##"{"id":null,"name":"prod","color":"#4f8cff","host":"db.internal","port":3306,"user":"app","database":null,"ssl":"verifyca",
+                "ssl_ca":"/etc/ca.pem","ssl_cert":null,"ssl_key":null,
+                "ssh":{"host":"bastion","port":22,"user":"deploy","auth":{"method":"key","path":"~/.ssh/id_ed25519"}},
+                "new_password":null,"new_ssh_password":null,"new_ssh_passphrase":"p"}"##,
+        )
+        .unwrap();
+        assert_eq!(c.config.ssl, SslMode::VerifyCa);
+        assert_eq!(c.ssh.as_ref().unwrap().auth, myq_tunnel::SshAuth::Key { path: "~/.ssh/id_ed25519".into() });
+        let pw: SavedConnection = serde_json::from_str(
+            r##"{"id":3,"name":"x","color":"#000","host":"h","port":1,"user":"u","database":null,"ssl":"disabled","ssh":{"host":"b","port":22,"user":"d","auth":{"method":"password"}}}"##,
+        )
+        .unwrap();
+        assert_eq!(pw.ssh.unwrap().auth, myq_tunnel::SshAuth::Password);
+        assert!(pw.new_ssh_password.is_none() && pw.config.ssl_ca.is_none(), "optional fields may be absent");
+        // an older UI payload without any SSH/SSL file fields still loads
+        let old: SavedConnection = serde_json::from_str(r##"{"id":null,"name":"n","color":"#fff","host":"h","port":3306,"user":"u","database":null,"ssl":"skipverify"}"##).unwrap();
+        assert!(old.ssh.is_none());
+    }
+
+    #[test]
+    fn an_old_database_gains_the_new_columns_and_keeps_its_rows() {
+        let db = Connection::open_in_memory().unwrap();
+        db.execute_batch(
+            "CREATE TABLE connections (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, color TEXT NOT NULL DEFAULT '#4f8cff',
+               host TEXT NOT NULL, port INTEGER NOT NULL, user TEXT NOT NULL, database TEXT, ssl TEXT NOT NULL DEFAULT 'disabled');
+             INSERT INTO connections (name, host, port, user, ssl) VALUES ('legacy', 'db.example', 3306, 'root', 'required');",
+        )
+        .unwrap();
+        let s = Store::init(db, Box::new(Mem::default())).unwrap();
+        let c = &s.list().unwrap()[0];
+        assert_eq!((c.name.as_str(), c.config.ssl, c.ssh.is_none(), c.config.ssl_ca.is_none()), ("legacy", SslMode::Required, true, true));
+        // opening it again is a no-op (the columns already exist)
+        Store::ensure_column(&s.db, "connections", "ssh", "TEXT").unwrap();
+    }
+
+    #[test]
+    fn trusted_ssh_hosts_are_per_host_and_port() {
+        let s = Store::in_memory(Box::new(Mem::default())).unwrap();
+        assert_eq!(s.ssh_known("h", 22).unwrap(), None);
+        s.ssh_trust("h", 22, "SHA256:a").unwrap();
+        s.ssh_trust("h", 2222, "SHA256:b").unwrap();
+        assert_eq!(s.ssh_known("h", 22).unwrap().as_deref(), Some("SHA256:a"));
+        s.ssh_trust("h", 22, "SHA256:c").unwrap();
+        assert_eq!(s.ssh_known("h", 22).unwrap().as_deref(), Some("SHA256:c"));
+        s.ssh_forget("h", 22).unwrap();
+        assert_eq!((s.ssh_known("h", 22).unwrap(), s.ssh_known("h", 2222).unwrap().as_deref()), (None, Some("SHA256:b")));
     }
 
     #[test]

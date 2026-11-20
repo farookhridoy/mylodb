@@ -2,7 +2,9 @@ import { invoke } from "@tauri-apps/api/core";
 
 export type Kind = "database" | "table" | "view" | "procedure" | "function" | "trigger" | "event" | "column";
 export interface Node { database: string; kind: Kind; name: string; parent: string | null }
-export type SslMode = "disabled" | "required" | "skipverify";
+export type SslMode = "disabled" | "required" | "verifyca" | "skipverify";
+export type SshAuth = { method: "password" } | { method: "key"; path: string };
+export interface SshConfig { host: string; port: number; user: string; auth: SshAuth }
 export interface SavedConnection {
   id: number | null;
   name: string;
@@ -12,14 +14,38 @@ export interface SavedConnection {
   user: string;
   database: string | null;
   ssl: SslMode;
+  ssl_ca?: string | null;
+  ssl_cert?: string | null;
+  ssl_key?: string | null;
+  ssh?: SshConfig | null;
   new_password?: string | null;
+  new_ssh_password?: string | null;
+  new_ssh_passphrase?: string | null;
 }
+
+/** Why a connection failed. The SSH host-key cases need the user's decision. */
+export type ConnectError =
+  | { kind: "unknown_host"; host: string; fingerprint: string }
+  | { kind: "host_key_changed"; host: string; expected: string; actual: string }
+  | { kind: "failed"; message: string };
+export interface TestResult { version: string; ssl_cipher: string | null; via_ssh: boolean }
+export const describeError = (e: unknown): string => {
+  const c = e as Partial<ConnectError> | string;
+  if (typeof c === "object" && c && "kind" in c) {
+    if (c.kind === "failed") return (c as { message: string }).message;
+    if (c.kind === "unknown_host") return `The SSH server ${(c as { host: string }).host} is not known yet.`;
+    if (c.kind === "host_key_changed") return `The host key of ${(c as { host: string }).host} changed.`;
+  }
+  return String(e);
+};
 
 export const api = {
   listConnections: () => invoke<SavedConnection[]>("list_connections"),
   saveConnection: (connection: SavedConnection) => invoke<number>("save_connection", { connection }),
   deleteConnection: (id: number) => invoke<void>("delete_connection", { id }),
-  connect: (id: number) => invoke<Node[]>("connect", { id }),
+  connect: (id: number, trustFingerprint?: string) => invoke<Node[]>("connect", { id, trustFingerprint: trustFingerprint ?? null }),
+  testConnection: (connection: SavedConnection, trustFingerprint?: string) => invoke<TestResult>("test_connection", { connection, trustFingerprint: trustFingerprint ?? null }),
+  forgetSshHost: (id: number) => invoke<void>("forget_ssh_host", { id }),
   disconnect: (id: number) => invoke<void>("disconnect", { id }),
   filterIndex: (id: number, query: string) => invoke<number[]>("filter_index", { id, query }),
 };
@@ -176,4 +202,42 @@ export const editorApi = {
   explain: (id: number, database: string | null, sql: string, analyze: boolean) =>
     invoke<ExplainResult>("explain_query", { id, database, sql, analyze }),
   profile: (id: number, database: string | null, sql: string) => invoke<ProfileResult>("profile_query", { id, database, sql }),
+};
+
+// ---- server tools ----
+export interface ServerInfo {
+  version: string; version_comment: string; hostname: string; port: number; datadir: string; charset: string; collation: string;
+  sql_mode: string; time_zone: string; max_connections: number; uptime_seconds: number; ssl_cipher: string | null;
+}
+export interface Process { id: number; user: string; host: string; db: string | null; command: string; time: number; state: string | null; info: string | null }
+export interface Variable { name: string; value: string; source: string | null }
+export type VarScope = "global" | "session";
+export type KillKind = "query" | "connection";
+export type CheckOption = "quick" | "fast" | "changed" | "medium" | "extended";
+export type Maintenance =
+  | { op: "check"; option: CheckOption | null } | { op: "analyze" } | { op: "optimize" }
+  | { op: "repair"; quick: boolean; extended: boolean; use_frm: boolean };
+export interface MaintenanceRow { table: string; op: string; msg_type: string; msg_text: string }
+export interface LogSettings {
+  general_log: boolean; slow_query_log: boolean; log_output: string; long_query_time: string; log_queries_not_using_indexes: boolean;
+  log_error: string | null; slow_query_log_file: string | null; general_log_file: string | null; log_bin: boolean; error_log_in_table: boolean;
+}
+export interface LogLine { time: string; level: string; source: string; text: string }
+export interface SlowQuery { start_time: string; user_host: string; query_time: string; lock_time: string; rows_sent: number; rows_examined: number; db: string; sql_text: string }
+export interface BinaryLog { name: string; size: number }
+export interface BinlogEvent { pos: number; event_type: string; end_pos: number; info: string }
+
+export const serverApi = {
+  info: (id: number) => invoke<ServerInfo>("server_info", { id }),
+  processes: (id: number) => invoke<{ processes: Process[]; self_id: number }>("process_list", { id }),
+  kill: (id: number, processId: number, kind: KillKind) => invoke<void>("kill_process", { id, processId, kind }),
+  variables: (id: number, scope: VarScope) => invoke<Variable[]>("server_variables", { id, scope }),
+  status: (id: number, scope: VarScope) => invoke<[string, string][]>("server_status", { id, scope }),
+  setGlobal: (id: number, name: string, value: string) => invoke<string[]>("set_global_variable", { id, name, value }),
+  maintain: (id: number, db: string, tables: string[], operation: Maintenance) => invoke<MaintenanceRow[]>("maintain_tables", { id, db, tables, operation }),
+  logSettings: (id: number) => invoke<LogSettings>("log_settings", { id }),
+  errorLog: (id: number, limit: number, levels: string[], search: string) => invoke<LogLine[]>("error_log", { id, limit, levels, search }),
+  slowLog: (id: number, limit: number, search: string) => invoke<SlowQuery[]>("slow_log", { id, limit, search }),
+  binaryLogs: (id: number) => invoke<BinaryLog[]>("binary_logs", { id }),
+  binlogEvents: (id: number, file: string, fromPos: number, limit: number) => invoke<BinlogEvent[]>("binlog_events", { id, file, fromPos, limit }),
 };

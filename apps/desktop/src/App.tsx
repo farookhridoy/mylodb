@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api, editorApi, queryApi, schemaApi, type Favorite, type FormatOptions, type Node, type SavedConnection, type TableOp } from "./api";
+import { api, describeError, editorApi, queryApi, schemaApi, type ConnectError, type Favorite, type FormatOptions, type Node, type SavedConnection, type TableOp } from "./api";
 import AnalysisPane, { type Analysis } from "./AnalysisPane";
 import ConnectionDialog from "./ConnectionDialog";
 import ContextMenu, { type MenuItem } from "./ContextMenu";
 import DataGrid, { defaultView, type GridView } from "./DataGrid";
 import { PromptDialog, TypeConfirmDialog } from "./Dialogs";
 import TableDesigner from "./TableDesigner";
+import ServerTools from "./ServerTools";
 import UsersManager from "./UsersManager";
 import Editor, { type EditorHandle } from "./Editor";
 import ObjectTree from "./ObjectTree";
@@ -15,7 +16,7 @@ import { ConfirmDialog, FavoritesPanel, HistoryPanel, SaveFavoriteDialog } from 
 /** A SQL editor tab, or a table data tab (`kind: "table"`). Tabs saved before table tabs existed have no kind. */
 interface QueryTab {
   id: string; title: string; sql: string; database: string | null;
-  kind?: "sql" | "table" | "designer" | "users";
+  kind?: "sql" | "table" | "designer" | "users" | "server";
   /// For `table` tabs: the table shown. For `designer` tabs: the table edited (`name: null` = a new table).
   table?: { db: string; name: string | null };
   grid?: GridView;
@@ -58,6 +59,7 @@ export default function App() {
   const [panelKey, setPanelKey] = useState(0);
   const [treeMenu, setTreeMenu] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null);
   const lastSqlTab = useRef("");
+  const [hostPrompt, setHostPrompt] = useState<{ id: number; host: string; fingerprint: string; changed: string | null } | null>(null);
   const [analyses, setAnalyses] = useState<Record<string, Analysis>>({});
   const [format, setFormat] = useState<FormatOptions>(loadFormat);
   const [formatOpen, setFormatOpen] = useState(false);
@@ -79,18 +81,18 @@ export default function App() {
   const databases = useMemo(() => index.filter((n) => n.kind === "database").map((n) => n.name), [index]);
 
   // ---- connect / session restore ----
-  const open = async (id: number) => {
+  const open = async (id: number, trust?: string) => {
     setStatus("Connecting…");
     try {
       if (activeId !== null && activeId !== id) await api.disconnect(activeId);
-      const idx = await api.connect(id);
+      const idx = await api.connect(id, trust);
       let restoredTabs: QueryTab[] = [];
       let restoredActive = "";
       try {
         const saved = await queryApi.sessionGet(id);
         if (saved) {
           const s = JSON.parse(saved) as { tabs: QueryTab[]; active: string };
-          restoredTabs = s.tabs.filter((t) => typeof t.id === "string" && (t.kind === "users" || (t.kind === "table" || t.kind === "designer" ? !!t.table : typeof t.sql === "string")))
+          restoredTabs = s.tabs.filter((t) => typeof t.id === "string" && (t.kind === "users" || t.kind === "server" || (t.kind === "table" || t.kind === "designer" ? !!t.table : typeof t.sql === "string")))
             .map((t) => (isTable(t) ? { ...t, grid: { ...defaultView(), ...t.grid } } : t));
           restoredActive = s.active;
         }
@@ -106,7 +108,15 @@ export default function App() {
       setStatus(`Connected · ${idx.filter((n) => n.kind === "database").length} databases`);
     } catch (e) {
       setActiveId(null); setIndex([]); setTabs([]); setRestored(false);
-      setStatus(`Error: ${e}`);
+      const err = e as ConnectError;
+      // an SSH server we have not seen before: ask the user before trusting its key
+      if (typeof err === "object" && err?.kind === "unknown_host") {
+        setStatus("Waiting for you to confirm the SSH host key");
+        setHostPrompt({ id, host: err.host, fingerprint: err.fingerprint, changed: null });
+      } else if (typeof err === "object" && err?.kind === "host_key_changed") {
+        setStatus(`The SSH host key of ${err.host} changed`);
+        setHostPrompt({ id, host: err.host, fingerprint: err.actual, changed: err.expected });
+      } else setStatus(`Error: ${describeError(e)}`);
     }
   };
 
@@ -226,6 +236,14 @@ export default function App() {
     const existing = tabs.find((t) => t.kind === "designer" && t.table?.db === database && t.table.name === table && table !== null);
     if (existing) return setActiveTab(existing.id);
     const t: QueryTab = { id: uid(), title: table ?? "New table", sql: "", database, kind: "designer", table: { db: database, name: table } };
+    setTabs([...tabs, t]);
+    setActiveTab(t.id);
+  };
+
+  const openServer = () => {
+    const existing = tabs.find((t) => t.kind === "server");
+    if (existing) return setActiveTab(existing.id);
+    const t: QueryTab = { id: uid(), title: "Server", sql: "", database: null, kind: "server" };
     setTabs([...tabs, t]);
     setActiveTab(t.id);
   };
@@ -351,6 +369,7 @@ export default function App() {
           <button title="Edit connection" disabled={!active} onClick={() => active && setDialog(active)}>✎</button>
           <button title="Delete connection" disabled={!active} onClick={() => setConfirmDelete(true)}>🗑</button>
           <button title="Users and privileges" disabled={activeId === null} onClick={openUsers}>👤</button>
+          <button title="Server: processes, variables, status, maintenance, logs" disabled={activeId === null} onClick={openServer}>🖥</button>
         </div>
         <div className="side-tabs">
           {(["objects", "history", "favorites"] as Side[]).map((s) => (
@@ -396,7 +415,7 @@ export default function App() {
             <div className="query-tabs" style={{ borderBottomColor: active?.color }}>
               {tabs.map((t) => (
                 <div key={t.id} className={`qtab ${t.id === activeTab ? "active" : ""}`} onClick={() => setActiveTab(t.id)}>
-                  {isTable(t) ? "▦ " : t.kind === "designer" ? "✎ " : t.kind === "users" ? "👤 " : ""}{runs[t.id]?.running ? "⏳ " : ""}{t.title}
+                  {isTable(t) ? "▦ " : t.kind === "designer" ? "✎ " : t.kind === "users" ? "👤 " : t.kind === "server" ? "🖥 " : ""}{runs[t.id]?.running ? "⏳ " : ""}{t.title}
                   <button className="mini" onClick={(e) => { e.stopPropagation(); closeTab(t.id); }}>✕</button>
                 </div>
               ))}
@@ -455,6 +474,7 @@ export default function App() {
                 onOpenData={(d, t) => openTable(d, t)}
                 onApplied={async (name) => { await reloadIndex(); patchTab(tab.id, { title: name, table: { db: tab.table!.db, name } }); }} />
             )}
+            {tab.kind === "server" && <ServerTools key={`${activeId}:${tab.id}`} connectionId={activeId} nodes={index} />}
             {tab.kind === "users" && <UsersManager key={`${activeId}:${tab.id}`} connectionId={activeId} nodes={index} />}
             {isTable(tab) && tab.table && tab.table.name && (
               <DataGrid key={`${activeId}:${tab.id}`} connectionId={activeId} db={tab.table.db} table={tab.table.name}
@@ -466,6 +486,34 @@ export default function App() {
         <div className="statusbar" style={{ borderTopColor: active?.color }}>{status}</div>
       </main>
 
+      {hostPrompt && (
+        <div className="overlay">
+          <div className="dialog">
+            {hostPrompt.changed === null ? (
+              <>
+                <h3>Trust this SSH server?</h3>
+                <p>The authenticity of <b>{hostPrompt.host}</b> cannot be established. Its host key fingerprint is:</p>
+                <code className="preview">{hostPrompt.fingerprint}</code>
+                <p className="dim small">Compare it with the fingerprint your server administrator gave you. If it does not match, do not continue.</p>
+                <div className="actions">
+                  <button onClick={() => { setHostPrompt(null); setStatus("Not connected"); }}>Cancel</button>
+                  <button className="primary" onClick={() => { const h = hostPrompt; setHostPrompt(null); open(h.id, h.fingerprint); }}>Trust and connect</button>
+                </div>
+              </>
+            ) : (
+              <>
+                <h3>⚠ SSH host key changed</h3>
+                <p>The host key of <b>{hostPrompt.host}</b> is not the one saved before. Someone may be intercepting the connection, or the server was re-installed. The connection was <b>not</b> made.</p>
+                <code className="preview">saved:   {hostPrompt.changed}{"\n"}now:     {hostPrompt.fingerprint}</code>
+                <div className="actions">
+                  <button onClick={() => { setHostPrompt(null); setStatus("Not connected"); }}>Close</button>
+                  <button className="danger" onClick={async () => { const h = hostPrompt; await api.forgetSshHost(h.id); setHostPrompt(null); open(h.id); }}>I know why: forget the saved key</button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
       {prompt && <PromptDialog {...prompt} />}
       {typeConfirm && <TypeConfirmDialog {...typeConfirm} />}
       {treeMenu && <ContextMenu x={treeMenu.x} y={treeMenu.y} items={treeMenu.items} onClose={() => setTreeMenu(null)} />}

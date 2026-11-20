@@ -16,6 +16,9 @@ struct Session {
     index: Vec<Node>,
     /// Autocomplete's view of the index, rebuilt whenever the index is.
     catalog: myq_sql::Catalog,
+    /// Keeps the SSH tunnel alive for as long as the session lives (dropping it closes the tunnel).
+    #[allow(dead_code)]
+    tunnel: Option<myq_tunnel::Tunnel>,
 }
 
 struct AppState {
@@ -45,22 +48,111 @@ fn delete_connection(state: tauri::State<AppState>, id: i64) -> Result<(), Strin
     state.store.lock().unwrap().delete(id).map_err(err)
 }
 
+/// Why a connection could not be made. The SSH host-key cases carry what the UI needs to ask the user.
+#[derive(serde::Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+enum ConnectError {
+    UnknownHost { host: String, fingerprint: String },
+    HostKeyChanged { host: String, expected: String, actual: String },
+    Failed { message: String },
+}
+
+impl From<String> for ConnectError {
+    fn from(message: String) -> Self {
+        ConnectError::Failed { message }
+    }
+}
+
+impl From<myq_tunnel::TunnelError> for ConnectError {
+    fn from(e: myq_tunnel::TunnelError) -> Self {
+        match e {
+            myq_tunnel::TunnelError::UnknownHost { host, fingerprint } => ConnectError::UnknownHost { host, fingerprint },
+            myq_tunnel::TunnelError::HostKeyChanged { host, expected, actual } => ConnectError::HostKeyChanged { host, expected, actual },
+            other => ConnectError::Failed { message: other.to_string() },
+        }
+    }
+}
+
+/// Open the SSH tunnel for a connection, when it has one, and return the settings to connect with
+/// (pointing at the local end of the tunnel). A host key that was just confirmed is remembered
+/// only after authentication succeeded.
+async fn establish(
+    store: &Mutex<Store>,
+    mut cfg: myq_driver::ConnConfig,
+    ssh: Option<(myq_tunnel::SshConfig, myq_tunnel::SshSecrets)>,
+    trust_fingerprint: Option<String>,
+) -> Result<(myq_driver::ConnConfig, Option<myq_tunnel::Tunnel>), ConnectError> {
+    let Some((ssh, secrets)) = ssh else { return Ok((cfg, None)) };
+    let known = store.lock().unwrap().ssh_known(&ssh.host, ssh.port).map_err(err)?;
+    let had_known = known.is_some();
+    let trust = myq_tunnel::HostTrust { known, accept_new: trust_fingerprint };
+    let tunnel = myq_tunnel::open(&ssh, &secrets, trust, &cfg.host, cfg.port).await?;
+    if !had_known {
+        store.lock().unwrap().ssh_trust(&ssh.host, ssh.port, &tunnel.fingerprint).map_err(err)?;
+    }
+    cfg.host = "127.0.0.1".into();
+    cfg.port = tunnel.local_port;
+    Ok((cfg, Some(tunnel)))
+}
+
 /// Connect, build the name index, and return it to the UI.
 #[tauri::command]
-async fn connect(state: tauri::State<'_, AppState>, id: i64) -> Result<Vec<Node>, String> {
-    let cfg = state
-        .store
-        .lock()
-        .unwrap()
-        .config_for(id)
-        .map_err(err)?
-        .ok_or_else(|| "connection not found".to_string())?;
+async fn connect(state: tauri::State<'_, AppState>, id: i64, trust_fingerprint: Option<String>) -> Result<Vec<Node>, ConnectError> {
+    let (cfg, ssh) = {
+        let store = state.store.lock().unwrap();
+        let cfg = store.config_for(id).map_err(err)?.ok_or_else(|| "connection not found".to_string())?;
+        (cfg, store.ssh_for(id).map_err(err)?)
+    };
+    let (cfg, tunnel) = establish(&state.store, cfg, ssh, trust_fingerprint).await?;
     let p = pool(&cfg);
-    let index = introspect(&p, &IntrospectOptions { include_columns: true, ..Default::default() })
-        .await
-        .map_err(err)?;
-    state.sessions.lock().unwrap().insert(id, Session { pool: p, catalog: myq_sql::Catalog::from_nodes(&index), index: index.clone() });
+    let index = introspect(&p, &IntrospectOptions { include_columns: true, ..Default::default() }).await.map_err(err)?;
+    state.sessions.lock().unwrap().insert(id, Session { pool: p, catalog: myq_sql::Catalog::from_nodes(&index), index: index.clone(), tunnel });
     Ok(index)
+}
+
+#[derive(serde::Serialize)]
+struct TestResult {
+    version: String,
+    ssl_cipher: Option<String>,
+    via_ssh: bool,
+}
+
+/// Try a connection exactly as entered in the dialog, without saving it. A blank password or
+/// passphrase falls back to the saved one when editing an existing connection.
+#[tauri::command]
+async fn test_connection(state: tauri::State<'_, AppState>, connection: SavedConnection, trust_fingerprint: Option<String>) -> Result<TestResult, ConnectError> {
+    use myq_driver::mysql_async::prelude::Queryable;
+    let mut cfg = connection.config.clone();
+    let mut ssh = None;
+    {
+        let store = state.store.lock().unwrap();
+        let stored = |slot| connection.id.map(|id| store.secret(id, slot)).transpose().map(Option::flatten);
+        cfg.password = connection.new_password.clone().filter(|p| !p.is_empty()).or(stored(myq_store::Slot::DbPassword).map_err(err)?);
+        if let Some(s) = &connection.ssh {
+            let secrets = myq_tunnel::SshSecrets {
+                password: connection.new_ssh_password.clone().filter(|p| !p.is_empty()).or(stored(myq_store::Slot::SshPassword).map_err(err)?),
+                key_passphrase: connection.new_ssh_passphrase.clone().filter(|p| !p.is_empty()).or(stored(myq_store::Slot::SshPassphrase).map_err(err)?),
+            };
+            ssh = Some((s.clone(), secrets));
+        }
+    }
+    let via_ssh = ssh.is_some();
+    let (cfg, _tunnel) = establish(&state.store, cfg, ssh, trust_fingerprint).await?;
+    let mut conn = myq_driver::Conn::new(cfg.to_opts()).await.map_err(err)?;
+    let version: Option<String> = conn.query_first("SELECT VERSION()").await.map_err(err)?;
+    let cipher: Option<(String, String)> = conn.query_first("SHOW SESSION STATUS LIKE 'Ssl_cipher'").await.map_err(err)?;
+    let _ = conn.disconnect().await;
+    Ok(TestResult { version: version.unwrap_or_default(), ssl_cipher: cipher.map(|c| c.1).filter(|c| !c.is_empty()), via_ssh })
+}
+
+/// Forget the saved host key of a connection's SSH server (after the server was legitimately re-keyed).
+#[tauri::command]
+fn forget_ssh_host(state: tauri::State<AppState>, id: i64) -> Result<(), String> {
+    let store = state.store.lock().unwrap();
+    if let Some((ssh, _)) = store.ssh_for(id).map_err(err)? {
+        store.ssh_forget(&ssh.host, ssh.port).map_err(err)?;
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -208,6 +300,86 @@ async fn export_table(state: tauri::State<'_, AppState>, id: i64, db: String, ta
         (Err(e), _) => { let _ = std::fs::remove_file(&path); Err(err(e)) }
         (_, Err(e)) => { let _ = std::fs::remove_file(&path); Err(err(e)) }
     }
+}
+
+// ---- server tools ----
+
+#[tauri::command]
+async fn server_info(state: tauri::State<'_, AppState>, id: i64) -> Result<myq_admin::ServerInfo, String> {
+    let mut c = conn_for(&state, id).await?;
+    myq_admin::server_info(&mut c).await.map_err(err)
+}
+
+#[tauri::command]
+async fn process_list(state: tauri::State<'_, AppState>, id: i64) -> Result<myq_admin::ProcessList, String> {
+    let mut c = conn_for(&state, id).await?;
+    myq_admin::processlist(&mut c).await.map_err(err)
+}
+
+#[tauri::command]
+async fn kill_process(state: tauri::State<'_, AppState>, id: i64, process_id: u64, kind: myq_admin::KillKind) -> Result<(), String> {
+    let mut c = conn_for(&state, id).await?;
+    myq_admin::kill(&mut c, process_id, kind).await.map_err(err)
+}
+
+#[tauri::command]
+async fn server_variables(state: tauri::State<'_, AppState>, id: i64, scope: myq_admin::VarScope) -> Result<Vec<myq_admin::Variable>, String> {
+    let mut c = conn_for(&state, id).await?;
+    myq_admin::variables(&mut c, scope).await.map_err(err)
+}
+
+#[tauri::command]
+async fn server_status(state: tauri::State<'_, AppState>, id: i64, scope: myq_admin::VarScope) -> Result<Vec<(String, String)>, String> {
+    let mut c = conn_for(&state, id).await?;
+    myq_admin::status(&mut c, scope).await.map_err(err)
+}
+
+/// Change a GLOBAL variable. SESSION changes are not offered: connections are pooled, so a session
+/// setting would silently leak into unrelated queries. Returns the server's warnings.
+#[tauri::command]
+async fn set_global_variable(state: tauri::State<'_, AppState>, id: i64, name: String, value: String) -> Result<Vec<String>, String> {
+    let mut c = conn_for(&state, id).await?;
+    let result = myq_admin::set_variable(&mut c, myq_admin::VarScope::Global, &name, &value).await;
+    let _ = state.store.lock().unwrap().add_history(id, &format!("SET GLOBAL {name} = {value}"), 0, result.is_ok());
+    result.map_err(err)
+}
+
+#[tauri::command]
+async fn maintain_tables(state: tauri::State<'_, AppState>, id: i64, db: String, tables: Vec<String>, operation: myq_admin::Maintenance) -> Result<Vec<myq_admin::MaintenanceRow>, String> {
+    let mut c = conn_for(&state, id).await?;
+    let result = myq_admin::maintain(&mut c, &db, &tables, operation).await;
+    let _ = state.store.lock().unwrap().add_history(id, &format!("{operation:?} {db}: {}", tables.join(", ")), 0, result.is_ok());
+    result.map_err(err)
+}
+
+#[tauri::command]
+async fn log_settings(state: tauri::State<'_, AppState>, id: i64) -> Result<myq_admin::LogSettings, String> {
+    let mut c = conn_for(&state, id).await?;
+    myq_admin::log_settings(&mut c).await.map_err(err)
+}
+
+#[tauri::command]
+async fn error_log(state: tauri::State<'_, AppState>, id: i64, limit: u32, levels: Vec<String>, search: String) -> Result<Vec<myq_admin::LogLine>, String> {
+    let mut c = conn_for(&state, id).await?;
+    myq_admin::error_log(&mut c, limit, &levels, &search).await.map_err(err)
+}
+
+#[tauri::command]
+async fn slow_log(state: tauri::State<'_, AppState>, id: i64, limit: u32, search: String) -> Result<Vec<myq_admin::SlowQuery>, String> {
+    let mut c = conn_for(&state, id).await?;
+    myq_admin::slow_log(&mut c, limit, &search).await.map_err(err)
+}
+
+#[tauri::command]
+async fn binary_logs(state: tauri::State<'_, AppState>, id: i64) -> Result<Vec<myq_admin::BinaryLog>, String> {
+    let mut c = conn_for(&state, id).await?;
+    myq_admin::binary_logs(&mut c).await.map_err(err)
+}
+
+#[tauri::command]
+async fn binlog_events(state: tauri::State<'_, AppState>, id: i64, file: String, from_pos: u64, limit: u32) -> Result<Vec<myq_admin::BinlogEvent>, String> {
+    let mut c = conn_for(&state, id).await?;
+    myq_admin::binlog_events(&mut c, &file, from_pos, limit).await.map_err(err)
 }
 
 // ---- editor intelligence ----
@@ -537,7 +709,21 @@ pub fn run() {
             format_sql,
             statement_at,
             explain_query,
-            profile_query
+            profile_query,
+            test_connection,
+            forget_ssh_host,
+            server_info,
+            process_list,
+            kill_process,
+            server_variables,
+            server_status,
+            set_global_variable,
+            maintain_tables,
+            log_settings,
+            error_log,
+            slow_log,
+            binary_logs,
+            binlog_events
         ])
         .run(tauri::generate_context!())
         .expect("error while running MyLoDB");

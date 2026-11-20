@@ -13,6 +13,7 @@ fn cfg() -> ConnConfig {
         password: std::env::var("MYLODB_TEST_PASSWORD").ok(),
         database: None,
         ssl: SslMode::Disabled,
+        ..Default::default()
     }
 }
 

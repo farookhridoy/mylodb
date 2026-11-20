@@ -61,3 +61,19 @@ fn account_payloads() {
     let e: AccountEdit = serde_json::from_str(r#"{"user":"u","host":"h","password":null,"plugin":null,"locked":false,"expire_password":true}"#).unwrap();
     assert!(e.expire_password && e.password.is_none());
 }
+
+#[test]
+fn server_tool_requests_from_the_ui() {
+    use myq_admin::{CheckOption, KillKind, Maintenance, VarScope};
+    let ops: Vec<Maintenance> = serde_json::from_str(
+        r#"[{"op":"check","option":null},{"op":"check","option":"quick"},{"op":"analyze"},{"op":"optimize"},
+            {"op":"repair","quick":true,"extended":false,"use_frm":true}]"#,
+    )
+    .unwrap();
+    assert_eq!(ops[1], Maintenance::Check { option: Some(CheckOption::Quick) });
+    assert_eq!(ops[4], Maintenance::Repair { quick: true, extended: false, use_frm: true });
+    assert_eq!(serde_json::from_str::<KillKind>("\"query\"").unwrap(), KillKind::Query);
+    assert_eq!(serde_json::from_str::<KillKind>("\"connection\"").unwrap(), KillKind::Connection);
+    assert!(matches!(serde_json::from_str::<VarScope>("\"global\"").unwrap(), VarScope::Global));
+    assert!(serde_json::from_str::<KillKind>("\"everything\"").is_err());
+}

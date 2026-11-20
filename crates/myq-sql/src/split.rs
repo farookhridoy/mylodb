@@ -87,9 +87,14 @@ pub fn statement_at(sql: &str, cursor: usize) -> Option<Statement> {
     all.iter().rev().find(|s| end(s) < cursor).or_else(|| all.first()).cloned()
 }
 
-fn is_comment_only(s: &str) -> bool {
+/// True when the text holds nothing the server would execute. `/*! … */` and `/*M! … */` are
+/// *executable* comments (mysqldump writes `SET FOREIGN_KEY_CHECKS=0` that way), so they count as code.
+pub(crate) fn is_comment_only(s: &str) -> bool {
     let mut rest = s.trim();
     loop {
+        if rest.starts_with("/*!") || rest.starts_with("/*M!") {
+            return false;
+        }
         if let Some(r) = rest.strip_prefix("/*") {
             match r.find("*/") {
                 Some(p) => rest = r[p + 2..].trim_start(),
@@ -110,6 +115,15 @@ fn is_comment_only(s: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn executable_comments_are_statements_not_noise() {
+        let dump = "/*!40101 SET NAMES utf8mb4 */;\n/*M!100100 SET x=1 */;\n/* just a note */;\n-- another\nSELECT 1;";
+        let t: Vec<String> = split_statements(dump).into_iter().map(|s| s.text).collect();
+        // a pure comment between statements is dropped; one that leads a statement stays with it
+        assert_eq!(t, vec!["/*!40101 SET NAMES utf8mb4 */", "/*M!100100 SET x=1 */", "-- another\nSELECT 1"]);
+    }
+
 
     #[test]
     fn statement_at_cursor() {

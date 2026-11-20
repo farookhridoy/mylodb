@@ -7,6 +7,7 @@ import DataGrid, { defaultView, type GridView } from "./DataGrid";
 import { PromptDialog, TypeConfirmDialog } from "./Dialogs";
 import TableDesigner from "./TableDesigner";
 import ServerTools from "./ServerTools";
+import TransferTools, { type TransferPreset } from "./TransferTools";
 import UsersManager from "./UsersManager";
 import Editor, { type EditorHandle } from "./Editor";
 import ObjectTree from "./ObjectTree";
@@ -16,7 +17,9 @@ import { ConfirmDialog, FavoritesPanel, HistoryPanel, SaveFavoriteDialog } from 
 /** A SQL editor tab, or a table data tab (`kind: "table"`). Tabs saved before table tabs existed have no kind. */
 interface QueryTab {
   id: string; title: string; sql: string; database: string | null;
-  kind?: "sql" | "table" | "designer" | "users" | "server";
+  kind?: "sql" | "table" | "designer" | "users" | "server" | "transfer";
+  /// For `transfer` tabs: which tool to show and what it is about.
+  transfer?: TransferPreset;
   /// For `table` tabs: the table shown. For `designer` tabs: the table edited (`name: null` = a new table).
   table?: { db: string; name: string | null };
   grid?: GridView;
@@ -92,7 +95,7 @@ export default function App() {
         const saved = await queryApi.sessionGet(id);
         if (saved) {
           const s = JSON.parse(saved) as { tabs: QueryTab[]; active: string };
-          restoredTabs = s.tabs.filter((t) => typeof t.id === "string" && (t.kind === "users" || t.kind === "server" || (t.kind === "table" || t.kind === "designer" ? !!t.table : typeof t.sql === "string")))
+          restoredTabs = s.tabs.filter((t) => typeof t.id === "string" && (t.kind === "users" || t.kind === "server" || t.kind === "transfer" || (t.kind === "table" || t.kind === "designer" ? !!t.table : typeof t.sql === "string")))
             .map((t) => (isTable(t) ? { ...t, grid: { ...defaultView(), ...t.grid } } : t));
           restoredActive = s.active;
         }
@@ -240,6 +243,18 @@ export default function App() {
     setActiveTab(t.id);
   };
 
+  /// Open (or reuse) the Backup / Restore / Import / Export tab, optionally aimed at a database or table.
+  const openTransfer = (preset: TransferPreset = {}) => {
+    const existing = tabs.find((t) => t.kind === "transfer");
+    if (existing) {
+      setTabs(tabs.map((t) => (t.id === existing.id ? { ...t, transfer: preset } : t)));
+      return setActiveTab(existing.id);
+    }
+    const t: QueryTab = { id: uid(), title: "Backup & import", sql: "", database: null, kind: "transfer", transfer: preset };
+    setTabs([...tabs, t]);
+    setActiveTab(t.id);
+  };
+
   const openServer = () => {
     const existing = tabs.find((t) => t.kind === "server");
     if (existing) return setActiveTab(existing.id);
@@ -283,6 +298,7 @@ export default function App() {
       { label: "Open data", onClick: () => openTable(d, t) },
       { label: "Design table…", onClick: () => openDesigner(d, t) },
       { label: "Select in SQL editor", onClick: () => selectInEditor(d, t) },
+      { label: "Import CSV into this table…", onClick: () => openTransfer({ tab: "import", db: d, table: t }) },
       { separator: true },
       { label: "Duplicate…", onClick: () => setPrompt({ title: `Duplicate ${t}`, label: "New table name", initial: `${t}_copy`, confirmLabel: "Duplicate", option: { label: "Copy the rows too", initial: false },
           onCancel: () => setPrompt(null), onSubmit: (to, withData) => { setPrompt(null); runTableOp(d, t, { op: "duplicate", to, with_data: withData }); } }) },
@@ -301,7 +317,7 @@ export default function App() {
   const databaseMenu = (e: React.MouseEvent, d: string | null) => {
     e.preventDefault();
     const items: MenuItem[] = [];
-    if (d) items.push({ label: "New table…", onClick: () => openDesigner(d, null) }, { separator: true });
+    if (d) items.push({ label: "New table…", onClick: () => openDesigner(d, null) }, { label: "Back up this database…", onClick: () => openTransfer({ tab: "backup", db: d }) }, { label: "Import CSV…", onClick: () => openTransfer({ tab: "import", db: d }) }, { separator: true });
     items.push({ label: "Create database…", onClick: () => setPrompt({ title: "Create database", label: "Database name", confirmLabel: "Create",
       onCancel: () => setPrompt(null), onSubmit: async (name) => { setPrompt(null); try { await schemaApi.databaseOp(activeId!, { op: "create", name, charset: "utf8mb4", collation: null }); await reloadIndex(); } catch (err) { setStatus(`Error: ${err}`); } } }) });
     if (d) items.push({ label: "Drop database…", onClick: () => setTypeConfirm({ title: `Drop database ${d}`, message: `The database ${d} with all its tables and data will be permanently deleted.`, expect: d, confirmLabel: "Drop database",
@@ -369,6 +385,7 @@ export default function App() {
           <button title="Edit connection" disabled={!active} onClick={() => active && setDialog(active)}>✎</button>
           <button title="Delete connection" disabled={!active} onClick={() => setConfirmDelete(true)}>🗑</button>
           <button title="Users and privileges" disabled={activeId === null} onClick={openUsers}>👤</button>
+ <button title="Backup, restore, import and export" disabled={activeId === null} onClick={() => openTransfer()}>⇅</button>
           <button title="Server: processes, variables, status, maintenance, logs" disabled={activeId === null} onClick={openServer}>🖥</button>
         </div>
         <div className="side-tabs">
@@ -415,7 +432,7 @@ export default function App() {
             <div className="query-tabs" style={{ borderBottomColor: active?.color }}>
               {tabs.map((t) => (
                 <div key={t.id} className={`qtab ${t.id === activeTab ? "active" : ""}`} onClick={() => setActiveTab(t.id)}>
-                  {isTable(t) ? "▦ " : t.kind === "designer" ? "✎ " : t.kind === "users" ? "👤 " : t.kind === "server" ? "🖥 " : ""}{runs[t.id]?.running ? "⏳ " : ""}{t.title}
+                  {isTable(t) ? "▦ " : t.kind === "designer" ? "✎ " : t.kind === "users" ? "👤 " : t.kind === "server" ? "🖥 " : t.kind === "transfer" ? "⇅ " : ""}{runs[t.id]?.running ? "⏳ " : ""}{t.title}
                   <button className="mini" onClick={(e) => { e.stopPropagation(); closeTab(t.id); }}>✕</button>
                 </div>
               ))}
@@ -474,6 +491,7 @@ export default function App() {
                 onOpenData={(d, t) => openTable(d, t)}
                 onApplied={async (name) => { await reloadIndex(); patchTab(tab.id, { title: name, table: { db: tab.table!.db, name } }); }} />
             )}
+            {tab.kind === "transfer" && <TransferTools key={`${activeId}:${tab.id}`} connectionId={activeId} nodes={index} preset={tab.transfer ?? {}} onSchemaChanged={() => reloadIndex()} />}
             {tab.kind === "server" && <ServerTools key={`${activeId}:${tab.id}`} connectionId={activeId} nodes={index} />}
             {tab.kind === "users" && <UsersManager key={`${activeId}:${tab.id}`} connectionId={activeId} nodes={index} />}
             {isTable(tab) && tab.table && tab.table.name && (

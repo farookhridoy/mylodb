@@ -1,5 +1,8 @@
 // Fake Tauri bridge: in-memory tables + a call log, so the real React UI can be exercised in a browser.
 window.__calls = [];
+window.__cbs = {}; window.__cbSeq = 0; window.__listeners = [];
+window.__TAURI_EVENT_PLUGIN_INTERNALS__ = { unregisterListener() {} };
+window.__emit = (event, payload) => window.__listeners.filter((l) => l.event === event).forEach((l) => window.__cbs[l.handler]({ event, id: l.id, payload }));
 const meta = {
   customers: { columns: [["id","int",1,0],["name","varchar",0,0],["email","varchar",0,1]], pk: ["id"], fks: [] },
   orders: { columns: [["id","int",1,0],["customer_id","int",0,0],["total","decimal",0,0],["note","text",0,1]], pk: ["id"],
@@ -175,10 +178,39 @@ Object.assign(handlers, {
   binary_logs: () => [{ name: "binlog.000001", size: 1500 }, { name: "binlog.000002", size: 3 * 1024 * 1024 }],
   binlog_events: (a) => { window.__binlogArgs = a; return [{ pos: 4, event_type: "Format_desc", end_pos: 126, info: "Server ver: 9.7.2" }, { pos: 126, event_type: "Query", end_pos: 200, info: "BEGIN" }]; },
 });
+
+// ---- backup, restore, import, export ----
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+/** A job that reports progress and then either finishes, or stops when the UI cancels it. */
+async function job(jobId, phase, message, ms = 700) {
+  window.__cancelFlag = false;
+  window.__emit("job-progress", { job_id: jobId, phase, done: 50, total: 100, message });
+  const until = Date.now() + ms;
+  while (Date.now() < until) { if (window.__cancelFlag) throw "cancelled"; await wait(25); }
+}
+Object.assign(handlers, {
+  csv_sniff: () => ";",
+  csv_preview: (a) => { window.__previews = (window.__previews || []).concat([JSON.parse(JSON.stringify(a))]); return { headers: ["id", "name", "qty"], rows: [["1", "Ann", "5"], ["2", "Bob", ""]], column_count: 3, more: false }; },
+  csv_infer: () => [{ name: "id", column_type: "int" }, { name: "name", column_type: "varchar(255)" }, { name: "qty", column_type: "int" }],
+  csv_create_table: (a) => { window.__created = JSON.parse(JSON.stringify(a)); return nodes(); },
+  import_csv_job: async (a) => { window.__import = JSON.parse(JSON.stringify(a)); await job(a.jobId, "Importing", "1 rows", window.__jobMs ?? 600);
+    return { rows_read: 2, affected_rows: 2, errors: window.__importErrors ?? [], ragged_rows: 0, aborted: false, rolled_back: false, warnings: ["the table uses the MyISAM engine, which has no transactions"], elapsed_ms: 12 }; },
+  run_sql_source_job: async (a) => { window.__run = JSON.parse(JSON.stringify(a)); await job(a.jobId, "Running script", "10 statements", 300);
+    return { files: 1, statements: 10, failed: 2, aborted: false, elapsed_ms: 40, errors: [{ file: "dump.sql", line: 5, statement: "INSERT INTO t VALUES (1,'dup')", message: "Duplicate entry '1' for key 't.PRIMARY' (1062)" }, { file: "dump.sql", line: 8, statement: "SELECT * FROM missing", message: "Table 'x.missing' doesn't exist (1146)" }] }; },
+  backup_job: async (a) => { window.__backup = JSON.parse(JSON.stringify(a)); await job(a.jobId, "Backing up", "shop.orders", window.__jobMs ?? 700);
+    return { path: a.dir + "/" + a.name + "-20261120-101500.sql", files: 1, databases: a.options.databases.length, tables: 2, rows: 1234, bytes: 5 * 1024 * 1024, warnings: ["shop.legacy uses the MyISAM engine, so its rows are not part of the consistent snapshot"], elapsed_ms: 2500 }; },
+  cancel_job: (a) => { window.__cancelled = a.jobId; window.__cancelFlag = true; return null; },
+  export_query: (a) => { window.__exportQuery = JSON.parse(JSON.stringify(a)); if (/delete/i.test(a.sql)) throw "only SELECT statements can be exported"; return { rows: 42, warnings: [] }; },
+  export_table: (a) => { window.__exportTable = JSON.parse(JSON.stringify(a)); return { rows: 3, warnings: ["1 cell(s) longer than 32767 characters were cut to Excel's limit"] }; },
+});
 window.__TAURI_INTERNALS__ = {
-  transformCallback: () => 0,
+  transformCallback: (cb) => { const id = ++window.__cbSeq; window.__cbs[id] = cb; return id; },
   invoke: async (cmd, args) => {
     window.__calls.push({ cmd, args: JSON.parse(JSON.stringify(args ?? {})) });
+    if (cmd === "plugin:event|listen") { const id = window.__listeners.length + 1; window.__listeners.push({ event: args.event, handler: args.handler, id }); return id; }
+    if (cmd === "plugin:event|unlisten") { window.__listeners = window.__listeners.filter((l) => l.id !== args.eventId); return null; }
+    if (cmd === "plugin:dialog|open") { const v = window.__nextOpen ?? null; window.__nextOpen = null; return v; }
+    if (cmd === "plugin:dialog|save") { const v = window.__nextSave ?? null; window.__nextSave = null; return v; }
     const h = handlers[cmd];
     if (!h) throw "mock: unhandled command " + cmd;
     return h(args ?? {});

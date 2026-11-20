@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { save as saveDialog } from "@tauri-apps/plugin-dialog";
 import {
-  dataApi, type Assign, type CellValue, type Change, type ExportFormat, type ForeignKey, type Page, type Sort, type TableMeta,
+  dataApi, EXPORT_FORMATS, type Assign, type CellValue, type Change, type ExportFormat, type ForeignKey, type Page, type Sort, type TableMeta,
 } from "./api";
 import ContextMenu, { type MenuItem } from "./ContextMenu";
 import FkPicker from "./FkPicker";
@@ -342,13 +342,14 @@ export default function DataGrid(props: {
 
   const doExport = async (format: ExportFormat) => {
     setPopup(null);
-    const ext = { csv: "csv", json: "json", sql_insert: "sql" }[format];
+    const ext = EXPORT_FORMATS.find((f) => f.format === format)!.ext;
     const path = await saveDialog({ defaultPath: `${table}.${ext}` });
     if (!path) return;
     try {
-      const n = await dataApi.exportTable(cid, db, table, buildSpec(0), format, "NULL", path);
-      setNotice(`Exported ${n.toLocaleString()} row(s) to ${path}`);
-    } catch (e) { setError(String(e)); }
+      setNotice(`Exporting to ${path} …`);
+      const r = await dataApi.exportTable(cid, db, table, buildSpec(0), format, "NULL", path);
+      setNotice(`Exported ${r.rows.toLocaleString()} row(s) to ${path}${r.warnings.length ? " — " + r.warnings.join("; ") : ""}`);
+    } catch (e) { setNotice(null); setError(String(e)); }
   };
 
   // ---------- foreign keys ----------
@@ -488,9 +489,7 @@ export default function DataGrid(props: {
           {popup === "export" && (
             <div className="popup" onMouseLeave={() => setPopup(null)}>
               <div className="dim small">All rows matching the current filters</div>
-              <button className="link" onClick={() => doExport("csv")}>CSV…</button>
-              <button className="link" onClick={() => doExport("json")}>JSON…</button>
-              <button className="link" onClick={() => doExport("sql_insert")}>SQL INSERT…</button>
+              {EXPORT_FORMATS.map((f) => <button key={f.format} className="link" onClick={() => doExport(f.format)}>{f.label}…</button>)}
             </div>
           )}
         </div>

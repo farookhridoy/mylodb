@@ -7,7 +7,7 @@ use myq_driver::{execute_script, introspect, kill_query, pool, IntrospectOptions
 use myq_schema::filter::{Filter, Node};
 use myq_store::{Favorite, HistoryEntry, Keychain, SavedConnection, Store};
 use std::{collections::HashMap, sync::Mutex};
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 /// A live connection: its pool and the cached name index the filter runs over.
 struct Session {
@@ -24,6 +24,8 @@ struct Session {
 struct AppState {
     store: Mutex<Store>,
     sessions: Mutex<HashMap<i64, Session>>,
+    /// Cancel flags of the running backup / restore / import jobs, by job id.
+    jobs: Mutex<HashMap<String, std::sync::Arc<std::sync::atomic::AtomicBool>>>,
     /// run_id -> (connection id, server-side connection id) of queries currently executing.
     running: Mutex<HashMap<String, (i64, u32)>>,
 }
@@ -286,20 +288,182 @@ async fn fk_lookup(state: tauri::State<'_, AppState>, id: i64, ref_schema: Strin
     myq_data::lookup(&mut c, &meta, &ref_column, &search, 100).await.map_err(err)
 }
 
+#[derive(serde::Serialize)]
+struct ExportSummary {
+    rows: u64,
+    warnings: Vec<String>,
+}
+
 /// Export every row matching `spec` to `path`. A partial file is removed on failure.
 #[tauri::command]
-async fn export_table(state: tauri::State<'_, AppState>, id: i64, db: String, table: String, spec: PageSpec, options: ExportOptions, path: String) -> Result<u64, String> {
+async fn export_table(state: tauri::State<'_, AppState>, id: i64, db: String, table: String, spec: PageSpec, options: ExportOptions, path: String) -> Result<ExportSummary, String> {
     let mut c = conn_for(&state, id).await?;
     let meta = myq_data::table_meta(&mut c, &db, &table).await.map_err(err)?;
-    let file = std::fs::File::create(&path).map_err(err)?;
-    let mut out = std::io::BufWriter::new(file);
-    let result = myq_data::export_rows(&mut c, &meta, &spec, &options, &mut out).await;
-    let flushed = std::io::Write::flush(&mut out);
-    match (result, flushed) {
-        (Ok(n), Ok(())) => Ok(n),
-        (Err(e), _) => { let _ = std::fs::remove_file(&path); Err(err(e)) }
-        (_, Err(e)) => { let _ = std::fs::remove_file(&path); Err(err(e)) }
+    let options = ExportOptions { name: options.name.clone().or_else(|| Some(table.clone())), ..options };
+    match myq_data::export_rows(&mut c, &meta, &spec, &options, myq_data::Dest::File(std::path::Path::new(&path))).await {
+        Ok(o) => Ok(ExportSummary { rows: o.rows, warnings: o.warnings }),
+        Err(e) => {
+            let _ = std::fs::remove_file(&path);
+            Err(err(e))
+        }
     }
+}
+
+/// Export the result of one SELECT to a file.
+#[tauri::command]
+async fn export_query(state: tauri::State<'_, AppState>, id: i64, database: Option<String>, sql: String, options: ExportOptions, path: String) -> Result<ExportSummary, String> {
+    let mut c = conn_for(&state, id).await?;
+    match myq_data::export_query(&mut c, database.as_deref(), &sql, &options, myq_data::Dest::File(std::path::Path::new(&path))).await {
+        Ok(o) => Ok(ExportSummary { rows: o.rows, warnings: o.warnings }),
+        Err(e) => {
+            let _ = std::fs::remove_file(&path);
+            Err(err(e))
+        }
+    }
+}
+
+// ---- backup, restore and import jobs ----
+
+/// What the UI hears while a job runs. At most one event per 100 ms, plus the first and the last.
+#[derive(serde::Serialize, Clone)]
+struct JobEvent {
+    job_id: String,
+    #[serde(flatten)]
+    progress: myq_transfer::Progress,
+}
+
+fn job_progress(app: tauri::AppHandle, job_id: String) -> impl FnMut(myq_transfer::Progress) + Send {
+    let mut last: Option<std::time::Instant> = None;
+    move |progress| {
+        let finished = progress.total.is_some_and(|t| progress.done >= t);
+        if finished || last.map_or(true, |t| t.elapsed().as_millis() >= 100) {
+            last = Some(std::time::Instant::now());
+            let _ = app.emit("job-progress", JobEvent { job_id: job_id.clone(), progress });
+        }
+    }
+}
+
+/// Register a cancel flag for the job and remove it when the guard drops.
+struct JobGuard<'a> {
+    state: &'a AppState,
+    id: String,
+    flag: std::sync::Arc<std::sync::atomic::AtomicBool>,
+}
+
+impl<'a> JobGuard<'a> {
+    fn start(state: &'a AppState, id: &str) -> JobGuard<'a> {
+        let flag = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        state.jobs.lock().unwrap().insert(id.to_string(), flag.clone());
+        JobGuard { state, id: id.to_string(), flag }
+    }
+}
+
+impl Drop for JobGuard<'_> {
+    fn drop(&mut self) {
+        self.state.jobs.lock().unwrap().remove(&self.id);
+    }
+}
+
+#[tauri::command]
+fn cancel_job(state: tauri::State<AppState>, job_id: String) {
+    if let Some(flag) = state.jobs.lock().unwrap().get(&job_id) {
+        flag.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+#[tauri::command]
+fn csv_sniff(path: String) -> Result<char, String> {
+    myq_transfer::sniff_delimiter(std::path::Path::new(&path)).map_err(err)
+}
+
+#[tauri::command]
+fn csv_preview(path: String, format: myq_transfer::CsvFormat, limit: usize) -> Result<myq_transfer::CsvPreview, String> {
+    myq_transfer::preview_csv(std::path::Path::new(&path), &format, limit.clamp(1, 500)).map_err(err)
+}
+
+#[tauri::command]
+fn csv_infer(path: String, format: myq_transfer::CsvFormat) -> Result<Vec<myq_transfer::InferredColumn>, String> {
+    myq_transfer::infer_schema(std::path::Path::new(&path), &format, 1000).map_err(err)
+}
+
+/// Create a table from inferred (and user-edited) columns, for "import into a new table".
+#[tauri::command]
+async fn csv_create_table(state: tauri::State<'_, AppState>, id: i64, db: String, table: String, columns: Vec<myq_transfer::InferredColumn>) -> Result<Vec<Node>, String> {
+    use myq_schema::ddl::{create_table_sql, parse_column_type, ColumnDef, TableDef};
+    let def = TableDef {
+        name: table,
+        columns: columns
+            .iter()
+            .map(|c| {
+                let (data_type, params, unsigned, zerofill) = parse_column_type(&c.column_type);
+                ColumnDef { name: c.name.clone(), data_type, params, unsigned, zerofill, nullable: true, ..Default::default() }
+            })
+            .collect(),
+        ..Default::default()
+    };
+    let sql = create_table_sql(Some(&db), &def).map_err(err)?;
+    let mut c = conn_for(&state, id).await?;
+    myq_admin::run_statements(&mut c, std::slice::from_ref(&sql)).await.map_err(err)?;
+    let _ = state.store.lock().unwrap().add_history(id, &sql, 0, true);
+    reindex(&state, id).await
+}
+
+#[tauri::command]
+async fn import_csv_job(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    id: i64,
+    job_id: String,
+    path: String,
+    format: myq_transfer::CsvFormat,
+    plan: myq_transfer::ImportPlan,
+) -> Result<myq_transfer::ImportResult, String> {
+    let mut c = conn_for(&state, id).await?;
+    let guard = JobGuard::start(&state, &job_id);
+    let mut progress = job_progress(app, job_id);
+    let result = myq_transfer::import_csv(&mut c, std::path::Path::new(&path), &format, &plan, &mut progress, &guard.flag).await;
+    let _ = state.store.lock().unwrap().add_history(id, &format!("IMPORT CSV {path} INTO {}.{}", plan.database, plan.table), 0, result.is_ok());
+    result.map_err(err)
+}
+
+/// Run a `.sql` file, a `.zip` of them, or a folder of them. The schema may change, so the index is rebuilt after.
+#[tauri::command]
+async fn run_sql_source_job(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    id: i64,
+    job_id: String,
+    path: String,
+    options: myq_transfer::RunOptions,
+) -> Result<myq_transfer::RunResult, String> {
+    let result = {
+        let mut c = conn_for(&state, id).await?;
+        let guard = JobGuard::start(&state, &job_id);
+        let mut progress = job_progress(app, job_id);
+        myq_transfer::run_source(&mut c, std::path::Path::new(&path), &options, &mut progress, &guard.flag).await
+    };
+    let _ = state.store.lock().unwrap().add_history(id, &format!("RESTORE {path}"), 0, result.is_ok());
+    let _ = reindex(&state, id).await;
+    result.map_err(err)
+}
+
+#[tauri::command]
+async fn backup_job(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    id: i64,
+    job_id: String,
+    options: myq_transfer::BackupOptions,
+    dir: String,
+    name: String,
+) -> Result<myq_transfer::BackupResult, String> {
+    let mut c = conn_for(&state, id).await?;
+    let guard = JobGuard::start(&state, &job_id);
+    let mut progress = job_progress(app, job_id);
+    let target = myq_transfer::BackupTarget { dir: dir.into(), name };
+    let result = myq_transfer::backup(&mut c, &options, &target, &mut progress, &guard.flag).await;
+    let _ = state.store.lock().unwrap().add_history(id, &format!("BACKUP {}", options.databases.iter().map(|d| d.name.as_str()).collect::<Vec<_>>().join(", ")), 0, result.is_ok());
+    result.map_err(err)
 }
 
 // ---- server tools ----
@@ -664,7 +828,7 @@ pub fn run() {
             let dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&dir)?;
             let store = Store::open(&dir.join("mylodb.sqlite"), Box::new(Keychain))?;
-            app.manage(AppState { store: Mutex::new(store), sessions: Mutex::new(HashMap::new()), running: Mutex::new(HashMap::new()) });
+            app.manage(AppState { store: Mutex::new(store), sessions: Mutex::new(HashMap::new()), running: Mutex::new(HashMap::new()), jobs: Mutex::new(HashMap::new()) });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -723,7 +887,16 @@ pub fn run() {
             error_log,
             slow_log,
             binary_logs,
-            binlog_events
+            binlog_events,
+            export_query,
+            cancel_job,
+            csv_sniff,
+            csv_preview,
+            csv_infer,
+            csv_create_table,
+            import_csv_job,
+            run_sql_source_job,
+            backup_job
         ])
         .run(tauri::generate_context!())
         .expect("error while running MyLoDB");

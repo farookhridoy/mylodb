@@ -11,7 +11,7 @@ cd apps/desktop
 npm install
 npm run tauri dev      # launches the app with hot reload
 cargo test             # from the repo root: Rust unit + MySQL integration tests
-npm run e2e            # UI tests of the grid, designer, users manager, editor and server tools (needs `npm run dev` running and CHROME_PATH set)
+npm run e2e            # UI tests of the grid, designer, users manager, editor, server tools and transfers (needs `npm run dev` running and CHROME_PATH set)
 ```
 
 Integration tests use a local MySQL (`MYLODB_TEST_HOST/PORT/USER/PASSWORD`) and create/drop only their own `mylodb_itest_*` database.
@@ -24,4 +24,5 @@ Integration tests use a local MySQL (`MYLODB_TEST_HOST/PORT/USER/PASSWORD`) and 
 - Phase 4 (done): table designer (columns, types, defaults, generated columns, indexes, foreign keys, engine/charset/collation, live SQL preview, reads `information_schema`, diffs the original against your edit into a minimal ordered `ALTER TABLE` sequence, renames/moves keep data), table operations (duplicate, rename, truncate and drop with type-to-confirm), create/drop database, and a user and privilege manager (create/rename/lock/drop users, global, database, table and column privileges, shown as the exact `GRANT`/`REVOKE` diff with passwords masked).
 - Phase 5 (done): context-aware autocomplete (tables, columns, aliases, `db.` qualifiers, functions, keywords; quoting of reserved/special names; works from the in-memory object index, so no server round trip), SQL formatter (indent, keyword case; selection or whole script; ⇧⌘F), Explain / Explain Analyze with plain-language hints and a collapsible JSON plan, and a query profiler (stage timings from `SHOW PROFILE` plus the rows read, sorts and temp tables the statement caused). Autocomplete rebuilds after DDL and from the tree's ⟳ button.
 - Phase 6 (done): SSH tunnelling (password or private key; the host key is shown for confirmation on first use and a changed key blocks the connection), SSL modes (verify, verify CA only, skip verify) with CA and client certificate files, a *Test connection* button, and a Server tab: overview with live queries/s and connections, process list (stop query / kill connection), global variables (edit with confirmation, server warnings shown), status with per-second rates, CHECK / ANALYZE / OPTIMIZE / REPAIR for many tables at once, and logs (error log, slow queries, binary logs and events, log settings).
-- Next: Phase 7 — import (CSV, SQL), XLSX/XML/HTML export, backup to a zip with file-per-table, restore.
+- Phase 7 (done): backup to SQL (structure, data, views, routines, triggers, events; one consistent snapshot; one file or a file per table; optional .zip; timestamped names; cancellable, partial output removed), restore from a .sql file, a .zip or a folder (streamed from disk, errors listed with line numbers), CSV import (delimiter detection, preview, encodings, column mapping, insert/skip/update/replace, all-or-nothing or continue-on-error, create a table from the file), and export of tables or any SELECT to CSV, JSON, SQL INSERT, XML, HTML or Excel.
+- Next: Phase 8 — first public beta (signed `.dmg`, Homebrew cask, documentation).

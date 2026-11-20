@@ -105,7 +105,11 @@ export type Change =
   | { op: "delete"; key: Assign[] };
 export interface CellData { is_null: boolean; len: number; truncated: boolean; base64: string | null }
 export interface LookupItem { value: string; label: string | null }
-export type ExportFormat = "csv" | "json" | "sql_insert";
+export type ExportFormat = "csv" | "json" | "sql_insert" | "xml" | "html" | "xlsx";
+export const EXPORT_FORMATS: { format: ExportFormat; label: string; ext: string }[] = [
+  { format: "csv", label: "CSV", ext: "csv" }, { format: "json", label: "JSON", ext: "json" }, { format: "sql_insert", label: "SQL INSERT", ext: "sql" },
+  { format: "xml", label: "XML", ext: "xml" }, { format: "html", label: "HTML table", ext: "html" }, { format: "xlsx", label: "Excel (XLSX)", ext: "xlsx" },
+];
 
 export const dataApi = {
   meta: (id: number, db: string, table: string) => invoke<TableMeta>("table_meta", { id, db, table }),
@@ -122,7 +126,7 @@ export const dataApi = {
   lookup: (id: number, refSchema: string, refTable: string, refColumn: string, search: string) =>
     invoke<LookupItem[]>("fk_lookup", { id, refSchema, refTable, refColumn, search }),
   exportTable: (id: number, db: string, table: string, spec: PageSpec, format: ExportFormat, nullText: string, path: string) =>
-    invoke<number>("export_table", { id, db, table, spec, options: { format, null_text: nullText }, path }),
+    invoke<{ rows: number; warnings: string[] }>("export_table", { id, db, table, spec, options: { format, null_text: nullText }, path }),
 };
 
 // ---- schema designer ----
@@ -240,4 +244,51 @@ export const serverApi = {
   slowLog: (id: number, limit: number, search: string) => invoke<SlowQuery[]>("slow_log", { id, limit, search }),
   binaryLogs: (id: number) => invoke<BinaryLog[]>("binary_logs", { id }),
   binlogEvents: (id: number, file: string, fromPos: number, limit: number) => invoke<BinlogEvent[]>("binlog_events", { id, file, fromPos, limit }),
+};
+
+// ---- backup, restore, import, export ----
+import { listen } from "@tauri-apps/api/event";
+
+export interface JobProgress { job_id: string; phase: string; done: number; total: number | null; message: string }
+export interface CsvFormat { delimiter: string; quote: string; has_header: boolean; encoding: string; null_text: string | null; trim: boolean }
+export interface CsvPreview { headers: string[]; rows: string[][]; column_count: number; more: boolean }
+export interface InferredColumn { name: string; column_type: string }
+export type ImportMode = "insert" | "ignore" | "replace" | "update";
+export interface ImportPlan {
+  database: string; table: string; mapping: (string | null)[]; mode: ImportMode; batch_rows: number;
+  stop_on_error: boolean; truncate_first: boolean; empty_as_null: boolean;
+}
+export interface ImportResult {
+  rows_read: number; affected_rows: number; errors: { line: number; message: string }[]; ragged_rows: number; aborted: boolean;
+  rolled_back: boolean; warnings: string[]; elapsed_ms: number;
+}
+export interface RunOptions { stop_on_error: boolean; disable_fk_checks: boolean; database: string | null }
+export interface RunResult {
+  files: number; statements: number; failed: number; aborted: boolean; elapsed_ms: number;
+  errors: { file: string; line: number; statement: string; message: string }[];
+}
+export interface BackupOptions {
+  databases: { name: string; tables: string[] | null }[]; structure: boolean; data: boolean; drop_if_exists: boolean; create_database: boolean;
+  views: boolean; routines: boolean; triggers: boolean; events: boolean; rows_per_insert: number; snapshot: boolean; disable_fk_checks: boolean;
+  strip_definer: boolean; file_per_table: boolean; compress: boolean;
+}
+export interface BackupResult { path: string; files: number; databases: number; tables: number; rows: number; bytes: number; warnings: string[]; elapsed_ms: number }
+
+/** Subscribe to one job's progress. Returns the function that stops listening. */
+export async function onJobProgress(jobId: string, cb: (p: JobProgress) => void): Promise<() => void> {
+  const un = await listen<JobProgress>("job-progress", (e) => { if (e.payload.job_id === jobId) cb(e.payload); });
+  return () => { un(); };
+}
+
+export const transferApi = {
+  sniff: (path: string) => invoke<string>("csv_sniff", { path }),
+  preview: (path: string, format: CsvFormat, limit = 20) => invoke<CsvPreview>("csv_preview", { path, format, limit }),
+  infer: (path: string, format: CsvFormat) => invoke<InferredColumn[]>("csv_infer", { path, format }),
+  createTable: (id: number, db: string, table: string, columns: InferredColumn[]) => invoke<Node[]>("csv_create_table", { id, db, table, columns }),
+  importCsv: (id: number, jobId: string, path: string, format: CsvFormat, plan: ImportPlan) => invoke<ImportResult>("import_csv_job", { id, jobId, path, format, plan }),
+  runSource: (id: number, jobId: string, path: string, options: RunOptions) => invoke<RunResult>("run_sql_source_job", { id, jobId, path, options }),
+  backup: (id: number, jobId: string, options: BackupOptions, dir: string, name: string) => invoke<BackupResult>("backup_job", { id, jobId, options, dir, name }),
+  cancel: (jobId: string) => invoke<void>("cancel_job", { jobId }),
+  exportQuery: (id: number, database: string | null, sql: string, format: ExportFormat, nullText: string, path: string) =>
+    invoke<{ rows: number; warnings: string[] }>("export_query", { id, database, sql, options: { format, null_text: nullText }, path }),
 };

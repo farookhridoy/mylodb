@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "tauri": "tauri",
-    "e2e": "node e2e/run.mjs && node e2e/designer.mjs && node e2e/editor.mjs && node e2e/server.mjs"
+    "e2e": "node e2e/run.mjs && node e2e/designer.mjs && node e2e/editor.mjs && node e2e/server.mjs && node e2e/transfer.mjs"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.20.4",

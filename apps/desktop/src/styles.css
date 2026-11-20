@@ -182,3 +182,17 @@ td.val { max-width: 560px; overflow: hidden; text-overflow: ellipsis; font-famil
 .vars .note { padding: 6px 12px; } tr.ok td:first-child { border-left: 3px solid #4cc38a; } tr.bad td:first-child { border-left: 3px solid #e5484d; } tr.warn td:first-child { border-left: 3px solid #f5a742; }
 .logtable td.msg { white-space: pre-wrap; word-break: break-word; max-width: 900px; font-family: "SF Mono", Menlo, monospace; font-size: 12px; }
 .logtable tr.lvl-error td:nth-child(2) { color: #ff8b8b; } .logtable tr.lvl-warning td:nth-child(2) { color: #f5a742; } .logtable tr.lvl-system td:nth-child(2) { color: #6aa3ff; }
+
+/* ---- transfer ---- */
+.transfer { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.xfer-form { padding: 12px 16px; display: flex; flex-direction: column; gap: 12px; }
+.xfer-cols { display: flex; gap: 28px; flex-wrap: wrap; align-items: flex-start; } .xfer-cols section { display: flex; flex-direction: column; gap: 8px; min-width: 260px; max-width: 420px; flex: 1; }
+.xfer-cols section.wide { max-width: 760px; flex: 3; } .xfer-form h4 { margin: 0 0 2px; }
+.xfer-form label { display: flex; flex-direction: column; gap: 4px; color: var(--dim); } .xfer-form label.check { flex-direction: row; align-items: center; gap: 6px; color: var(--text); }
+.xfer-form .row { display: flex; gap: 10px; } .db-pick { display: flex; flex-direction: column; gap: 4px; max-height: 260px; overflow: auto; } .tbl-sub { margin: 4px 0 4px 22px; display: flex; flex-direction: column; gap: 3px; max-height: 160px; overflow: auto; }
+.sql-box { width: 100%; min-height: 120px; font: 12px "SF Mono", Menlo, monospace; background: #12151d; color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 8px; resize: vertical; }
+.job-progress { display: flex; flex-direction: column; gap: 4px; } .job-progress .bar { height: 8px; background: #232a3b; border-radius: 4px; overflow: hidden; } .job-progress .bar div { height: 100%; background: var(--accent); transition: width .15s; }
+.job-progress .bar div.indeterminate { animation: slide 1.1s infinite ease-in-out; } @keyframes slide { 0% { margin-left: -30%; } 100% { margin-left: 100%; } }
+.job-line { display: flex; align-items: center; gap: 8px; color: var(--dim); }
+.result-card code { font: 12px "SF Mono", Menlo, monospace; word-break: break-all; } .err-table { max-height: 260px; border: 1px solid var(--line); border-radius: 6px; }
+.map-table { max-height: 340px; border: 1px solid var(--line); border-radius: 6px; } .map-table th select, .map-table th input { width: 100%; min-width: 110px; } .map-table th.csvh { font-weight: 400; color: var(--dim); background: #1a1f2c; }

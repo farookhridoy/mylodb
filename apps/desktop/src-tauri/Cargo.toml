@@ -20,6 +20,7 @@ myq-admin = { path = "../../../crates/myq-admin" }
 myq-sql = { path = "../../../crates/myq-sql" }
 myq-profile = { path = "../../../crates/myq-profile" }
 myq-tunnel = { path = "../../../crates/myq-tunnel" }
+myq-transfer = { path = "../../../crates/myq-transfer" }
 tauri-plugin-dialog = "2"
 base64 = "0.22"
 

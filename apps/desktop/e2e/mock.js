@@ -36,13 +36,56 @@ function filtered(t, spec) {
   }
   return rows;
 }
+const nodes = () => [
+  { database: "shop", kind: "database", name: "shop", parent: null },
+  { database: "shop", kind: "table", name: "customers", parent: null },
+  { database: "shop", kind: "table", name: "orders", parent: null },
+  ...Object.keys(meta).flatMap((t) => meta[t].columns.map(([name]) => ({ database: "shop", kind: "column", name, parent: t }))),
+];
+const colDef = ([name, d, ai, nullable]) => ({
+  name, original_name: name, data_type: d === "int" ? "int" : d, params: d === "varchar" ? "40" : d === "decimal" ? "10,2" : null, unsigned: false, zerofill: false,
+  nullable: !!nullable, default: { kind: "none" }, auto_increment: !!ai, charset: null, collation: null, comment: "", on_update: null, generated: null, invisible: false,
+});
+const defs = {};
+const defOf = (t) => defs[t] ?? (defs[t] = {
+  name: t, engine: "InnoDB", charset: "utf8mb4", collation: "utf8mb4_0900_ai_ci", comment: "",
+  columns: meta[t].columns.map(colDef),
+  indexes: [{ name: "PRIMARY", original_name: "PRIMARY", kind: "primary", columns: [{ name: "id", length: null, desc: false }] }],
+  foreign_keys: meta[t].fks.map((f) => ({ ...f, original_name: f.name, on_delete: "restrict", on_update: "restrict" })),
+});
+const accounts = [
+  { user: "app", host: "%", locked: false, password_expired: false, plugin: "caching_sha2_password" },
+  { user: "report", host: "localhost", locked: true, password_expired: false, plugin: "caching_sha2_password" },
+];
+const grants = { app: { scopes: [
+  { level: "database", db: "shop", privileges: ["SELECT", "UPDATE"], columns: {}, grant_option: false },
+  { level: "table", db: "shop", table: "orders", privileges: [], columns: { SELECT: ["id"] }, grant_option: false },
+], unsupported: ["GRANT `role1`@`%` TO `app`@`%`"] }, report: { scopes: [], unsupported: [] } };
 const handlers = {
+  server_options: () => ({ engines: ["InnoDB", "MyISAM"], charsets: [["utf8mb4", ["utf8mb4_0900_ai_ci", "utf8mb4_bin"], "utf8mb4_0900_ai_ci"], ["latin1", ["latin1_swedish_ci"], "latin1_swedish_ci"]] }),
+  table_def: (a) => ({ def: JSON.parse(JSON.stringify(defOf(a.table))), warnings: [] }),
+  ddl_preview: (a) => {
+    const errors = a.desired.name.trim() ? [] : ["table name is empty"];
+    const changed = JSON.stringify(a.original) !== JSON.stringify(a.desired);
+    return { statements: changed && !errors.length ? [`-- ${a.original ? "ALTER" : "CREATE"} ${a.desired.name}`] : [], errors };
+  },
+  ddl_apply: (a) => {
+    window.__applied = JSON.parse(JSON.stringify(a));
+    const d = JSON.parse(JSON.stringify(a.desired));
+    d.columns.forEach((c) => (c.original_name = c.name)); d.indexes.forEach((i) => (i.original_name = i.name)); d.foreign_keys.forEach((f) => (f.original_name = f.name));
+    defs[d.name] = d; meta[d.name] = meta[d.name] ?? { columns: [], pk: [], fks: [] };
+    return ["-- applied"];
+  },
+  table_op: (a) => { window.__tableOps = [...(window.__tableOps || []), { table: a.table, operation: a.operation }]; return []; },
+  database_op: (a) => { window.__dbOps = [...(window.__dbOps || []), a.operation]; return "-- ok"; },
+  accounts_list: () => accounts,
+  account_grants: (a) => JSON.parse(JSON.stringify(grants[a.user] ?? { scopes: [], unsupported: [] })),
+  account_preview: (a) => { window.__lastPreview = JSON.parse(JSON.stringify(a)); return [`-- ${a.original ? "ALTER" : "CREATE"} ${a.edit.user}`]; },
+  account_apply: (a) => { window.__accountApplied = JSON.parse(JSON.stringify(a)); return 2; },
+  account_drop: (a) => { window.__dropped = a; return null; },
   list_connections: () => [{ id: 1, name: "Local", color: "#4f8cff", host: "127.0.0.1", port: 3306, user: "root", database: null, ssl: "disabled" }],
-  connect: () => [
-    { database: "shop", kind: "database", name: "shop", parent: null },
-    { database: "shop", kind: "table", name: "customers", parent: null },
-    { database: "shop", kind: "table", name: "orders", parent: null },
-  ],
+  connect: () => nodes(),
+  refresh_index: () => { window.__refreshed = (window.__refreshed || 0) + 1; return nodes(); },
   disconnect: () => null, session_get: () => null, session_set: () => null, history_list: () => [], favorites_list: () => [],
   list_databases: () => ["shop"], filter_index: () => [],
   table_meta: (a) => metaOf(a.table),

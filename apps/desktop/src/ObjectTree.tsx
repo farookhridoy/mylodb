@@ -17,6 +17,7 @@ export default function ObjectTree(props: {
   terms: string[];
   onOpenTable(database: string, table: string): void;
   onTableMenu(e: React.MouseEvent, database: string, table: string): void;
+  onDatabaseMenu(e: React.MouseEvent, database: string | null): void;
 }) {
   const [open, setOpen] = useState<Set<string>>(new Set());
   const tree = useMemo(() => buildTree(props.index, props.matches), [props.index, props.matches]);
@@ -31,12 +32,12 @@ export default function ObjectTree(props: {
   if (filtering && tree.length === 0) return <div className="empty">No matching objects</div>;
 
   return (
-    <ul className="tree">
+    <ul className="tree" onContextMenu={(e) => e.target === e.currentTarget && props.onDatabaseMenu(e, null)}>
       {tree.map((db) => {
         const total = db.groups.reduce((n, g) => n + g.items.length, 0);
         return (
           <li key={db.name}>
-            <div className="row-item db" onClick={() => toggle(db.name)}>
+            <div className="row-item db" onClick={() => toggle(db.name)} onContextMenu={(e) => props.onDatabaseMenu(e, db.name)}>
               <span className="chev">{isOpen(db.name) ? "▾" : "▸"}</span>
               <span className="icon">🛢</span>
               <Highlight text={db.name} terms={props.terms} />

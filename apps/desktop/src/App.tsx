@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api, queryApi, type Favorite, type Node, type SavedConnection } from "./api";
+import { api, queryApi, schemaApi, type Favorite, type Node, type SavedConnection, type TableOp } from "./api";
 import ConnectionDialog from "./ConnectionDialog";
 import ContextMenu, { type MenuItem } from "./ContextMenu";
 import DataGrid, { defaultView, type GridView } from "./DataGrid";
+import { PromptDialog, TypeConfirmDialog } from "./Dialogs";
+import TableDesigner from "./TableDesigner";
+import UsersManager from "./UsersManager";
 import Editor, { type EditorHandle } from "./Editor";
 import ObjectTree from "./ObjectTree";
 import ResultsPane, { type RunState } from "./ResultsPane";
@@ -11,11 +14,14 @@ import { ConfirmDialog, FavoritesPanel, HistoryPanel, SaveFavoriteDialog } from 
 /** A SQL editor tab, or a table data tab (`kind: "table"`). Tabs saved before table tabs existed have no kind. */
 interface QueryTab {
   id: string; title: string; sql: string; database: string | null;
-  kind?: "sql" | "table";
-  table?: { db: string; name: string };
+  kind?: "sql" | "table" | "designer" | "users";
+  /// For `table` tabs: the table shown. For `designer` tabs: the table edited (`name: null` = a new table).
+  table?: { db: string; name: string | null };
   grid?: GridView;
 }
 const isTable = (t: QueryTab | undefined) => t?.kind === "table";
+/** Tabs that are not SQL editors (the editor stays mounted behind them). */
+const isSql = (t: QueryTab | undefined) => !t || !t.kind || t.kind === "sql";
 type Side = "objects" | "history" | "favorites";
 
 let counter = 0;
@@ -43,6 +49,8 @@ export default function App() {
   const [panelKey, setPanelKey] = useState(0);
   const [treeMenu, setTreeMenu] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null);
   const lastSqlTab = useRef("");
+  const [prompt, setPrompt] = useState<React.ComponentProps<typeof PromptDialog> | null>(null);
+  const [typeConfirm, setTypeConfirm] = useState<React.ComponentProps<typeof TypeConfirmDialog> | null>(null);
   const [restored, setRestored] = useState(false);
 
   const editor = useRef<EditorHandle>(null);
@@ -53,8 +61,8 @@ export default function App() {
   useEffect(() => { refresh(); }, [refresh]);
   const active = connections.find((c) => c.id === activeId);
   const tab = tabs.find((t) => t.id === activeTab);
-  if (tab && !isTable(tab)) lastSqlTab.current = tab.id;
-  const editorTab = tabs.find((t) => t.id === lastSqlTab.current && !isTable(t)) ?? tabs.find((t) => !isTable(t));
+  if (tab && isSql(tab)) lastSqlTab.current = tab.id;
+  const editorTab = tabs.find((t) => t.id === lastSqlTab.current && isSql(t)) ?? tabs.find((t) => isSql(t));
   const databases = useMemo(() => index.filter((n) => n.kind === "database").map((n) => n.name), [index]);
 
   // ---- connect / session restore ----
@@ -69,7 +77,7 @@ export default function App() {
         const saved = await queryApi.sessionGet(id);
         if (saved) {
           const s = JSON.parse(saved) as { tabs: QueryTab[]; active: string };
-          restoredTabs = s.tabs.filter((t) => typeof t.id === "string" && (isTable(t) ? !!t.table : typeof t.sql === "string"))
+          restoredTabs = s.tabs.filter((t) => typeof t.id === "string" && (t.kind === "users" || (t.kind === "table" || t.kind === "designer" ? !!t.table : typeof t.sql === "string")))
             .map((t) => (isTable(t) ? { ...t, grid: { ...defaultView(), ...t.grid } } : t));
           restoredActive = s.active;
         }
@@ -196,6 +204,78 @@ export default function App() {
     runSql(t.id, sql, database);
   };
 
+  // ---- schema tools ----
+  const reloadIndex = async () => { if (activeId !== null) setIndex(await schemaApi.refreshIndex(activeId)); };
+
+  const openDesigner = (database: string, table: string | null) => {
+    const existing = tabs.find((t) => t.kind === "designer" && t.table?.db === database && t.table.name === table && table !== null);
+    if (existing) return setActiveTab(existing.id);
+    const t: QueryTab = { id: uid(), title: table ?? "New table", sql: "", database, kind: "designer", table: { db: database, name: table } };
+    setTabs([...tabs, t]);
+    setActiveTab(t.id);
+  };
+
+  const openUsers = () => {
+    const existing = tabs.find((t) => t.kind === "users");
+    if (existing) return setActiveTab(existing.id);
+    const t: QueryTab = { id: uid(), title: "Users", sql: "", database: null, kind: "users" };
+    setTabs([...tabs, t]);
+    setActiveTab(t.id);
+  };
+
+  /// Run a table operation, then refresh the tree and fix up any tabs that referred to the table.
+  const runTableOp = async (database: string, table: string, operation: TableOp) => {
+    if (activeId === null) return;
+    try {
+      await schemaApi.tableOp(activeId, database, table, operation);
+      await reloadIndex();
+      const refers = (t: QueryTab) => (t.kind === "table" || t.kind === "designer") && t.table?.db === database && t.table.name === table;
+      if (operation.op === "drop") {
+        const rest = tabs.filter((t) => !refers(t));
+        const next = rest.length ? rest : [newTab(1)];
+        setTabs(next);
+        if (!next.some((t) => t.id === activeTab)) setActiveTab(next[0].id);
+      } else if (operation.op === "rename") {
+        setTabs(tabs.map((t) => (refers(t) ? { ...t, title: operation.to, table: { db: database, name: operation.to } } : t)));
+      } else if (operation.op === "truncate") {
+        setTabs([...tabs]); // data tabs reload when reopened; nothing to rewrite
+      }
+      setStatus(`${operation.op} ${database}.${table}: done`);
+    } catch (e) { setStatus(`Error: ${e}`); }
+  };
+
+  const tableMenu = (e: React.MouseEvent, d: string, t: string) => {
+    e.preventDefault();
+    setTreeMenu({ x: e.clientX, y: e.clientY, items: [
+      { label: "Open data", onClick: () => openTable(d, t) },
+      { label: "Design table…", onClick: () => openDesigner(d, t) },
+      { label: "Select in SQL editor", onClick: () => selectInEditor(d, t) },
+      { separator: true },
+      { label: "Duplicate…", onClick: () => setPrompt({ title: `Duplicate ${t}`, label: "New table name", initial: `${t}_copy`, confirmLabel: "Duplicate", option: { label: "Copy the rows too", initial: false },
+          onCancel: () => setPrompt(null), onSubmit: (to, withData) => { setPrompt(null); runTableOp(d, t, { op: "duplicate", to, with_data: withData }); } }) },
+      { label: "Rename…", onClick: () => setPrompt({ title: `Rename ${t}`, label: "New name", initial: t, confirmLabel: "Rename",
+          onCancel: () => setPrompt(null), onSubmit: (to) => { setPrompt(null); if (to !== t) runTableOp(d, t, { op: "rename", to }); } }) },
+      { separator: true },
+      { label: "Truncate…", onClick: () => setTypeConfirm({ title: `Truncate ${t}`, message: `All rows of ${d}.${t} will be deleted and cannot be restored.`, expect: t, confirmLabel: "Truncate",
+          onCancel: () => setTypeConfirm(null), onConfirm: () => { setTypeConfirm(null); runTableOp(d, t, { op: "truncate" }); } }) },
+      { label: "Drop…", onClick: () => setTypeConfirm({ title: `Drop ${t}`, message: `The table ${d}.${t} and all its data will be permanently deleted.`, expect: t, confirmLabel: "Drop table",
+          onCancel: () => setTypeConfirm(null), onConfirm: () => { setTypeConfirm(null); runTableOp(d, t, { op: "drop" }); } }) },
+      { separator: true },
+      { label: "Copy name", onClick: () => navigator.clipboard.writeText(t) },
+    ] });
+  };
+
+  const databaseMenu = (e: React.MouseEvent, d: string | null) => {
+    e.preventDefault();
+    const items: MenuItem[] = [];
+    if (d) items.push({ label: "New table…", onClick: () => openDesigner(d, null) }, { separator: true });
+    items.push({ label: "Create database…", onClick: () => setPrompt({ title: "Create database", label: "Database name", confirmLabel: "Create",
+      onCancel: () => setPrompt(null), onSubmit: async (name) => { setPrompt(null); try { await schemaApi.databaseOp(activeId!, { op: "create", name, charset: "utf8mb4", collation: null }); await reloadIndex(); } catch (err) { setStatus(`Error: ${err}`); } } }) });
+    if (d) items.push({ label: "Drop database…", onClick: () => setTypeConfirm({ title: `Drop database ${d}`, message: `The database ${d} with all its tables and data will be permanently deleted.`, expect: d, confirmLabel: "Drop database",
+      onCancel: () => setTypeConfirm(null), onConfirm: async () => { setTypeConfirm(null); try { await schemaApi.databaseOp(activeId!, { op: "drop", name: d }); await reloadIndex(); setTabs(tabs.filter((t) => t.table?.db !== d || t.kind === "sql")); } catch (err) { setStatus(`Error: ${err}`); } } }) });
+    setTreeMenu({ x: e.clientX, y: e.clientY, items });
+  };
+
   const running = editorTab ? runs[editorTab.id]?.running : false;
   const insertIntoEditor = (sql: string) => editor.current?.insert(sql);
 
@@ -228,6 +308,7 @@ export default function App() {
           <button title="New connection" onClick={() => setDialog("new")}>＋</button>
           <button title="Edit connection" disabled={!active} onClick={() => active && setDialog(active)}>✎</button>
           <button title="Delete connection" disabled={!active} onClick={() => setConfirmDelete(true)}>🗑</button>
+          <button title="Users and privileges" disabled={activeId === null} onClick={openUsers}>👤</button>
         </div>
         <div className="side-tabs">
           {(["objects", "history", "favorites"] as Side[]).map((s) => (
@@ -252,15 +333,7 @@ export default function App() {
             <div className="tree-wrap">
               {activeId === null
                 ? <div className="empty">Create or select a connection</div>
-                : <ObjectTree index={index} matches={matches} terms={terms} onOpenTable={(d, t) => openTable(d, t)} onTableMenu={(e, d, t) => {
-                    e.preventDefault();
-                    setTreeMenu({ x: e.clientX, y: e.clientY, items: [
-                      { label: "Open data", onClick: () => openTable(d, t) },
-                      { label: "Select in SQL editor", onClick: () => selectInEditor(d, t) },
-                      { separator: true },
-                      { label: "Copy name", onClick: () => navigator.clipboard.writeText(t) },
-                    ] });
-                  }} />}
+                : <ObjectTree index={index} matches={matches} terms={terms} onOpenTable={(d, t) => openTable(d, t)} onTableMenu={tableMenu} onDatabaseMenu={databaseMenu} />}
             </div>
           </>
         )}
@@ -280,7 +353,7 @@ export default function App() {
             <div className="query-tabs" style={{ borderBottomColor: active?.color }}>
               {tabs.map((t) => (
                 <div key={t.id} className={`qtab ${t.id === activeTab ? "active" : ""}`} onClick={() => setActiveTab(t.id)}>
-                  {isTable(t) ? "▦ " : ""}{runs[t.id]?.running ? "⏳ " : ""}{t.title}
+                  {isTable(t) ? "▦ " : t.kind === "designer" ? "✎ " : t.kind === "users" ? "👤 " : ""}{runs[t.id]?.running ? "⏳ " : ""}{t.title}
                   <button className="mini" onClick={(e) => { e.stopPropagation(); closeTab(t.id); }}>✕</button>
                 </div>
               ))}
@@ -288,7 +361,7 @@ export default function App() {
             </div>
             {/* The editor stays mounted while a table tab is shown so each SQL tab keeps its undo history. */}
             {editorTab && (
-              <div className="sql-pane" style={{ display: isTable(tab) ? "none" : "flex" }}>
+              <div className="sql-pane" style={{ display: isSql(tab) ? "flex" : "none" }}>
                 <div className="toolbar">
                   <button className="primary" disabled={running} onClick={run} title="Run selection or all (⌘↵)">▶ Run</button>
                   <button disabled={!running} onClick={cancel} title="Cancel running query">■ Cancel</button>
@@ -307,7 +380,13 @@ export default function App() {
                 <ResultsPane run={runs[editorTab.id]} />
               </div>
             )}
-            {isTable(tab) && tab.table && (
+            {tab.kind === "designer" && tab.table && (
+              <TableDesigner key={`${activeId}:${tab.id}`} connectionId={activeId} db={tab.table.db} table={tab.table.name} nodes={index}
+                onOpenData={(d, t) => openTable(d, t)}
+                onApplied={async (name) => { await reloadIndex(); patchTab(tab.id, { title: name, table: { db: tab.table!.db, name } }); }} />
+            )}
+            {tab.kind === "users" && <UsersManager key={`${activeId}:${tab.id}`} connectionId={activeId} nodes={index} />}
+            {isTable(tab) && tab.table && tab.table.name && (
               <DataGrid key={`${activeId}:${tab.id}`} connectionId={activeId} db={tab.table.db} table={tab.table.name}
                 initial={tab.grid ?? defaultView()} onViewChange={(grid) => patchTab(tab.id, { grid })}
                 onOpenTable={(d, t, f) => openTable(d, t, f)} />
@@ -317,6 +396,8 @@ export default function App() {
         <div className="statusbar" style={{ borderTopColor: active?.color }}>{status}</div>
       </main>
 
+      {prompt && <PromptDialog {...prompt} />}
+      {typeConfirm && <TypeConfirmDialog {...typeConfirm} />}
       {treeMenu && <ContextMenu x={treeMenu.x} y={treeMenu.y} items={treeMenu.items} onClose={() => setTreeMenu(null)} />}
       {dialog && (
         <ConnectionDialog

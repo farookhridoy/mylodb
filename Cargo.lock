@@ -2206,6 +2206,7 @@ name = "mylodb-desktop"
 version = "0.0.1"
 dependencies = [
  "base64 0.22.1",
+ "myq-admin",
  "myq-data",
  "myq-driver",
  "myq-schema",
@@ -2215,6 +2216,18 @@ dependencies = [
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",
+ "tokio",
+]
+
+[[package]]
+name = "myq-admin"
+version = "0.0.1"
+dependencies = [
+ "myq-driver",
+ "myq-schema",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
  "tokio",
 ]
 

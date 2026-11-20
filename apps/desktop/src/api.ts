@@ -98,3 +98,56 @@ export const dataApi = {
   exportTable: (id: number, db: string, table: string, spec: PageSpec, format: ExportFormat, nullText: string, path: string) =>
     invoke<number>("export_table", { id, db, table, spec, options: { format, null_text: nullText }, path }),
 };
+
+// ---- schema designer ----
+export type ColumnDefault = { kind: "none" } | { kind: "null" } | { kind: "literal"; value: string } | { kind: "expression"; value: string };
+export interface ColumnDef {
+  name: string; original_name: string | null; data_type: string; params: string | null; unsigned: boolean; zerofill: boolean;
+  nullable: boolean; default: ColumnDefault; auto_increment: boolean; charset: string | null; collation: string | null;
+  comment: string; on_update: string | null; generated: { expression: string; stored: boolean } | null; invisible: boolean;
+}
+export type IndexKind = "primary" | "unique" | "index" | "fulltext" | "spatial";
+export interface IndexColumn { name: string; length: number | null; desc: boolean }
+export interface IndexDef { name: string; original_name: string | null; kind: IndexKind; columns: IndexColumn[] }
+export type RefAction = "restrict" | "cascade" | "set_null" | "no_action" | "set_default";
+export interface ForeignKeyDef {
+  name: string; original_name: string | null; columns: string[]; ref_schema: string | null; ref_table: string; ref_columns: string[];
+  on_delete: RefAction; on_update: RefAction;
+}
+export interface TableDef {
+  name: string; engine: string | null; charset: string | null; collation: string | null; comment: string;
+  columns: ColumnDef[]; indexes: IndexDef[]; foreign_keys: ForeignKeyDef[];
+}
+export interface ServerOptions { engines: string[]; charsets: [string, string[], string][] }
+
+export type TableOp =
+  | { op: "truncate" } | { op: "drop" } | { op: "rename"; to: string } | { op: "duplicate"; to: string; with_data: boolean };
+export type DatabaseOp = { op: "create"; name: string; charset: string | null; collation: string | null } | { op: "drop"; name: string };
+
+export const schemaApi = {
+  tableDef: (id: number, db: string, table: string) => invoke<{ def: TableDef; warnings: string[] }>("table_def", { id, db, table }),
+  preview: (db: string, original: TableDef | null, desired: TableDef) =>
+    invoke<{ statements: string[]; errors: string[] }>("ddl_preview", { db, original, desired }),
+  apply: (id: number, db: string, original: TableDef | null, desired: TableDef) => invoke<string[]>("ddl_apply", { id, db, original, desired }),
+  refreshIndex: (id: number) => invoke<Node[]>("refresh_index", { id }),
+  tableOp: (id: number, db: string, table: string, operation: TableOp) => invoke<string[]>("table_op", { id, db, table, operation }),
+  databaseOp: (id: number, operation: DatabaseOp) => invoke<string>("database_op", { id, operation }),
+  serverOptions: (id: number) => invoke<ServerOptions>("server_options", { id }),
+};
+
+// ---- users and privileges ----
+export interface Account { user: string; host: string; locked: boolean; password_expired: boolean; plugin: string }
+export interface AccountEdit { user: string; host: string; password: string | null; plugin: string | null; locked: boolean; expire_password: boolean }
+export type Scope = { level: "global" } | { level: "database"; db: string } | { level: "table"; db: string; table: string };
+export type ScopeGrant = Scope & { privileges: string[]; columns: Record<string, string[]>; grant_option: boolean };
+export interface Grants { scopes: ScopeGrant[]; unsupported: string[] }
+
+export const userApi = {
+  list: (id: number) => invoke<Account[]>("accounts_list", { id }),
+  grants: (id: number, user: string, host: string) => invoke<Grants>("account_grants", { id, user, host }),
+  preview: (id: number, original: Account | null, edit: AccountEdit, desired: ScopeGrant[] | null) =>
+    invoke<string[]>("account_preview", { id, original, edit, desired }),
+  apply: (id: number, original: Account | null, edit: AccountEdit, desired: ScopeGrant[] | null) =>
+    invoke<number>("account_apply", { id, original, edit, desired }),
+  drop: (id: number, user: string, host: string) => invoke<void>("account_drop", { id, user, host }),
+};

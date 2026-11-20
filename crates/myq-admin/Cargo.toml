@@ -1,0 +1,15 @@
+[package]
+name = "myq-admin"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+myq-driver = { path = "../myq-driver" }
+myq-schema = { path = "../myq-schema" }
+serde = { version = "1", features = ["derive"] }
+thiserror = "2"
+
+[dev-dependencies]
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }

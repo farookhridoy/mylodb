@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/myq-schema", "crates/myq-driver", "crates/myq-store", "crates/myq-data", "apps/desktop/src-tauri"]
+members = ["crates/myq-schema", "crates/myq-driver", "crates/myq-store", "crates/myq-data", "crates/myq-admin", "apps/desktop/src-tauri"]
 
 [workspace.package]
 version = "0.0.1"

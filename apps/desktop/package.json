@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "tauri": "tauri",
-    "e2e": "node e2e/run.mjs"
+    "e2e": "node e2e/run.mjs && node e2e/designer.mjs"
   },
   "dependencies": {
     "@codemirror/lang-sql": "^6.10.0",

@@ -114,3 +114,30 @@ table.dg th { padding: 0; }
 .ctx-sep { height: 1px; background: var(--line); margin: 4px 0; }
 .ctx-nested { display: none; left: 100%; top: -5px; position: absolute; } .ctx-item.sub:hover > .ctx-nested { display: block; }
 .dialog.wide { width: 720px; max-height: 80vh; overflow: auto; } .list.pick { max-height: 300px; } .list.pick li { flex-direction: row; cursor: pointer; }
+
+/* ---- designer & users ---- */
+button.danger { background: #7a2331; border-color: #a03040; color: #fff; } button.danger:disabled { opacity: .4; }
+.designer, .users { flex: 1; display: flex; min-height: 0; } .designer { flex-direction: column; }
+.dz-head { display: flex; gap: 8px; align-items: center; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+.dz-name { font-weight: 600; font-size: 14px; min-width: 220px; }
+.dz-tabs { display: flex; gap: 2px; padding: 6px 10px 0; border-bottom: 1px solid var(--line); }
+.dz-tabs button { background: transparent; border-color: transparent; border-radius: 6px 6px 0 0; color: var(--dim); }
+.dz-tabs button.active { background: #283049; color: var(--text); }
+.dz-body { flex: 1; overflow: auto; padding: 10px; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
+.dz-actions { display: flex; gap: 4px; margin-bottom: 6px; }
+.dz-grid td, .dz-grid th { padding: 2px 6px; white-space: nowrap; } .dz-grid select { max-width: 120px; }
+.cell-input { width: 100%; min-width: 60px; padding: 2px 5px; } .cell-input.narrow { width: 70px; min-width: 0; }
+.def-edit { display: flex; gap: 3px; } .def-edit select { width: 86px; }
+.more-row td { background: #1a2030; } .more { display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-end; padding: 6px; }
+.more label { display: flex; flex-direction: column; gap: 3px; color: var(--dim); font-size: 12px; } .more label.check, label.check { flex-direction: row; align-items: center; gap: 6px; color: var(--text); }
+.dz-split { display: flex; gap: 14px; flex: 1; min-height: 0; } .dz-list { width: 300px; flex: 0 0 300px; overflow: auto; } .dz-edit { flex: 1; overflow: auto; }
+.dz-item { padding: 6px 10px; border-radius: 6px; cursor: default; } .dz-item:hover { background: #283049; } .dz-item.active { background: #2f3c63; }
+.dz-form { display: flex; flex-direction: column; gap: 10px; max-width: 560px; } .dz-form label { display: flex; flex-direction: column; gap: 4px; color: var(--dim); }
+.dz-form label.check { flex-direction: row; color: var(--text); }
+.dz-cols { display: flex; flex-direction: column; gap: 6px; } .dz-colrow { display: flex; gap: 6px; align-items: center; }
+.dz-sql .preview { display: block; white-space: pre-wrap; max-height: 60vh; overflow: auto; }
+.users .u-list { width: 260px; flex: 0 0 260px; border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; background: var(--panel); }
+.users .u-list li { flex-direction: row; cursor: pointer; } .users .u-list li.sel { background: #2f3c63; }
+.u-main { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.privs { display: flex; flex-direction: column; gap: 10px; } .priv-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 4px 12px; }
+.col-privs { display: flex; flex-direction: column; gap: 6px; border-top: 1px solid var(--line); padding-top: 8px; } .col-privs summary { cursor: pointer; }

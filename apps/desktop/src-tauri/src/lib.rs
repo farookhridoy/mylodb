@@ -1,6 +1,8 @@
 //! Thin Tauri bridge. All logic lives in the `myq-*` crates; this only exposes it as commands.
 
 use myq_data::{Assign, Change, CellData, ColumnFilter, ExportOptions, LookupItem, Page, PageSpec, TableMeta, ApplyOutcome};
+use myq_admin::{Account, AccountEdit, Grants, ScopeGrant, Sql};
+use myq_schema::ddl::TableDef;
 use myq_driver::{execute_script, introspect, kill_query, pool, IntrospectOptions, Pool, StatementResult};
 use myq_schema::filter::{Filter, Node};
 use myq_store::{Favorite, HistoryEntry, Keychain, SavedConnection, Store};
@@ -206,6 +208,211 @@ async fn export_table(state: tauri::State<'_, AppState>, id: i64, db: String, ta
     }
 }
 
+// ---- schema designer ----
+
+#[derive(serde::Serialize)]
+struct TableDefResult {
+    def: TableDef,
+    warnings: Vec<String>,
+}
+
+#[tauri::command]
+async fn table_def(state: tauri::State<'_, AppState>, id: i64, db: String, table: String) -> Result<TableDefResult, String> {
+    let mut c = conn_for(&state, id).await?;
+    let (def, warnings) = myq_admin::read_table_def(&mut c, &db, &table).await.map_err(err)?;
+    Ok(TableDefResult { def, warnings })
+}
+
+#[derive(serde::Serialize)]
+struct DdlPreview {
+    statements: Vec<String>,
+    errors: Vec<String>,
+}
+
+/// The statements a design would run. Pure: needs no server, so the designer can call it on every edit.
+fn ddl_statements(db: &str, original: &Option<TableDef>, desired: &TableDef) -> Result<Vec<String>, Vec<String>> {
+    let result = match original {
+        Some(o) => myq_schema::ddl::alter_table_sql(Some(db), o, desired),
+        None => myq_schema::ddl::create_table_sql(Some(db), desired).map(|s| vec![s]),
+    };
+    result.map_err(|e| e.0)
+}
+
+#[tauri::command]
+fn ddl_preview(db: String, original: Option<TableDef>, desired: TableDef) -> DdlPreview {
+    match ddl_statements(&db, &original, &desired) {
+        Ok(statements) => DdlPreview { statements, errors: vec![] },
+        Err(errors) => DdlPreview { statements: vec![], errors },
+    }
+}
+
+/// Re-read the object index after the schema changed, so the tree and the filter see it.
+async fn reindex(state: &tauri::State<'_, AppState>, id: i64) -> Result<Vec<Node>, String> {
+    let pool = state.sessions.lock().unwrap().get(&id).map(|s| s.pool.clone()).ok_or("not connected")?;
+    let index = introspect(&pool, &IntrospectOptions { include_columns: true, ..Default::default() }).await.map_err(err)?;
+    if let Some(s) = state.sessions.lock().unwrap().get_mut(&id) {
+        s.index = index.clone();
+    }
+    Ok(index)
+}
+
+#[tauri::command]
+async fn refresh_index(state: tauri::State<'_, AppState>, id: i64) -> Result<Vec<Node>, String> {
+    reindex(&state, id).await
+}
+
+/// Apply a design. The statements are regenerated here from the same inputs the preview used,
+/// never taken from the UI, so what runs is exactly what the diff engine produced.
+#[tauri::command]
+async fn ddl_apply(state: tauri::State<'_, AppState>, id: i64, db: String, original: Option<TableDef>, desired: TableDef) -> Result<Vec<String>, String> {
+    let statements = ddl_statements(&db, &original, &desired).map_err(|e| e.join("; "))?;
+    if statements.is_empty() {
+        return Ok(statements);
+    }
+    let mut c = conn_for(&state, id).await?;
+    let result = myq_admin::run_statements(&mut c, &statements).await;
+    let _ = state.store.lock().unwrap().add_history(id, &statements.join(";\n"), 0, result.is_ok());
+    result.map_err(err)?;
+    reindex(&state, id).await?;
+    Ok(statements)
+}
+
+#[derive(serde::Deserialize)]
+#[serde(tag = "op", rename_all = "snake_case")]
+enum TableOp {
+    Truncate,
+    Drop,
+    Rename { to: String },
+    Duplicate { to: String, with_data: bool },
+}
+
+#[tauri::command]
+async fn table_op(state: tauri::State<'_, AppState>, id: i64, db: String, table: String, operation: TableOp) -> Result<Vec<String>, String> {
+    use myq_schema::ddl as d;
+    let mut c = conn_for(&state, id).await?;
+    let statements = match operation {
+        TableOp::Truncate => vec![d::truncate_table_sql(&db, &table)],
+        TableOp::Drop => vec![d::drop_table_sql(&db, &table)],
+        TableOp::Rename { to } => vec![d::rename_table_sql(&db, &table, &to)],
+        TableOp::Duplicate { to, with_data } => {
+            let cols = if with_data {
+                let (def, _) = myq_admin::read_table_def(&mut c, &db, &table).await.map_err(err)?;
+                Some(def.columns.iter().filter(|c| c.generated.is_none()).map(|c| c.name.clone()).collect::<Vec<_>>())
+            } else {
+                None
+            };
+            d::duplicate_table_sql(&db, &table, &to, cols.as_deref())
+        }
+    };
+    let result = myq_admin::run_statements(&mut c, &statements).await;
+    let _ = state.store.lock().unwrap().add_history(id, &statements.join(";\n"), 0, result.is_ok());
+    result.map_err(err)?;
+    reindex(&state, id).await?;
+    Ok(statements)
+}
+
+#[derive(serde::Deserialize)]
+#[serde(tag = "op", rename_all = "snake_case")]
+enum DatabaseOp {
+    Create { name: String, charset: Option<String>, collation: Option<String> },
+    Drop { name: String },
+}
+
+#[tauri::command]
+async fn database_op(state: tauri::State<'_, AppState>, id: i64, operation: DatabaseOp) -> Result<String, String> {
+    use myq_schema::ddl as d;
+    let sql = match operation {
+        DatabaseOp::Create { name, charset, collation } => {
+            if name.trim().is_empty() { return Err("database name is empty".into()); }
+            d::create_database_sql(&name, charset.as_deref(), collation.as_deref())
+        }
+        DatabaseOp::Drop { name } => d::drop_database_sql(&name),
+    };
+    let mut c = conn_for(&state, id).await?;
+    let result = myq_admin::run_statements(&mut c, std::slice::from_ref(&sql)).await;
+    let _ = state.store.lock().unwrap().add_history(id, &sql, 0, result.is_ok());
+    result.map_err(err)?;
+    reindex(&state, id).await?;
+    Ok(sql)
+}
+
+#[derive(serde::Serialize)]
+struct Collations {
+    engines: Vec<String>,
+    /// (charset, collations, default collation)
+    charsets: Vec<(String, Vec<String>, String)>,
+}
+
+/// Engines, character sets and collations the server supports, for the designer's dropdowns.
+#[tauri::command]
+async fn server_options(state: tauri::State<'_, AppState>, id: i64) -> Result<Collations, String> {
+    use myq_driver::mysql_async::prelude::Queryable;
+    let mut c = conn_for(&state, id).await?;
+    let engines: Vec<String> = c.query("SELECT ENGINE FROM information_schema.ENGINES WHERE SUPPORT IN ('YES','DEFAULT') ORDER BY ENGINE").await.map_err(err)?;
+    let rows: Vec<(String, String, String)> = c
+        .query("SELECT COLLATION_NAME, CHARACTER_SET_NAME, IS_DEFAULT FROM information_schema.COLLATIONS ORDER BY CHARACTER_SET_NAME, COLLATION_NAME")
+        .await
+        .map_err(err)?;
+    let mut charsets: Vec<(String, Vec<String>, String)> = Vec::new();
+    for (collation, charset, is_default) in rows {
+        let entry = match charsets.iter().position(|c| c.0 == charset) {
+            Some(i) => i,
+            None => { charsets.push((charset.clone(), vec![], String::new())); charsets.len() - 1 }
+        };
+        if is_default == "Yes" { charsets[entry].2 = collation.clone(); }
+        charsets[entry].1.push(collation);
+    }
+    Ok(Collations { engines, charsets })
+}
+
+// ---- users and privileges ----
+
+#[tauri::command]
+async fn accounts_list(state: tauri::State<'_, AppState>, id: i64) -> Result<Vec<Account>, String> {
+    let mut c = conn_for(&state, id).await?;
+    myq_admin::list_accounts(&mut c).await.map_err(err)
+}
+
+#[tauri::command]
+async fn account_grants(state: tauri::State<'_, AppState>, id: i64, user: String, host: String) -> Result<Grants, String> {
+    let mut c = conn_for(&state, id).await?;
+    myq_admin::read_grants(&mut c, &user, &host).await.map_err(err)
+}
+
+/// Statements for creating or changing an account plus its privileges. `original` is the existing
+/// account being edited; `desired` the full set of privileges wanted (None leaves them alone).
+async fn account_statements(c: &mut myq_driver::Conn, original: &Option<Account>, edit: &AccountEdit, desired: &Option<Vec<ScopeGrant>>) -> Result<Vec<Sql>, String> {
+    let mut sql = myq_admin::account_sql(original.as_ref(), edit)?;
+    if let Some(desired) = desired {
+        let current = match original {
+            Some(o) => myq_admin::read_grants(c, &o.user, &o.host).await.map_err(err)?.scopes,
+            None => vec![],
+        };
+        sql.extend(myq_admin::grant_diff_sql(&edit.user, &edit.host, &current, desired));
+    }
+    Ok(sql)
+}
+
+/// What an account edit would run, with passwords masked.
+#[tauri::command]
+async fn account_preview(state: tauri::State<'_, AppState>, id: i64, original: Option<Account>, edit: AccountEdit, desired: Option<Vec<ScopeGrant>>) -> Result<Vec<String>, String> {
+    let mut c = conn_for(&state, id).await?;
+    Ok(account_statements(&mut c, &original, &edit, &desired).await?.into_iter().map(|s| s.shown).collect())
+}
+
+#[tauri::command]
+async fn account_apply(state: tauri::State<'_, AppState>, id: i64, original: Option<Account>, edit: AccountEdit, desired: Option<Vec<ScopeGrant>>) -> Result<usize, String> {
+    let mut c = conn_for(&state, id).await?;
+    let sql = account_statements(&mut c, &original, &edit, &desired).await?;
+    myq_admin::run_sql(&mut c, &sql).await.map_err(|(i, m)| format!("statement {} failed: {m}", i + 1))
+}
+
+#[tauri::command]
+async fn account_drop(state: tauri::State<'_, AppState>, id: i64, user: String, host: String) -> Result<(), String> {
+    let mut c = conn_for(&state, id).await?;
+    myq_admin::run_sql(&mut c, &[myq_admin::drop_account_sql(&user, &host)]).await.map(|_| ()).map_err(|(_, m)| m)
+}
+
 #[tauri::command]
 fn history_list(state: tauri::State<AppState>, id: i64, search: String) -> Result<Vec<HistoryEntry>, String> {
     state.store.lock().unwrap().list_history(id, &search, 200).map_err(err)
@@ -276,7 +483,19 @@ pub fn run() {
             fetch_cell,
             save_cell_to_file,
             fk_lookup,
-            export_table
+            export_table,
+            table_def,
+            ddl_preview,
+            ddl_apply,
+            refresh_index,
+            table_op,
+            database_op,
+            server_options,
+            accounts_list,
+            account_grants,
+            account_preview,
+            account_apply,
+            account_drop
         ])
         .run(tauri::generate_context!())
         .expect("error while running MyLoDB");

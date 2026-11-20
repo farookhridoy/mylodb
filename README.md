@@ -11,7 +11,7 @@ cd apps/desktop
 npm install
 npm run tauri dev      # launches the app with hot reload
 cargo test             # from the repo root: Rust unit + MySQL integration tests
-npm run e2e            # UI tests of the grid, designer, users manager, editor, server tools, transfers, tree and theme (needs `npm run dev` running and CHROME_PATH set)
+npm run e2e            # UI tests of the grid, designer, users manager, editor, server tools, transfers, tree, object browser and theme (needs `npm run dev` running and CHROME_PATH set)
 ```
 
 Integration tests use a local MySQL (`MYLODB_TEST_HOST/PORT/USER/PASSWORD`) and create/drop only their own `mylodb_itest_*` database.
@@ -26,4 +26,5 @@ Integration tests use a local MySQL (`MYLODB_TEST_HOST/PORT/USER/PASSWORD`) and 
 - Phase 6 (done): SSH tunnelling (password or private key; the host key is shown for confirmation on first use and a changed key blocks the connection), SSL modes (verify, verify CA only, skip verify) with CA and client certificate files, a *Test connection* button, and a Server tab: overview with live queries/s and connections, process list (stop query / kill connection), global variables (edit with confirmation, server warnings shown), status with per-second rates, CHECK / ANALYZE / OPTIMIZE / REPAIR for many tables at once, and logs (error log, slow queries, binary logs and events, log settings).
 - Phase 7 (done): backup to SQL (structure, data, views, routines, triggers, events; one consistent snapshot; one file or a file per table; optional .zip; timestamped names; cancellable, partial output removed), restore from a .sql file, a .zip or a folder (streamed from disk, errors listed with line numbers), CSV import (delimiter detection, preview, encodings, column mapping, insert/skip/update/replace, all-or-nothing or continue-on-error, create a table from the file), and export of tables or any SELECT to CSV, JSON, SQL INSERT, XML, HTML or Excel.
 - Tree and theme update: the object-tree filter is scoped to the selected database ("Filter tables in …") and database names only when none is selected; columns load per database on demand and groups are paged, so very large servers stay fast; ⇧⌘B focuses the filter. Light, dark and system themes.
-- Next: see [docs/PLAN_VS_CURRENT.md](docs/PLAN_VS_CURRENT.md) for the comparison with the product plan. Production Safety and the Large Data Engine come first, then the beta release.
+- Object browser: the connection (`user@host`) is the root node; click it to reset. Filter databases, then click one to filter its tables, then click a table to filter its columns (by name or type). Columns show their type (`bigint unsigned`, `char(255)`) and tables their size.
+- Next: see [docs/PLAN_VS_CURRENT.md](docs/PLAN_VS_CURRENT.md) for the comparison with the product plan and the SQLyog reference, and the phase list (Phase 8 is object-browser completion, then Production Safety and the Large Data Engine).

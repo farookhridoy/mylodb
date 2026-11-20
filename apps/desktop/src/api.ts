@@ -49,6 +49,8 @@ export const api = {
   disconnect: (id: number) => invoke<void>("disconnect", { id }),
   /** `scope` = the selected database: only its objects are searched. Without one, only database names are. */
   filterIndex: (id: number, query: string, scope: string | null) => invoke<number[]>("filter_index", { id, query, scope }),
+  tableStats: (id: number, db: string) => invoke<TableStat[]>("db_table_stats", { id, db }),
+  columnDetails: (id: number, db: string, table: string) => invoke<ColumnDetail[]>("table_column_details", { id, db, table }),
   loadColumns: (id: number, db: string) => invoke<{ start: number; nodes: Node[] }>("load_columns", { id, db }),
 };
 
@@ -195,6 +197,10 @@ export interface FormatOptions {
 }
 export interface Hint { severity: "warning" | "info" | "good"; message: string; table: string | null }
 export interface ExplainResult { plan: ResultSet; json: string | null; tree: string | null; hints: Hint[] }
+/** Size (data + index bytes) and row estimate of a table; views have none. */
+export interface TableStat { name: string; bytes: number | null; rows: number | null }
+export interface ColumnDetail { name: string; column_type: string; nullable: boolean; key: string; extra: string }
+
 export interface ProfileResult {
   elapsed_ms: number; rows_returned: number; stages: { name: string; ms: number }[]; stages_note: string | null;
   counters: { name: string; value: number }[];

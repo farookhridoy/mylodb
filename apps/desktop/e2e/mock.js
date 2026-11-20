@@ -259,3 +259,22 @@ window.__TAURI_INTERNALS__ = {
     return h(args ?? {});
   },
 };
+
+// ---- table sizes and column types for the object browser ----
+const SIZES = { orders: 114688, customers: 5452595 };               // 112 KB and 5.2 MB
+const typeOf = ([name, d]) => (name === "id" ? "bigint unsigned" : d === "varchar" ? "varchar(255)" : d === "decimal" ? "decimal(10,2)" : d === "text" ? "text" : d);
+Object.assign(handlers, {
+  db_table_stats: (a) => {
+    window.__statCalls = (window.__statCalls || []).concat([a.db]);
+    return nodes().filter((n) => n.database === a.db && n.kind === "table")
+      .map((n) => ({ name: n.name, bytes: a.db === "shop" ? SIZES[n.name] ?? 16384 : 16384, rows: a.db === "shop" ? 3 : 0 }));
+  },
+  table_column_details: (a) => {
+    window.__detailCalls = (window.__detailCalls || []).concat([`${a.db}.${a.table}`]);
+    const m = meta[a.table];
+    if (a.db === "shop" && m) {
+      return m.columns.map((c) => ({ name: c[0], column_type: typeOf(c), nullable: !!c[3], key: m.pk.includes(c[0]) ? "PRI" : "", extra: c[2] ? "auto_increment" : "" }));
+    }
+    return [{ name: "id", column_type: "bigint unsigned", nullable: false, key: "PRI", extra: "auto_increment" }, { name: "code", column_type: "char(255)", nullable: true, key: "", extra: "" }];
+  },
+});

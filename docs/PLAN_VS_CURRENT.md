@@ -1,86 +1,141 @@
-# MyLoDB: the plan versus what exists
+# MyLoDB: plan versus what exists, and the next phases
 
-Compared on 2026-11-20 against `MyLoDB_Final_Product_and_Technical_Plan.md`, checked against the code (not from memory).
+Compared on 2026-11-20 against two documents in this folder, checked against the code (not from memory):
+
+* `MyLoDB_Final_Product_and_Technical_Plan.md`, the product plan.
+* `SQLyog_Functional_UI_Snapshot_with_Images.md`, the SQLyog functional reference (the "coverage checklist").
+
 ✅ done · 🟡 partly · ❌ not started
 
-## Summary
+## 1. Summary
 
-The product is **broad**: connections, tree, editor, grid, designer, users, diagnostics, import/export and backup all work and are tested
-against a real MySQL. But the plan says its two *defining* features are **Production Safety** and the **Large Data Engine**, and
-**neither is built**. The grid renders every row of a page into the page, there is no read-only or production mode, and exports
-cannot be cancelled from the grid. Those two should come before any further breadth (schema compare, ER diagrams, AI).
+MyLoDB covers the **daily-driver core** of SQLyog: connections (SSH, SSL), object browser, SQL editor, editable grid, table designer, users,
+server tools, backup, restore and import/export, all tested against a real MySQL. The gaps fall into three groups:
 
-## P0: "must have" in the plan
+1. **The two features the plan calls defining are not built**: Production Safety and the Large Data Engine.
+2. **SQLyog's "complete manager" surface is thin**: views, procedures, functions, triggers and events can be *listed* but not opened, edited
+   or created; there is no `.sql` file handling, no Data Search, no Query Builder, no Schema Designer, no compare/sync, no Preferences.
+3. **Distribution and quality gates**: no CI, no database-version matrix, no signing.
+
+## 2. Object browser (the left sidebar), against your brief
+
+What you asked for, and where it stands after this change:
+
+| Requirement | Status |
+|---|---|
+| `root@localhost` is the root node of the tree; clicking it **resets** to the full database list | ✅ the connection is the root (`user@host`, with the database count). Click = no selection, filter cleared, everything collapsed. |
+| **Level 1: filter databases** (nothing selected) | ✅ "Filter databases", names only. |
+| **Level 2: click a database → filter its tables** | ✅ "Filter tables in `db`", scoped to that database; the other databases stay listed. Box clears on every change of level. |
+| **Level 3: click a table → search its columns** | ✅ "Filter columns in `table`". Matches column **name or type** (`email`, `bigint`, `char*`), entirely in the browser. |
+| Columns show type like DBeaver (`bigint unsigned`, `char(255)`) | ✅ right-aligned declared type (`COLUMN_TYPE`), 🔑 for primary key, ◆ for unique. Nullability, `auto_increment` and the full definition are in the tooltip. |
+| Table size in KB / MB / GB | ✅ data + index bytes, right-aligned on each table row; tooltip has exact bytes and the row estimate. Views show none. |
+| No hang on big servers | ✅ names only at connect; per-database size query (one round trip); per-table column query; groups paged 300 rows at a time. 90,000-object fake server: connect 0.3–0.6 s, about 600 rows on screen, slowest keystroke about 350–430 ms. |
+
+Still open in the browser (these are Phase 8 below): `Indexes` node per table, database total size, row-count column, sort by name/size,
+views/routines/triggers/events menus and editors, remember expanded state and selection per connection, F5 refresh of one node,
+collapse all, keyboard navigation, drag a table or column into the editor, an Info panel for the selected object.
+
+Note on sizes: MySQL 8 caches table statistics (`information_schema_stats_expiry`, 24 h by default), so sizes and row counts are estimates;
+`ANALYZE TABLE` refreshes them. The tooltip says so.
+
+## 3. Coverage of the SQLyog reference (section by section)
+
+| SQLyog area | MyLoDB | Notes |
+|---|---|---|
+| Main layout: browser, SQL window, results | ✅ | Light, dark and system themes. |
+| Multiple connections at once, one tab each | 🟡 | One connection is active at a time (switching disconnects). Plan: connection tabs. |
+| Connection options: TCP, SSH, SSL | ✅ | Keychain, CA and client certificates, fail-closed SSH host-key policy. ❌ HTTP tunnel (not planned), ❌ LDAP/PAM. |
+| Object browser lazy metadata | ✅ | Lazy by database and by table. |
+| Browser context menus for tables | ✅ | Open, design, select, import CSV, duplicate, rename, truncate, drop, copy name. |
+| Browser menus for views, procedures, functions, triggers, events | ❌ | Listed in the tree only. No create / alter / drop / view source. |
+| Browser: refresh, create database, drop database, backup | ✅ | ❌ alter database (charset), ❌ copy database to another host, ❌ schema documentation, ❌ flush dialog. |
+| SQL editor: tabs, autocomplete, formatter, favorites, history | ✅ | |
+| SQL editor: open / save `.sql` files, drag-open, templates | ❌ | |
+| Execute current statement, selection, all; cancel | ✅ | ⌘↵ runs the selection or current statement; scripts run all. "Execute and edit result set" is ❌ (results are read-only). |
+| Multiple statements → separate result tabs | ✅ | |
+| Results: grid and form | ✅ | ❌ text mode, ❌ copy with delimiter / quoting options. |
+| Result paging | 🟡 | Server paging; no virtualization yet (see Large Data Engine). |
+| Table data editing, staged, SQL preview, FK picker, BLOB viewer | ✅ | Beyond SQLyog: staged changes with exact SQL preview. |
+| Table designer: columns, indexes, FKs, preview DDL | ✅ | Beyond SQLyog: previews before applying. ❌ reorder columns by drag, ❌ engine-specific advanced properties. |
+| Rename, truncate, drop table | ✅ | Typed confirmation for destructive ones. |
+| Views, routines, triggers, events: browse, create, alter | ❌ | **Largest functional gap versus a "complete MySQL manager".** |
+| Query Builder | ❌ | |
+| Schema Designer / ER diagram | ❌ | The plan suggests a read-only ER view first. |
+| Data Search across tables | ❌ | |
+| Import: CSV | ✅ | ❌ ODBC (not planned). |
+| Export: CSV, JSON, SQL, XML, HTML, XLSX | ✅ | Constant-memory writers. |
+| Backup to SQL dump and restore | ✅ | Progress, cancel, checksums in tests. |
+| Database copy, schema sync, data compare | ❌ | |
+| SQL Scheduler, scheduled backups, Job Agent | ❌ | Later. |
+| User and privilege manager | ✅ | Server, database, table and column scope. |
+| Process list, status, variables, flush | 🟡 | ✅ process list (kill), status, variables, maintenance, logs. ❌ flush. |
+| Favorites, History | ✅ | |
+| Info tab (details of the selected object) | ❌ | Partly covered by the new tooltips; a real Info panel is Phase 8. |
+| Profiler, messages | ✅ | `SHOW PROFILE` based. |
+| Preferences dialog | ❌ | Only theme (toggle) and a few per-feature settings. |
+| Keyboard shortcuts (mac-native) | 🟡 | ⌘↵, ⌘T, ⌘W, ⇧⌘F, ⇧⌘B. No command palette. |
+
+## 4. Coverage of the product plan
+
+### P0 "must have"
 
 | Plan item | Status | What exists / what is missing |
 |---|---|---|
-| Streaming, virtualized data grid | 🟡 | Server-side paging (up to 5,000 rows a page) with filters, sort and edit. **Every row of the page becomes DOM**, no row or column virtualization, no fetch-on-scroll, no bounded cache. 5,000 rows × 40 columns is already heavy. |
-| Smart pagination | 🟡 | `LIMIT … OFFSET` only. No keyset / primary-key cursor, so deep pages get slower. Row count is an exact `COUNT(*)` in the background (the plan warns it can be expensive); should start from an estimate. |
-| Large dataset export | 🟡 | ✅ Constant-memory writers for CSV, JSON, SQL, XML, HTML, XLSX. ❌ JSON Lines, GZIP, fetch-size option, rows/bytes/elapsed progress and **cancel for exports started from the grid or a query** (backup, restore and import have it), segmented export. |
-| Production safe mode | ❌ | Nothing beyond a coloured tab. Missing: environment label and badge (prod/staging/dev), read-only mode enforced by the server (`SET SESSION TRANSACTION READ ONLY` + privileges), destructive-SQL review (`DROP`, `TRUNCATE`, `DELETE`/`UPDATE` without a real `WHERE`), query timeout (`max_execution_time`), confirm-before-commit on production. |
-| Staged editing and SQL preview | ✅ | Edits are staged, "View queries" shows the exact SQL, one transaction, row-gone conflict detection. Gap: query results are read-only (plan wants them editable when keys are reliable). |
-| Query cancellation | ✅ | `KILL QUERY`, connection stays usable. |
-| Secure connection management | ✅ | Keychain, SSL modes with CA and client certificates, SSH tunnel with a fail-closed host-key policy, test-connection. |
+| Streaming, virtualized data grid | 🟡 | Server-side paging (up to 5,000 rows a page) with filters, sort and edit. Every row of the page becomes DOM: no row or column virtualization, no fetch-on-scroll, no bounded cache. |
+| Smart pagination | 🟡 | `LIMIT … OFFSET` only. No keyset / primary-key cursor, so deep pages slow down. Row count is an exact `COUNT(*)` in the background; should start from an estimate. |
+| Large dataset export | 🟡 | ✅ Constant-memory writers, six formats. ❌ JSON Lines, GZIP, fetch-size option, rows/bytes/elapsed progress and **cancel for exports started from the grid or a query**, segmented export. |
+| Production safe mode | ❌ | Missing: environment label and badge, read-only mode enforced by the server, destructive-SQL review (`DROP`, `TRUNCATE`, `DELETE`/`UPDATE` without a real `WHERE`), query timeout, confirm-before-commit. |
+| Staged editing and SQL preview | ✅ | Gap: query results are read-only. |
+| Query cancellation | ✅ | `KILL QUERY`. |
+| Secure connection management | ✅ | |
 
-## P1: "important"
+### P1 and later
 
 | Plan item | Status | Notes |
 |---|---|---|
-| SQL autocomplete | ✅ | Alias-aware, db-qualified, quoting, loads columns lazily. |
-| SQL inspections (unqualified columns, unused aliases, risky queries) | ❌ | |
-| Formatter, EXPLAIN, EXPLAIN ANALYZE | ✅ | Plain-language hints and a JSON plan tree. |
-| Profiler | 🟡 | Stage timings from `SHOW PROFILE` plus session counters. The plan says not to depend on `SHOW PROFILE`; add a `performance_schema` path. |
-| JSON, BLOB and record views | 🟡 | ✅ record/form view, hex/image/text, upload and save. JSON is pretty-printed but not a tree with path search. |
-| Schema comparison and migration preview | ❌ | The diff engine for one table (`alter_table_sql`) is the base to reuse. |
-| Data comparison | ❌ | |
-| Import/export wizard | 🟡 | ✅ CSV import (mapping, modes, new table from file), six export formats. ❌ JSON/XML/XLSX import, saved and re-runnable transfer configurations. |
-| SQL history and Git | 🟡 | ✅ history, favorites, session restore. ❌ open/save `.sql` files, drag-open, local history and recovery, Git status/diff. |
-| Diagnostics | 🟡 | ✅ process list, variables, status, CHECK/ANALYZE/OPTIMIZE/REPAIR, logs. ❌ redundant and unused index detection, index recommendations, column statistics. |
+| SQL autocomplete | ✅ | Alias-aware, db-qualified, quoting, lazy columns. |
+| SQL inspections | ❌ | |
+| Formatter, EXPLAIN, EXPLAIN ANALYZE | ✅ | |
+| Profiler | 🟡 | Add a `performance_schema` path (the plan says not to depend on `SHOW PROFILE`). |
+| JSON, BLOB, record views | 🟡 | ✅ record view, hex/image/text. JSON is pretty-printed, not a searchable tree. |
+| Schema compare and migration preview, data compare | ❌ | `alter_table_sql` (single-table diff) is the base to reuse. |
+| Import/export wizard | 🟡 | ❌ JSON/XML/XLSX import, saved re-runnable configurations. |
+| SQL history and Git | 🟡 | ✅ history, favorites, session restore. ❌ `.sql` files, local history recovery, Git. |
+| Diagnostics | 🟡 | ❌ redundant and unused index detection, recommendations, column statistics. |
+| ER designer, query builder, charts, mock data, AI, MCP, plugins, job agent, CLI, two-way sync | ❌ | |
 
-## P2 and visual tools: all not started
-
-ER designer · visual query builder · charts and dashboards · mock data · AI assistant · MCP server · plugin API · job runner and
-schedules (`myq-agent`) · CLI · two-way data sync · Git workflow.
-
-## macOS experience
-
-| Item | Status |
-|---|---|
-| Dark and light themes | ✅ (light added now; follows the system by default) |
-| Keyboard | 🟡 ⌘↵ run, ⌘T/⌘W tabs, ⇧⌘F format, ⇧⌘B filter. No command palette (⌘K), no customisable shortcuts. |
-| Object tree | ✅ filter with `type:` `db:` `col:`, regex, wildcards, highlight · ✅ **now scoped to the selected database and lazy** · 🟡 paged rather than virtualized · ❌ filter not remembered per connection |
-| Connection groups and environments | ❌ (colour per connection only) |
-| Multiple windows, split panes, scratchpad | ❌ |
-| Native title bar / window feel | ❌ (standard window) |
-
-## Architecture, tasks, testing, release
+### Architecture, tasks, tests, release
 
 | Item | Status | Notes |
 |---|---|---|
-| Crate layout | 🟡 | Works, but differs from the plan: no `myq-core`, `myq-stream`, `myq-safety`, `myq-agent`. `myq-transfer` ≈ `myq-io`, `myq-profile` ≈ `myq-profiler`. |
-| Long-running task model | 🟡 | Backup, restore and import have task ids, progress and cancel. Queries and grid exports do not, and there is **no Tasks panel** (type, connection, elapsed, output). |
-| Tests | 🟡 | ✅ about 130 Rust tests incl. real MySQL 9.7 (DDL round trip, backup → drop → restore with checksums, tunnel against a real `sshd`) and about 100 UI checks. ❌ MySQL 5.7/8.0 and MariaDB matrix, 100k/1M/10M-row benchmarks, network-drop and restart tests. |
+| Crate layout | 🟡 | No `myq-core`, `myq-stream`, `myq-safety`, `myq-agent`. `myq-transfer` ≈ `myq-io`, `myq-profile` ≈ `myq-profiler`. |
+| Long-running task model | 🟡 | Backup, restore, import: task ids, progress, cancel. Queries and grid exports: no. **No Tasks panel.** |
+| Tests | 🟡 | ✅ about 125 Rust tests incl. real MySQL 9.7 and a real `sshd`; about 110 UI checks. ❌ MySQL 5.7 / 8.0 / MariaDB matrix, 100k / 1M / 10M-row benchmarks, network-drop tests. |
 | CI | ❌ | No workflows. |
-| Release | 🟡 | ✅ unsigned arm64 `.dmg`, Apache-2.0. ❌ signing and notarisation, Intel build, Homebrew cask, user documentation. |
+| Release | 🟡 | ✅ unsigned arm64 `.dmg`. ❌ signing and notarisation, Intel build, Homebrew cask, user docs. |
 
-## Found by this review and fixed in this change
+## 5. Next phases
 
-* **The tree filter hung on big servers.** Four faults: connecting loaded every column of every database; filtering forced every
-  database, group and table open (tens of thousands of rows); every keystroke rebuilt the whole tree; and the filter covered the
-  whole server instead of the selected database. Now: names only at connect, columns loaded per database on demand, the filter is
-  scoped to the selected database ("Filter tables in sakila", database names only when none is selected), groups are paged
-  300 rows at a time. Measured on a fake 90,000-object server: connects in 0.6 s, about 600 rows on screen, slowest keystroke 427 ms
-  in the browser.
-* Light theme added; the connection dropdown no longer shrinks to two letters.
+Phases 1–7 and the filter, theme and sidebar work are done. Rough effort for one developer; each phase ends with tests and a DMG.
 
-## Recommended order from here (rough, one developer)
+| Phase | Theme | Scope | Effort |
+|---|---|---|---|
+| **8** | **Object browser completion** | `Indexes` and `Keys` nodes per table; database total size; sort by name / size / rows; menus and editors for **views, procedures, functions, triggers, events** (show source, create, alter, drop, rename); remember expansion and selection per connection; refresh one node (F5), collapse all; an **Info panel** for the selected object; drag a table or column into the editor; alter database. | 1.5–2 wk |
+| **9** | **Production Safety** | Environment label and badge (prod / staging / dev); server-enforced read-only; destructive-SQL review; query timeout; confirm-on-commit for production. | 2–3 wk |
+| **10** | **Large Data Engine** | Virtualized grid; lazy fetch with a bounded cache; keyset pagination; estimated counts; exports as cancellable tasks (progress, JSON Lines, GZIP); 1M and 10M-row benchmarks. | 3–4 wk |
+| **11** | **SQL workspace parity** | Open / save `.sql` (new tab or current), drag-open, templates; text result mode; copy with options; **Preferences** dialog; command palette (⌘K); connection tabs (several servers at once); connection groups and environments. | 2–3 wk |
+| **12** | **Quality gates** | Tasks panel; GitHub Actions on macOS arm64 / x64; MySQL 5.7 / 8.0 / 9 and MariaDB in containers; network-drop and restart tests. | 1–2 wk |
+| **13** | **Power tools** | Data Search; schema compare with migration preview; data compare; copy database / table between connections; schema documentation (HTML). | 4–5 wk |
+| **14** | **Visual tools** | Query Builder (canvas, grid, SQL preview, round trip); ER / Schema Designer (read-only first, then migration-plan workflow, never live-edit). | 4–5 wk |
+| **15** | **Beta release** | Signing and notarisation (needs an Apple Developer account), Intel build, Homebrew cask, user documentation. | 1–2 wk |
+| Later | Automation and AI | Job agent, scheduler and reports, scheduled backups, SQL inspections, index advisor, MCP server, AI assistant, plugin API. | |
 
-1. **Production Safety**, ~2–3 weeks. Environment labels, server-enforced read-only, destructive-SQL review, timeouts, confirm-on-commit.
-2. **Large Data Engine**, ~3–4 weeks. Virtualized grid, lazy fetch with a bounded cache, keyset pagination, estimated counts, exports as
-   cancellable background tasks (progress, JSON Lines, GZIP); then benchmark on 1M and 10M rows.
-3. **Task centre, CI, version matrix**, ~1–2 weeks. Tasks panel, GitHub Actions for macOS arm64/x64, MySQL 5.7/8.0 and MariaDB in containers.
-4. **Command palette, connection groups, environments**, ~1 week.
-5. **Schema compare and migration preview, then data compare**, ~4–5 weeks.
-6. **SQL files and inspections, index analysis**, ~3 weeks.
-7. **Beta release.** Signing and notarisation (needs an Apple Developer account), Intel build, Homebrew cask, documentation.
-8. Later: ER designer, query builder, job agent, AI/MCP, plugin API.
+**Why this order.** Phase 8 finishes the part of the app you use all day and closes the largest SQLyog gap. Phases 9 and 10 are the plan's
+"defining" features and must land before the visual tools. Phase 11 removes daily friction. Phase 12 should run alongside 9–11 so the
+version matrix catches MariaDB and 5.7 differences before the power tools depend on them.
+
+## 6. Done in this change
+
+* Object browser: connection root node with reset, three-level filter (databases → tables → columns), column types, table sizes.
+* New backend queries `table_stats` (one per database) and `column_details` (one per table), with a real-MySQL test.
+* Earlier in the same effort: scoped, lazy, paged tree (no hang on big servers); light, dark and system themes.

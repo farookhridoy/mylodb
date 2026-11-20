@@ -227,3 +227,17 @@ td.val { max-width: 560px; overflow: hidden; text-overflow: ellipsis; font-famil
 [data-theme="light"] .cm-gutters { background: var(--panel); color: var(--dim); border-right: 1px solid var(--line); }
 [data-theme="light"] .cm-activeLine, [data-theme="light"] .cm-activeLineGutter { background: var(--hover); }
 [data-theme="light"] .ctx, [data-theme="light"] .popup, [data-theme="light"] .dialog { box-shadow: 0 8px 28px var(--shadow); }
+
+/* ---- object browser: connection root, sizes, column types ---- */
+.row-item .name { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.row-item.root { padding: 4px 6px; cursor: pointer; } .row-item.root.selected { background: var(--selected); }
+.row-item.root .badge { margin-left: auto; }
+.tree > li.under-root > .row-item.db { padding-left: 18px; }
+.tree > li.under-root > ul { padding-left: 30px; }
+.row-item.db.current:not(.selected) { background: var(--row-selected); }
+.row-item.leaf.selected { background: var(--selected); }
+.row-item .size { margin-left: auto; padding-left: 10px; color: var(--dim); font-size: 11px; font-variant-numeric: tabular-nums; flex: none; }
+.columns { padding-left: 14px; }
+.row-item.col { gap: 6px; padding-left: 8px; }
+.row-item.col .key { width: 14px; font-size: 10px; text-align: center; flex: none; color: var(--warn); }
+.row-item.col .ctype { margin-left: auto; padding-left: 10px; color: var(--info); font: 11px "SF Mono", Menlo, monospace; flex: none; }

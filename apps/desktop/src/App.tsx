@@ -12,6 +12,7 @@ import TransferTools, { type TransferPreset } from "./TransferTools";
 import UsersManager from "./UsersManager";
 import Editor, { type EditorHandle } from "./Editor";
 import ObjectTree from "./ObjectTree";
+import { useBrowserMeta } from "./browserMeta";
 import ResultsPane, { type RunState } from "./ResultsPane";
 import { ConfirmDialog, FavoritesPanel, HistoryPanel, SaveFavoriteDialog } from "./SidePanels";
 
@@ -55,7 +56,10 @@ export default function App() {
   const [filterError, setFilterError] = useState<string | null>(null);
   /// The database selected in the tree: the filter searches inside it ("Filter tables in …").
   const [selectedDb, setSelectedDb] = useState<string | null>(null);
+  /// The table selected in the tree (inside `selectedDb`): the filter then searches its columns.
+  const [selectedTable, setSelectedTable] = useState<string | null>(null);
   const [columnsLoaded, setColumnsLoaded] = useState<Set<string>>(new Set());
+  const meta = useBrowserMeta(activeId);
   const colQueue = useRef<Promise<unknown>>(Promise.resolve());
   const filterInput = useRef<HTMLInputElement>(null);
   const [dialog, setDialog] = useState<SavedConnection | "new" | null>(null);
@@ -98,7 +102,7 @@ export default function App() {
     try {
       if (activeId !== null && activeId !== id) await api.disconnect(activeId);
       const idx = await api.connect(id, trust);
-      setSelectedDb(null); setColumnsLoaded(new Set()); setMatches(null); setMatchScope(null);
+      setSelectedDb(null); setSelectedTable(null); setQuery(""); meta.reset(); setColumnsLoaded(new Set()); setMatches(null); setMatchScope(null);
       colQueue.current = Promise.resolve();
       let restoredTabs: QueryTab[] = [];
       let restoredActive = "";
@@ -164,11 +168,26 @@ export default function App() {
   // autocomplete in the editor needs the columns of the database it is working in
   useEffect(() => { if (editorTab?.database) ensureColumns(editorTab.database); }, [editorTab?.database, ensureColumns]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ---- selection: nothing → database → table. Each level has its own filter, so the box starts empty at every level. ----
+  const selectDb = (db: string) => {
+    if (db === selectedDb && selectedTable === null) return;
+    if (db !== selectedDb) setQuery("");
+    setSelectedDb(db);
+    if (selectedTable !== null) { setSelectedTable(null); setQuery(""); }
+  };
+  const selectTable = (db: string, table: string) => {
+    if (db === selectedDb && table === selectedTable) return;
+    setSelectedDb(db); setSelectedTable(table); setQuery("");
+  };
+  /// Clicking the connection node: back to the full list of databases.
+  const resetBrowser = () => { setSelectedDb(null); setSelectedTable(null); setQuery(""); setMatches(null); setMatchScope(null); };
+
   // ---- filter ----
   // Scoped to the selected database; with none selected it matches database names only.
   useEffect(() => {
     if (activeId === null) return;
-    if (!query.trim()) { setMatches(null); setMatchScope(null); setFilterError(null); return; }
+    // with a table selected the box filters its columns in the browser; there is nothing to ask the backend
+    if (selectedTable !== null || !query.trim()) { setMatches(null); setMatchScope(null); setFilterError(null); return; }
     const mine = ++filterSeq.current;
     const t = setTimeout(async () => {
       try {
@@ -184,7 +203,7 @@ export default function App() {
       }
     }, 150);
     return () => clearTimeout(t);
-  }, [query, activeId, selectedDb, ensureColumns]);
+  }, [query, activeId, selectedDb, selectedTable, ensureColumns]);
 
   const terms = useMemo(
     () => query.split(/\s+/).filter((t) => t && !/[:*?/]/.test(t)).map((t) => t.toLowerCase()),
@@ -269,7 +288,7 @@ export default function App() {
   };
 
   // ---- schema tools ----
-  const reloadIndex = async () => { if (activeId !== null) setIndex(await schemaApi.refreshIndex(activeId)); };
+  const reloadIndex = async () => { if (activeId !== null) { meta.reset(); setIndex(await schemaApi.refreshIndex(activeId)); } };
 
   const openDesigner = (database: string, table: string | null) => {
     const existing = tabs.find((t) => t.kind === "designer" && t.table?.db === database && t.table.name === table && table !== null);
@@ -441,8 +460,8 @@ export default function App() {
             <div className="filter">
               <input
                 ref={filterInput}
-                placeholder={selectedDb ? `Filter tables in ${selectedDb}` : "Filter databases"}
-                title={"Filter (⇧⌘B). Click a database to filter inside it.\nord  ·  ord*  ·  /regex/  ·  type:view  ·  col:email"}
+                placeholder={selectedTable ? `Filter columns in ${selectedTable}` : selectedDb ? `Filter tables in ${selectedDb}` : "Filter databases"}
+                title={selectedTable ? "Columns of the selected table: a name or a type, e.g.  email  ·  bigint  ·  char*  ·  pk" : "Filter (⇧⌘B). Click a database to filter its tables, then a table to filter its columns.\nord  ·  ord*  ·  /regex/  ·  type:view  ·  col:email"}
                 value={query}
                 disabled={activeId === null}
                 onChange={(e) => setQuery(e.target.value)}
@@ -455,7 +474,7 @@ export default function App() {
             <div className="tree-wrap">
               {activeId === null
                 ? <div className="empty">Create or select a connection</div>
-                : <ObjectTree index={index} matches={matches} scope={matchScope} terms={terms} selectedDb={selectedDb} onSelectDb={setSelectedDb}
+                : <ObjectTree index={index} matches={matches} scope={matchScope} terms={terms} selectedDb={selectedDb} onSelectDb={selectDb} selectedTable={selectedTable} onSelectTable={selectTable} rootLabel={active ? `${active.user}@${active.host}` : ""} onResetRoot={resetBrowser} columnQuery={selectedTable ? query : ""} stats={meta.stats} ensureStats={meta.ensureStats} details={meta.details} ensureDetails={meta.ensureDetails}
                     columnsLoaded={columnsLoaded} ensureColumns={ensureColumns} onOpenTable={(d, t) => openTable(d, t)} onTableMenu={tableMenu} onDatabaseMenu={databaseMenu} />}
             </div>
           </>

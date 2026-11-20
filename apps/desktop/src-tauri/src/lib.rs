@@ -254,6 +254,22 @@ async fn ensure_columns(state: &tauri::State<'_, AppState>, id: i64, db: &str) -
     Ok((start, cols))
 }
 
+fn session_pool(state: &tauri::State<'_, AppState>, id: i64) -> Result<Pool, String> {
+    state.sessions.lock().unwrap().get(&id).map(|s| s.pool.clone()).ok_or_else(|| "not connected".to_string())
+}
+
+/// Sizes and row estimates of a database's tables (one query), for the object browser.
+#[tauri::command]
+async fn db_table_stats(state: tauri::State<'_, AppState>, id: i64, db: String) -> Result<Vec<myq_driver::TableStat>, String> {
+    myq_driver::table_stats(&session_pool(&state, id)?, &db).await.map_err(err)
+}
+
+/// Declared types, keys and nullability of one table's columns, for the object browser.
+#[tauri::command]
+async fn table_column_details(state: tauri::State<'_, AppState>, id: i64, db: String, table: String) -> Result<Vec<myq_driver::ColumnDetail>, String> {
+    myq_driver::column_details(&session_pool(&state, id)?, &db, &table).await.map_err(err)
+}
+
 /// Execute a script on a dedicated server connection. `run_id` lets the UI cancel it.
 #[tauri::command]
 async fn run_query(
@@ -949,6 +965,8 @@ pub fn run() {
             disconnect,
             filter_index,
             load_columns,
+            db_table_stats,
+            table_column_details,
             run_query,
             cancel_query,
             list_databases,

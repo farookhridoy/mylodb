@@ -86,24 +86,27 @@ assert.equal(await page.locator(".row-item.leaf").count(), 600);
 assert.ok(await rows() < 1500);
 ok("6,040 tables render 300 at a time, with a 'show more' row");
 
-// ---- columns load on demand, once per database, in order
+// ---- columns load on demand: details per table when selected, whole-database names only for col: filters
 await page.click(".tree .db:has-text('db0000')");               // collapse the huge database
 await page.click(".tree .db:has-text('shop')");
 await page.click(".row-item.group:has-text('Tables')");
 assert.equal(await g("__loadCalls"), undefined, "expanding a database loads no columns");
+assert.equal(await g("__detailCalls"), undefined, "nor any column details");
 await page.click(".row-item.leaf:has-text('orders')");
 await page.waitForSelector(".row-item.col:has-text('total')");
-assert.deepEqual(await g("__loadCalls"), ["shop"]);
 await page.click(".row-item.leaf:has-text('customers')");
 await page.waitForSelector(".row-item.col:has-text('email')");
-assert.deepEqual(await g("__loadCalls"), ["shop"], "the second table reuses the loaded columns");
-ok("columns are fetched when a table is first expanded, once per database");
+assert.deepEqual(await g("__detailCalls"), ["shop.orders", "shop.customers"], "one query per table, not per database");
+assert.equal(await g("__loadCalls"), undefined, "selecting tables never loads the whole database's columns");
+ok("selecting a table fetches that table's columns only");
 
 // ---- column filter inside the selected database
+await page.click(".tree .db:has-text('shop')");                 // back to the database level (the table was selected)
+await page.click(".tree .db:has-text('shop')");                 // ...and expanded again
 await filter.fill("col:total");
 await page.waitForFunction(() => window.__filterCalls?.some((x) => x.query === "col:total" && x.scope === "shop"));
 await page.waitForTimeout(250);
-assert.deepEqual(await page.locator(".row-item.leaf").allInnerTexts().then((t) => t.map((x) => x.replace(/[▾▸]/g, "").trim())), ["orders"], "only the table that has a matching column");
+assert.deepEqual(await page.locator(".row-item.leaf").allInnerTexts().then((t) => t.map((x) => x.replace(/[▾▸]/g, "").split("\n").map((l) => l.trim()).find(Boolean))), ["orders"], "only the table that has a matching column");
 assert.ok((await page.locator(".row-item.col").allInnerTexts()).some((t) => t.includes("total")));
 ok("col: filters by column inside the selected database");
 

@@ -67,3 +67,44 @@ async fn introspects_and_filters_all_object_kinds() {
     conn.query_drop(format!("DROP DATABASE `{db}`")).await.unwrap();
     result.unwrap();
 }
+
+#[tokio::test]
+async fn reports_column_types_and_table_sizes() {
+    let pool = pool(&cfg());
+    let mut conn = match pool.get_conn().await {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("SKIP: no MySQL reachable: {e}");
+            return;
+        }
+    };
+    let db = format!("mylodb_itest_stats_{}", std::process::id());
+    conn.query_drop(format!("CREATE DATABASE `{db}`")).await.unwrap();
+    let result = async {
+        conn.query_drop(format!(
+            "CREATE TABLE `{db}`.t (id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, code CHAR(255) NOT NULL, note VARCHAR(40) NULL, KEY (code(20)))"
+        ))
+        .await?;
+        conn.query_drop(format!("CREATE VIEW `{db}`.v AS SELECT id FROM `{db}`.t")).await?;
+        conn.query_drop(format!("INSERT INTO `{db}`.t (code) VALUES ('a'),('b')")).await?;
+
+        let cols = myq_driver::column_details(&pool, &db, "t").await?;
+        assert_eq!(cols.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), ["id", "code", "note"], "declared order");
+        assert!(cols[0].column_type.starts_with("bigint") && cols[0].column_type.ends_with("unsigned"), "{}", cols[0].column_type);
+        assert_eq!((cols[0].key.as_str(), cols[0].extra.as_str(), cols[0].nullable), ("PRI", "auto_increment", false));
+        assert_eq!(cols[1].column_type, "char(255)");
+        assert!(!cols[1].nullable && cols[2].nullable);
+        assert!(myq_driver::column_details(&pool, &db, "missing").await?.is_empty());
+
+        let stats = myq_driver::table_stats(&pool, &db).await?;
+        let t = stats.iter().find(|s| s.name == "t").expect("table listed");
+        assert!(t.bytes.unwrap_or(0) > 0, "an InnoDB table with an index has a size");
+        let v = stats.iter().find(|s| s.name == "v").expect("view listed");
+        assert_eq!(v.bytes, None, "views have no size");
+        assert!(myq_driver::table_stats(&pool, "mylodb_no_such_db").await?.is_empty());
+        Ok::<_, myq_driver::Error>(())
+    }
+    .await;
+    conn.query_drop(format!("DROP DATABASE `{db}`")).await.unwrap();
+    result.unwrap();
+}

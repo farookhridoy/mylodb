@@ -1,5 +1,7 @@
 import { memo, useMemo, useState } from "react";
 import type { Kind, Node } from "./api";
+import { columnMatches, formatBytes, type ColumnsOf } from "./browserMeta";
+import type { TableStat } from "./api";
 
 /** Rows drawn per group before a "show more" row. Keeps a database with thousands of tables responsive. */
 const PAGE = 300;
@@ -25,6 +27,17 @@ function Highlight({ text, terms }: { text: string; terms: string[] }) {
 interface Entry { pos: number; node: Node }
 
 export interface TreeProps {
+  /** The connection shown as the root node, e.g. `root@localhost`. Clicking it resets the browser. */
+  rootLabel: string;
+  onResetRoot(): void;
+  selectedTable: string | null;
+  onSelectTable(db: string, table: string): void;
+  /** Filter text for the selected table's columns (when a table is selected). */
+  columnQuery: string;
+  stats: Record<string, Record<string, TableStat>>;
+  ensureStats(db: string): void;
+  details: Record<string, ColumnsOf>;
+  ensureDetails(db: string, table: string): void;
   index: Node[];
   /** Index positions matching the filter, or null when no filter is active. */
   matches: Set<number> | null;
@@ -69,14 +82,23 @@ export default function ObjectTree(props: TreeProps) {
 
   return (
     <ul className="tree" onContextMenu={(e) => e.target === e.currentTarget && props.onDatabaseMenu(e, null)}>
+      <li className="root-node">
+        <div className={`row-item root ${selectedDb === null ? "selected" : ""}`} title="Show all databases (clears the selection and the filter)"
+             onClick={() => { setOpen(new Set()); props.onResetRoot(); }}
+             onContextMenu={(e) => props.onDatabaseMenu(e, null)}>
+          <span className="chev">▾</span><span className="icon">🖥</span>
+          <strong>{props.rootLabel}</strong>
+          <span className="badge" title="Databases">{dbs.length.toLocaleString()}</span>
+        </div>
+      </li>
       {visibleDbs.slice(0, dbLimit).map(({ node }) => {
         const name = node.name;
         const isOpen = open.has(name);
         const scoped = matches !== null && scope === name;
         return (
-          <li key={name}>
-            <div className={`row-item db ${selectedDb === name ? "selected" : ""}`}
-                 onClick={() => { props.onSelectDb(name); toggle(name); }}
+          <li key={name} className="under-root">
+            <div className={`row-item db ${selectedDb === name && props.selectedTable === null ? "selected" : ""} ${selectedDb === name ? "current" : ""}`}
+                 onClick={() => { props.onSelectDb(name); props.ensureStats(name); toggle(name); }}
                  onContextMenu={(e) => { props.onSelectDb(name); props.onDatabaseMenu(e, name); }}>
               <span className="chev">{isOpen ? "▾" : "▸"}</span>
               <span className="icon">🛢</span>
@@ -100,6 +122,7 @@ const DbBranch = memo(function DbBranch(props: TreeProps & {
   open: Set<string>; toggle(k: string): void; shown: Record<string, number>; more(k: string): void;
 }) {
   const { db, entries, scopedMatches, open, shown } = props;
+  const dbStats = props.stats[db];
 
   const { groups, columnsOf, tablesWithMatchingColumns } = useMemo(() => {
     const keep = (e: Entry) => scopedMatches === null || scopedMatches.has(e.pos);
@@ -153,22 +176,25 @@ const DbBranch = memo(function DbBranch(props: TreeProps & {
                   const expanded = open.has(nk) || (filtering && tablesWithMatchingColumns.has(n.name));
                   return (
                     <li key={nk}>
-                      <div className="row-item leaf"
-                           onClick={() => { if (isTable) { if (!loaded) props.ensureColumns(db); props.toggle(nk); } }}
+                      <div className={`row-item leaf ${isTable && props.selectedTable === n.name && props.selectedDb === db ? "selected" : ""}`}
+                           onClick={() => { if (!isTable) return; const already = props.selectedTable === n.name && props.selectedDb === db; props.onSelectTable(db, n.name); props.ensureDetails(db, n.name); if (already || !open.has(nk)) props.toggle(nk); }}
                            onDoubleClick={() => isTable && props.onOpenTable(db, n.name)}
                            onContextMenu={(e) => isTable && props.onTableMenu(e, db, n.name)}>
                         <span className="chev">{isTable ? (expanded ? "▾" : "▸") : ""}</span>
-                        <Highlight text={n.name} terms={props.terms} />
+                        <span className="name"><Highlight text={n.name} terms={props.terms} /></span>
                         {n.parent && <span className="dim"> · {n.parent}</span>}
+                        {isTable && <TableSize stat={dbStats?.[n.name]} />}
                       </div>
                       {isTable && expanded && (
-                        <ul>
-                          {!loaded && <li className="row-item col dim">loading columns…</li>}
-                          {(cols ?? [])
-                            .filter((c) => !filtering || scopedMatches!.has(c.pos) || !tablesWithMatchingColumns.has(n.name))
-                            .slice(0, 500)
-                            .map((c) => <li key={c.node.name} className="row-item col"><Highlight text={c.node.name} terms={props.terms} /></li>)}
-                        </ul>
+                        <ColumnList
+                          detail={props.details[`${db}\0${n.name}`]}
+                          fallback={cols}
+                          query={props.selectedTable === n.name && props.selectedDb === db ? props.columnQuery : ""}
+                          filtering={filtering}
+                          matched={scopedMatches}
+                          tableHasMatch={tablesWithMatchingColumns.has(n.name)}
+                          terms={props.terms}
+                        />
                       )}
                     </li>
                   );
@@ -183,3 +209,41 @@ const DbBranch = memo(function DbBranch(props: TreeProps & {
     </ul>
   );
 });
+
+/** Size of a table in KB/MB/GB, with the row estimate as a tooltip. Views show nothing. */
+function TableSize({ stat }: { stat: TableStat | undefined }) {
+  if (!stat || stat.bytes === null) return null;
+  return <span className="size" title={`${stat.bytes.toLocaleString()} bytes (data + indexes)${stat.rows !== null ? ` · about ${stat.rows.toLocaleString()} rows` : ""}\nAn estimate from the server's statistics.`}>{formatBytes(stat.bytes)}</span>;
+}
+
+/** The columns of a table with their types (`bigint unsigned`, `char(255)`), key and nullability. */
+function ColumnList({ detail, fallback, query, filtering, matched, tableHasMatch, terms }: {
+  detail: ColumnsOf | undefined; fallback: Entry[] | undefined; query: string; filtering: boolean;
+  matched: Set<number> | null; tableHasMatch: boolean; terms: string[];
+}) {
+  if (Array.isArray(detail)) {
+    const shown = detail.filter((c) => columnMatches(query, c));
+    return (
+      <ul className="columns">
+        {shown.slice(0, 500).map((c) => (
+          <li key={c.name} className="row-item col" title={`${c.name} ${c.column_type}${c.nullable ? "" : " NOT NULL"}${c.extra ? " " + c.extra : ""}`}>
+            <span className="key">{c.key === "PRI" ? "🔑" : c.key === "UNI" ? "◆" : ""}</span>
+            <span className="name"><Highlight text={c.name} terms={query ? query.split(/\s+/).map((t) => t.toLowerCase()) : terms} /></span>
+            <span className="ctype">{c.column_type}</span>
+          </li>
+        ))}
+        {shown.length === 0 && <li className="empty small">{query ? "No matching columns" : "No columns"}</li>}
+        {shown.length > 500 && <li className="empty small">{shown.length - 500} more — type to narrow</li>}
+      </ul>
+    );
+  }
+  if (detail && typeof detail === "object" && "error" in detail) return <ul><li className="row-item col dim" title={detail.error}>couldn't load columns</li></ul>;
+  // not loaded yet: show the names we already have (from the index) while the details arrive
+  const names = (fallback ?? []).filter((c) => !filtering || matched?.has(c.pos) || !tableHasMatch).slice(0, 500);
+  return (
+    <ul>
+      {names.length === 0 && <li className="row-item col dim">loading columns…</li>}
+      {names.map((c) => <li key={c.node.name} className="row-item col"><span className="key" /><span className="name"><Highlight text={c.node.name} terms={terms} /></span></li>)}
+    </ul>
+  );
+}

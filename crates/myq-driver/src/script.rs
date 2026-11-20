@@ -1,7 +1,7 @@
 //! Statement splitting and script execution.
 
 use crate::Result;
-use mysql_async::{prelude::Queryable, Conn, Pool, Row, Value};
+use mysql_async::{prelude::Queryable, Conn, Pool, Row};
 use serde::Serialize;
 use std::time::Instant;
 
@@ -104,6 +104,8 @@ fn is_comment_only(s: &str) -> bool {
 pub struct ColumnInfo {
     pub name: String,
     pub type_name: String,
+    /// BINARY/BLOB columns: cells are hex text, not characters.
+    pub binary: bool,
 }
 
 /// `None` cells are SQL NULL (distinct from the empty string).
@@ -126,21 +128,6 @@ pub struct StatementResult {
     pub error: Option<String>,
 }
 
-fn cell(v: Value) -> Option<String> {
-    match v {
-        Value::NULL => None,
-        Value::Bytes(b) => Some(match String::from_utf8(b) {
-            Ok(s) => s,
-            Err(e) => format!("0x{}", e.into_bytes().iter().map(|x| format!("{x:02X}")).collect::<String>()),
-        }),
-        Value::Int(i) => Some(i.to_string()),
-        Value::UInt(u) => Some(u.to_string()),
-        Value::Float(f) => Some(f.to_string()),
-        Value::Double(d) => Some(d.to_string()),
-        other => Some(other.as_sql(true).trim_matches('\'').to_string()),
-    }
-}
-
 async fn run_one(conn: &mut Conn, sql: &str) -> StatementResult {
     let started = Instant::now();
     let mut res = StatementResult { sql: sql.to_string(), ..Default::default() };
@@ -149,12 +136,12 @@ async fn run_one(conn: &mut Conn, sql: &str) -> StatementResult {
         loop {
             let columns: Vec<ColumnInfo> = qr
                 .columns()
-                .map(|c| c.iter().map(|c| ColumnInfo { name: c.name_str().to_string(), type_name: format!("{:?}", c.column_type()) }).collect())
+                .map(|c| c.iter().map(|c| ColumnInfo { name: c.name_str().to_string(), type_name: format!("{:?}", c.column_type()), binary: crate::values::is_binary(c) }).collect())
                 .unwrap_or_default();
             let (rows, total) = qr
                 .reduce((Vec::<Vec<Option<String>>>::new(), 0u64), |(mut rows, n), row: Row| {
                     if rows.len() < MAX_ROWS {
-                        rows.push(row.unwrap().into_iter().map(cell).collect());
+                        rows.push(crate::values::row_cells(row, None).0);
                     }
                     (rows, n + 1)
                 })

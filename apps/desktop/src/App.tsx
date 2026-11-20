@@ -1,12 +1,21 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, queryApi, type Favorite, type Node, type SavedConnection } from "./api";
 import ConnectionDialog from "./ConnectionDialog";
+import ContextMenu, { type MenuItem } from "./ContextMenu";
+import DataGrid, { defaultView, type GridView } from "./DataGrid";
 import Editor, { type EditorHandle } from "./Editor";
 import ObjectTree from "./ObjectTree";
 import ResultsPane, { type RunState } from "./ResultsPane";
 import { ConfirmDialog, FavoritesPanel, HistoryPanel, SaveFavoriteDialog } from "./SidePanels";
 
-interface QueryTab { id: string; title: string; sql: string; database: string | null }
+/** A SQL editor tab, or a table data tab (`kind: "table"`). Tabs saved before table tabs existed have no kind. */
+interface QueryTab {
+  id: string; title: string; sql: string; database: string | null;
+  kind?: "sql" | "table";
+  table?: { db: string; name: string };
+  grid?: GridView;
+}
+const isTable = (t: QueryTab | undefined) => t?.kind === "table";
 type Side = "objects" | "history" | "favorites";
 
 let counter = 0;
@@ -32,6 +41,8 @@ export default function App() {
   const [favDialog, setFavDialog] = useState<string | null>(null);
   const [favFolders, setFavFolders] = useState<string[]>([]);
   const [panelKey, setPanelKey] = useState(0);
+  const [treeMenu, setTreeMenu] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null);
+  const lastSqlTab = useRef("");
   const [restored, setRestored] = useState(false);
 
   const editor = useRef<EditorHandle>(null);
@@ -42,6 +53,8 @@ export default function App() {
   useEffect(() => { refresh(); }, [refresh]);
   const active = connections.find((c) => c.id === activeId);
   const tab = tabs.find((t) => t.id === activeTab);
+  if (tab && !isTable(tab)) lastSqlTab.current = tab.id;
+  const editorTab = tabs.find((t) => t.id === lastSqlTab.current && !isTable(t)) ?? tabs.find((t) => !isTable(t));
   const databases = useMemo(() => index.filter((n) => n.kind === "database").map((n) => n.name), [index]);
 
   // ---- connect / session restore ----
@@ -56,7 +69,8 @@ export default function App() {
         const saved = await queryApi.sessionGet(id);
         if (saved) {
           const s = JSON.parse(saved) as { tabs: QueryTab[]; active: string };
-          restoredTabs = s.tabs.filter((t) => typeof t.id === "string" && typeof t.sql === "string");
+          restoredTabs = s.tabs.filter((t) => typeof t.id === "string" && (isTable(t) ? !!t.table : typeof t.sql === "string"))
+            .map((t) => (isTable(t) ? { ...t, grid: { ...defaultView(), ...t.grid } } : t));
           restoredActive = s.active;
         }
       } catch { /* a corrupt session is ignored; start fresh */ }
@@ -156,22 +170,33 @@ export default function App() {
   }, [activeId]);
 
   const run = useCallback(() => {
-    if (!tab || !editor.current) return;
-    runSql(tab.id, editor.current.runnableText(), tab.database);
-  }, [tab, runSql]);
+    if (!editorTab || !editor.current) return;
+    runSql(editorTab.id, editor.current.runnableText(), editorTab.database);
+  }, [editorTab, runSql]);
 
   const cancel = () => {
-    const id = tab && runIds.current[tab.id];
+    const id = editorTab && runIds.current[editorTab.id];
     if (id) queryApi.cancel(id).catch(() => {});
   };
 
-  const openTable = (database: string, table: string) => {
+  /** Open a table's data in a grid tab; an existing unfiltered tab for the same table is reused. */
+  const openTable = (database: string, table: string, filters?: GridView["filters"]) => {
+    if (!filters) {
+      const existing = tabs.find((t) => isTable(t) && t.table?.db === database && t.table.name === table && Object.keys(t.grid?.filters ?? {}).length === 0);
+      if (existing) return setActiveTab(existing.id);
+    }
+    const t: QueryTab = { id: uid(), title: table, sql: "", database, kind: "table", table: { db: database, name: table }, grid: { ...defaultView(), filters: filters ?? {} } };
+    setTabs([...tabs, t]);
+    setActiveTab(t.id);
+  };
+
+  const selectInEditor = (database: string, table: string) => {
     const sql = `SELECT * FROM ${quote(database)}.${quote(table)} LIMIT 1000;`;
     const t = addTab(sql, database, table);
     runSql(t.id, sql, database);
   };
 
-  const running = tab ? runs[tab.id]?.running : false;
+  const running = editorTab ? runs[editorTab.id]?.running : false;
   const insertIntoEditor = (sql: string) => editor.current?.insert(sql);
 
   const openFavDialog = async () => {
@@ -227,7 +252,15 @@ export default function App() {
             <div className="tree-wrap">
               {activeId === null
                 ? <div className="empty">Create or select a connection</div>
-                : <ObjectTree index={index} matches={matches} terms={terms} onOpenTable={openTable} />}
+                : <ObjectTree index={index} matches={matches} terms={terms} onOpenTable={(d, t) => openTable(d, t)} onTableMenu={(e, d, t) => {
+                    e.preventDefault();
+                    setTreeMenu({ x: e.clientX, y: e.clientY, items: [
+                      { label: "Open data", onClick: () => openTable(d, t) },
+                      { label: "Select in SQL editor", onClick: () => selectInEditor(d, t) },
+                      { separator: true },
+                      { label: "Copy name", onClick: () => navigator.clipboard.writeText(t) },
+                    ] });
+                  }} />}
             </div>
           </>
         )}
@@ -247,33 +280,44 @@ export default function App() {
             <div className="query-tabs" style={{ borderBottomColor: active?.color }}>
               {tabs.map((t) => (
                 <div key={t.id} className={`qtab ${t.id === activeTab ? "active" : ""}`} onClick={() => setActiveTab(t.id)}>
-                  {runs[t.id]?.running ? "⏳ " : ""}{t.title}
+                  {isTable(t) ? "▦ " : ""}{runs[t.id]?.running ? "⏳ " : ""}{t.title}
                   <button className="mini" onClick={(e) => { e.stopPropagation(); closeTab(t.id); }}>✕</button>
                 </div>
               ))}
               <button className="mini plus" title="New query tab (⌘T)" onClick={() => addTab("", tab.database)}>＋</button>
             </div>
-            <div className="toolbar">
-              <button className="primary" disabled={running} onClick={run} title="Run selection or all (⌘↵)">▶ Run</button>
-              <button disabled={!running} onClick={cancel} title="Cancel running query">■ Cancel</button>
-              <button onClick={openFavDialog} title="Save to favorites">☆</button>
-              <span className="grow" />
-              <label className="dbsel">Database
-                <select value={tab.database ?? ""} onChange={(e) => patchTab(tab.id, { database: e.target.value || null })}>
-                  <option value="">(none)</option>
-                  {databases.map((d) => <option key={d} value={d}>{d}</option>)}
-                </select>
-              </label>
-            </div>
-            <div className="editor-wrap">
-              <Editor ref={editor} tabId={tab.id} initialDoc={tab.sql} onChange={(sql) => patchTab(tab.id, { sql })} onRun={run} />
-            </div>
-            <ResultsPane run={runs[tab.id]} />
+            {/* The editor stays mounted while a table tab is shown so each SQL tab keeps its undo history. */}
+            {editorTab && (
+              <div className="sql-pane" style={{ display: isTable(tab) ? "none" : "flex" }}>
+                <div className="toolbar">
+                  <button className="primary" disabled={running} onClick={run} title="Run selection or all (⌘↵)">▶ Run</button>
+                  <button disabled={!running} onClick={cancel} title="Cancel running query">■ Cancel</button>
+                  <button onClick={openFavDialog} title="Save to favorites">☆</button>
+                  <span className="grow" />
+                  <label className="dbsel">Database
+                    <select value={editorTab.database ?? ""} onChange={(e) => patchTab(editorTab.id, { database: e.target.value || null })}>
+                      <option value="">(none)</option>
+                      {databases.map((d) => <option key={d} value={d}>{d}</option>)}
+                    </select>
+                  </label>
+                </div>
+                <div className="editor-wrap">
+                  <Editor ref={editor} tabId={editorTab.id} initialDoc={editorTab.sql} onChange={(sql) => patchTab(editorTab.id, { sql })} onRun={run} />
+                </div>
+                <ResultsPane run={runs[editorTab.id]} />
+              </div>
+            )}
+            {isTable(tab) && tab.table && (
+              <DataGrid key={`${activeId}:${tab.id}`} connectionId={activeId} db={tab.table.db} table={tab.table.name}
+                initial={tab.grid ?? defaultView()} onViewChange={(grid) => patchTab(tab.id, { grid })}
+                onOpenTable={(d, t, f) => openTable(d, t, f)} />
+            )}
           </>
         )}
         <div className="statusbar" style={{ borderTopColor: active?.color }}>{status}</div>
       </main>
 
+      {treeMenu && <ContextMenu x={treeMenu.x} y={treeMenu.y} items={treeMenu.items} onClose={() => setTreeMenu(null)} />}
       {dialog && (
         <ConnectionDialog
           initial={dialog === "new" ? undefined : dialog}

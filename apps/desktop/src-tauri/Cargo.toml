@@ -15,6 +15,9 @@ tokio = { version = "1", features = ["sync"] }
 myq-schema = { path = "../../../crates/myq-schema" }
 myq-driver = { path = "../../../crates/myq-driver" }
 myq-store = { path = "../../../crates/myq-store" }
+myq-data = { path = "../../../crates/myq-data" }
+tauri-plugin-dialog = "2"
+base64 = "0.22"
 
 [lib]
 name = "mylodb_desktop_lib"

@@ -1,5 +1,6 @@
 //! Thin Tauri bridge. All logic lives in the `myq-*` crates; this only exposes it as commands.
 
+use myq_data::{Assign, Change, CellData, ColumnFilter, ExportOptions, LookupItem, Page, PageSpec, TableMeta, ApplyOutcome};
 use myq_driver::{execute_script, introspect, kill_query, pool, IntrospectOptions, Pool, StatementResult};
 use myq_schema::filter::{Filter, Node};
 use myq_store::{Favorite, HistoryEntry, Keychain, SavedConnection, Store};
@@ -113,6 +114,98 @@ fn list_databases(state: tauri::State<AppState>, id: i64) -> Result<Vec<String>,
     Ok(s.index.iter().filter(|n| n.kind == myq_schema::filter::Kind::Database).map(|n| n.name.clone()).collect())
 }
 
+// ---- table data grid ----
+
+/// A dedicated server connection from the session's pool.
+async fn conn_for(state: &tauri::State<'_, AppState>, id: i64) -> Result<myq_driver::Conn, String> {
+    let pool = state.sessions.lock().unwrap().get(&id).map(|s| s.pool.clone()).ok_or("not connected")?;
+    pool.get_conn().await.map_err(err)
+}
+
+#[tauri::command]
+async fn table_meta(state: tauri::State<'_, AppState>, id: i64, db: String, table: String) -> Result<TableMeta, String> {
+    let mut c = conn_for(&state, id).await?;
+    myq_data::table_meta(&mut c, &db, &table).await.map_err(err)
+}
+
+#[tauri::command]
+async fn table_page(state: tauri::State<'_, AppState>, id: i64, db: String, table: String, spec: PageSpec) -> Result<Page, String> {
+    let mut c = conn_for(&state, id).await?;
+    let meta = myq_data::table_meta(&mut c, &db, &table).await.map_err(err)?;
+    myq_data::fetch_page(&mut c, &meta, &spec).await.map_err(err)
+}
+
+#[tauri::command]
+async fn table_count(state: tauri::State<'_, AppState>, id: i64, db: String, table: String, filters: Vec<ColumnFilter>, where_sql: Option<String>) -> Result<u64, String> {
+    let mut c = conn_for(&state, id).await?;
+    let meta = myq_data::table_meta(&mut c, &db, &table).await.map_err(err)?;
+    myq_data::count_rows(&mut c, &meta, &filters, where_sql.as_deref()).await.map_err(err)
+}
+
+#[tauri::command]
+async fn preview_changes(state: tauri::State<'_, AppState>, id: i64, db: String, table: String, changes: Vec<Change>) -> Result<Vec<String>, String> {
+    let mut c = conn_for(&state, id).await?;
+    let meta = myq_data::table_meta(&mut c, &db, &table).await.map_err(err)?;
+    myq_data::preview_changes(&meta, &changes).map_err(err)
+}
+
+#[tauri::command]
+async fn apply_changes(state: tauri::State<'_, AppState>, id: i64, db: String, table: String, changes: Vec<Change>) -> Result<ApplyOutcome, String> {
+    let mut c = conn_for(&state, id).await?;
+    let meta = myq_data::table_meta(&mut c, &db, &table).await.map_err(err)?;
+    let outcome = myq_data::apply_changes(&mut c, &meta, &changes).await.map_err(err)?;
+    // Edits are part of the audit trail: log what ran, best-effort.
+    if let Ok(sqls) = myq_data::preview_changes(&meta, &changes) {
+        let _ = state.store.lock().unwrap().add_history(id, &sqls.join(";\n"), 0, true);
+    }
+    Ok(outcome)
+}
+
+#[tauri::command]
+async fn fetch_cell(state: tauri::State<'_, AppState>, id: i64, db: String, table: String, key: Vec<Assign>, column: String) -> Result<CellData, String> {
+    let mut c = conn_for(&state, id).await?;
+    let meta = myq_data::table_meta(&mut c, &db, &table).await.map_err(err)?;
+    myq_data::fetch_cell(&mut c, &meta, &key, &column).await.map_err(err)
+}
+
+/// Write one cell's raw bytes to a file chosen by the user.
+#[tauri::command]
+async fn save_cell_to_file(state: tauri::State<'_, AppState>, id: i64, db: String, table: String, key: Vec<Assign>, column: String, path: String) -> Result<usize, String> {
+    use base64::Engine;
+    let mut c = conn_for(&state, id).await?;
+    let meta = myq_data::table_meta(&mut c, &db, &table).await.map_err(err)?;
+    let cell = myq_data::fetch_cell(&mut c, &meta, &key, &column).await.map_err(err)?;
+    if cell.truncated {
+        return Err(format!("value is {} bytes, larger than the {} byte transfer limit", cell.len, myq_data::FETCH_CELL_MAX));
+    }
+    let bytes = base64::engine::general_purpose::STANDARD.decode(cell.base64.unwrap_or_default()).map_err(err)?;
+    std::fs::write(&path, &bytes).map_err(err)?;
+    Ok(bytes.len())
+}
+
+#[tauri::command]
+async fn fk_lookup(state: tauri::State<'_, AppState>, id: i64, ref_schema: String, ref_table: String, ref_column: String, search: String) -> Result<Vec<LookupItem>, String> {
+    let mut c = conn_for(&state, id).await?;
+    let meta = myq_data::table_meta(&mut c, &ref_schema, &ref_table).await.map_err(err)?;
+    myq_data::lookup(&mut c, &meta, &ref_column, &search, 100).await.map_err(err)
+}
+
+/// Export every row matching `spec` to `path`. A partial file is removed on failure.
+#[tauri::command]
+async fn export_table(state: tauri::State<'_, AppState>, id: i64, db: String, table: String, spec: PageSpec, options: ExportOptions, path: String) -> Result<u64, String> {
+    let mut c = conn_for(&state, id).await?;
+    let meta = myq_data::table_meta(&mut c, &db, &table).await.map_err(err)?;
+    let file = std::fs::File::create(&path).map_err(err)?;
+    let mut out = std::io::BufWriter::new(file);
+    let result = myq_data::export_rows(&mut c, &meta, &spec, &options, &mut out).await;
+    let flushed = std::io::Write::flush(&mut out);
+    match (result, flushed) {
+        (Ok(n), Ok(())) => Ok(n),
+        (Err(e), _) => { let _ = std::fs::remove_file(&path); Err(err(e)) }
+        (_, Err(e)) => { let _ = std::fs::remove_file(&path); Err(err(e)) }
+    }
+}
+
 #[tauri::command]
 fn history_list(state: tauri::State<AppState>, id: i64, search: String) -> Result<Vec<HistoryEntry>, String> {
     state.store.lock().unwrap().list_history(id, &search, 200).map_err(err)
@@ -150,6 +243,7 @@ fn session_set(state: tauri::State<AppState>, id: i64, session: String) -> Resul
 
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&dir)?;
@@ -173,7 +267,16 @@ pub fn run() {
             favorite_save,
             favorite_delete,
             session_get,
-            session_set
+            session_set,
+            table_meta,
+            table_page,
+            table_count,
+            preview_changes,
+            apply_changes,
+            fetch_cell,
+            save_cell_to_file,
+            fk_lookup,
+            export_table
         ])
         .run(tauri::generate_context!())
         .expect("error while running MyLoDB");

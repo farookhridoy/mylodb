@@ -3,10 +3,12 @@
 mod config;
 mod introspect;
 mod script;
+mod values;
 
 pub use config::{ConnConfig, SslMode};
 pub use introspect::{introspect, IntrospectOptions};
-pub use mysql_async::{Conn, Pool};
+pub use mysql_async::{self, Conn, Pool};
+pub use values::{cell_text, hex, is_binary, is_numeric, row_cells};
 pub use script::{execute_script, kill_query, split_statements, ColumnInfo, ResultSet, Statement, StatementResult, MAX_ROWS};
 
 #[derive(Debug, thiserror::Error)]

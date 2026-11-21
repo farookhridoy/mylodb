@@ -198,6 +198,7 @@ impl Store {
         Self::ensure_column(&db, "connections", "query_timeout", "INTEGER")?;
         Self::ensure_column(&db, "connections", "confirm_destructive", "INTEGER NOT NULL DEFAULT 1")?;
         Self::ensure_column(&db, "connections", "show_all_databases", "INTEGER NOT NULL DEFAULT 1")?;
+        Self::ensure_column(&db, "connections", "collation", "TEXT")?;
         Ok(Store { db, secrets })
     }
 
@@ -234,15 +235,15 @@ impl Store {
         let id = match c.id {
             Some(id) => {
                 self.db.execute(
-                    "UPDATE connections SET name=?1,color=?2,host=?3,port=?4,user=?5,database=?6,ssl=?7,ssl_ca=?8,ssl_cert=?9,ssl_key=?10,ssh=?11,environment=?12,read_only=?13,query_timeout=?14,confirm_destructive=?15,show_all_databases=?16 WHERE id=?17",
-                    params![c.name, c.color, c.config.host, c.config.port, c.config.user, c.config.database, ssl, ca, cert, key, ssh, c.environment.as_str(), c.config.read_only, c.query_timeout_secs, c.confirm_destructive, c.show_all_databases, id],
+                    "UPDATE connections SET name=?1,color=?2,host=?3,port=?4,user=?5,database=?6,ssl=?7,ssl_ca=?8,ssl_cert=?9,ssl_key=?10,ssh=?11,environment=?12,read_only=?13,query_timeout=?14,confirm_destructive=?15,show_all_databases=?16,collation=?17 WHERE id=?18",
+                    params![c.name, c.color, c.config.host, c.config.port, c.config.user, c.config.database, ssl, ca, cert, key, ssh, c.environment.as_str(), c.config.read_only, c.query_timeout_secs, c.confirm_destructive, c.show_all_databases, c.config.collation, id],
                 )?;
                 id
             }
             None => {
                 self.db.execute(
-                    "INSERT INTO connections (name,color,host,port,user,database,ssl,ssl_ca,ssl_cert,ssl_key,ssh,environment,read_only,query_timeout,confirm_destructive,show_all_databases) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16)",
-                    params![c.name, c.color, c.config.host, c.config.port, c.config.user, c.config.database, ssl, ca, cert, key, ssh, c.environment.as_str(), c.config.read_only, c.query_timeout_secs, c.confirm_destructive, c.show_all_databases],
+                    "INSERT INTO connections (name,color,host,port,user,database,ssl,ssl_ca,ssl_cert,ssl_key,ssh,environment,read_only,query_timeout,confirm_destructive,show_all_databases,collation) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17)",
+                    params![c.name, c.color, c.config.host, c.config.port, c.config.user, c.config.database, ssl, ca, cert, key, ssh, c.environment.as_str(), c.config.read_only, c.query_timeout_secs, c.confirm_destructive, c.show_all_databases, c.config.collation],
                 )?;
                 self.db.last_insert_rowid()
             }
@@ -264,7 +265,7 @@ impl Store {
 
     pub fn list(&self) -> Result<Vec<SavedConnection>> {
         let mut st = self.db.prepare(
-            "SELECT id,name,color,host,port,user,database,ssl,ssl_ca,ssl_cert,ssl_key,ssh,environment,read_only,query_timeout,confirm_destructive,show_all_databases FROM connections ORDER BY name COLLATE NOCASE",
+            "SELECT id,name,color,host,port,user,database,ssl,ssl_ca,ssl_cert,ssl_key,ssh,environment,read_only,query_timeout,confirm_destructive,show_all_databases,collation FROM connections ORDER BY name COLLATE NOCASE",
         )?;
         let rows = st.query_map([], |r| {
             let ssh: Option<String> = r.get(11)?;
@@ -284,6 +285,7 @@ impl Store {
                         ssl_cert: r.get(9)?,
                         ssl_key: r.get(10)?,
                         read_only: r.get::<_, i64>(13)? != 0,
+                        collation: r.get(17)?,
                     },
                     environment: Environment::parse(&r.get::<_, String>(12)?),
                     query_timeout_secs: r.get(14)?,
@@ -536,7 +538,9 @@ mod tests {
         c.query_timeout_secs = Some(30);
         c.confirm_destructive = false;
         c.show_all_databases = false;
+        c.config.collation = Some("utf8mb4_unicode_ci".into());
         let id = s.save(&c).unwrap();
+        assert_eq!(s.config_for(id).unwrap().unwrap().collation.as_deref(), Some("utf8mb4_unicode_ci"));
         assert!(!s.connection(id).unwrap().unwrap().show_all_databases);
         let got = s.connection(id).unwrap().unwrap();
         assert_eq!((got.environment, got.config.read_only, got.query_timeout_secs, got.confirm_destructive), (Environment::Production, true, Some(30), false));

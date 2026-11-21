@@ -600,6 +600,70 @@ async fn export_query(app: tauri::AppHandle, state: tauri::State<'_, AppState>, 
     }
 }
 
+// ---- admin pages: the databases list, a database's tables, the server home ----
+
+/// Databases the account may see, honouring "show all databases = off" (a hosted account sees only its own).
+#[tauri::command]
+async fn database_list(state: tauri::State<'_, AppState>, id: i64) -> Result<Vec<myq_driver::DatabaseRow>, String> {
+    let (pool, only) = state.sessions.lock().unwrap().get(&id).map(|s| (s.pool.clone(), s.only_database.clone())).ok_or("not connected")?;
+    let mut rows = myq_driver::database_list(&pool).await.map_err(err)?;
+    if let Some(db) = only {
+        rows.retain(|r| r.name == db);
+    }
+    Ok(rows)
+}
+
+/// Table counts and sizes per database. Slower than the list (it reads every table's statistics), so the page asks for it separately.
+#[tauri::command]
+async fn database_sizes(state: tauri::State<'_, AppState>, id: i64) -> Result<Vec<(String, u64, u64)>, String> {
+    let (pool, only) = state.sessions.lock().unwrap().get(&id).map(|s| (s.pool.clone(), s.only_database.clone())).ok_or("not connected")?;
+    let mut rows = myq_driver::database_sizes(&pool).await.map_err(err)?;
+    if let Some(db) = only {
+        rows.retain(|r| r.0 == db);
+    }
+    Ok(rows)
+}
+
+#[tauri::command]
+async fn database_tables(state: tauri::State<'_, AppState>, id: i64, db: String) -> Result<Vec<myq_driver::TableRow>, String> {
+    myq_driver::database_tables(&session_pool(&state, id)?, &db).await.map_err(err)
+}
+
+#[derive(serde::Serialize)]
+struct ServerHome {
+    info: myq_admin::ServerInfo,
+    /// `user@host` the server sees (CURRENT_USER()).
+    account: String,
+    protocol: Option<u32>,
+    connections: Option<u64>,
+    /// The collation this connection uses right now.
+    connection_collation: String,
+    databases: usize,
+}
+
+#[tauri::command]
+async fn server_home(state: tauri::State<'_, AppState>, id: i64) -> Result<ServerHome, String> {
+    use myq_driver::mysql_async::prelude::Queryable;
+    let databases = {
+        let sessions = state.sessions.lock().unwrap();
+        sessions.get(&id).ok_or("not connected")?.db_positions.len()
+    };
+    let mut c = conn_for(&state, id).await?;
+    let info = myq_admin::server_info(&mut c).await.map_err(err)?;
+    let account: Option<String> = c.query_first("SELECT CURRENT_USER()").await.map_err(err)?;
+    let protocol: Option<u32> = c.query_first("SELECT @@protocol_version").await.ok().flatten();
+    let connections: Option<(String, String)> = c.query_first("SHOW GLOBAL STATUS LIKE 'Threads_connected'").await.ok().flatten();
+    let collation: Option<String> = c.query_first("SELECT @@collation_connection").await.map_err(err)?;
+    Ok(ServerHome {
+        info,
+        account: account.unwrap_or_default(),
+        protocol,
+        connections: connections.and_then(|(_, v)| v.parse().ok()),
+        connection_collation: collation.unwrap_or_default(),
+        databases,
+    })
+}
+
 // ---- plans: the SQL a bulk or destructive operation will run, shown before it runs ----
 
 /// An operation the UI wants to preview. Building the statements is pure (see `myq_schema::plan`); nothing here touches the server.
@@ -618,6 +682,7 @@ enum PlanOp {
     CopyDatabase { src: String, dst: String, with_data: bool, collation: Option<String> },
     RenameDatabase { old: String, new: String, collation: Option<String> },
     DropObject { db: String, kind: Kind, name: String },
+    CreateDatabase { name: String, collation: Option<String> },
     RenameTable { db: String, from: String, to: String },
 }
 
@@ -648,6 +713,7 @@ fn build_plan(state: tauri::State<AppState>, id: i64, op: PlanOp) -> Result<Vec<
             let (tables, _) = tables_of(&src)?;
             p::copy_database(&src, &dst, &tables, with_data, collation.as_deref())
         }
+        PlanOp::CreateDatabase { name, collation } => p::create_database(&name, collation.as_deref()),
         PlanOp::DropObject { db, kind, name } => myq_schema::ddl::drop_object_sql(kind, &db, &name).map(|sql| vec![format!("{sql};")]).ok_or_else(|| format!("{kind:?} cannot be dropped this way")),
         PlanOp::RenameTable { db, from, to } => {
             if to.trim().is_empty() || to == from {
@@ -1257,6 +1323,10 @@ pub fn run() {
             drop_object,
             table_column_details,
             run_query,
+            database_list,
+            database_sizes,
+            database_tables,
+            server_home,
             build_plan,
             run_plan,
             review_sql,

@@ -150,3 +150,27 @@ async fn a_run_that_exceeds_the_timeout_is_stopped_and_marked() {
     let (bad, timed_out) = myq_driver::execute_script_with_timeout(&p, &mut conn, None, "SELEC 1", Some(5)).await;
     assert!(!timed_out && bad[0].error.is_some());
 }
+
+#[tokio::test]
+async fn the_connection_collation_survives_a_recycled_connection() {
+    let mut c = cfg(false);
+    c.collation = Some("utf8mb4_bin".into());
+    let p = pool(&c);
+    for _ in 0..3 {
+        let mut conn = match p.get_conn().await {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("SKIP: no MySQL reachable: {e}");
+                return;
+            }
+        };
+        let got: Option<String> = conn.query_first("SELECT @@collation_connection").await.unwrap();
+        assert_eq!(got.as_deref(), Some("utf8mb4_bin"));
+    }
+    // a name that is not a collation name is ignored, not pasted into SQL
+    let mut bad = cfg(false);
+    bad.collation = Some("utf8mb4_bin; DROP DATABASE x".into());
+    let mut conn = pool(&bad).get_conn().await.unwrap();
+    let got: Option<String> = conn.query_first("SELECT @@character_set_connection").await.unwrap();
+    assert_eq!(got.as_deref(), Some("utf8mb4"));
+}

@@ -155,3 +155,47 @@ async fn reports_column_types_and_table_sizes() {
     conn.query_drop(format!("DROP DATABASE `{db}`")).await.unwrap();
     result.unwrap();
 }
+
+#[tokio::test]
+async fn lists_databases_sizes_and_tables_for_the_admin_pages() {
+    let pool = pool(&cfg());
+    let mut conn = match pool.get_conn().await {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("SKIP: no MySQL reachable: {e}");
+            return;
+        }
+    };
+    let db = format!("mylodb_itest_adm_{}", std::process::id());
+    conn.query_drop(format!("CREATE DATABASE `{db}` COLLATE utf8mb4_bin")).await.unwrap();
+    let result = async {
+        conn.query_drop(format!("CREATE TABLE `{db}`.a (id INT PRIMARY KEY, v VARCHAR(20)) COMMENT='first' COLLATE utf8mb4_unicode_ci")).await?;
+        conn.query_drop(format!("CREATE TABLE `{db}`.b (id INT PRIMARY KEY)")).await?;
+        conn.query_drop(format!("CREATE VIEW `{db}`.v AS SELECT id FROM `{db}`.a")).await?;
+        conn.query_drop(format!("INSERT INTO `{db}`.a VALUES (1,'x'),(2,'y')")).await?;
+
+        let dbs = myq_driver::database_list(&pool).await?;
+        let mine = dbs.iter().find(|d| d.name == db).expect("listed");
+        assert_eq!((mine.collation.as_str(), mine.charset.as_str(), mine.system), ("utf8mb4_bin", "utf8mb4", false));
+        assert!(dbs.iter().any(|d| d.name == "mysql" && d.system), "system databases are flagged");
+        assert!(dbs.windows(2).all(|w| w[0].name <= w[1].name), "sorted by name");
+
+        let sizes = myq_driver::database_sizes(&pool).await?;
+        let (_, tables, bytes) = sizes.iter().find(|s| s.0 == db).expect("sized");
+        assert_eq!(*tables, 3, "two tables and a view");
+        assert!(*bytes > 0);
+
+        let rows = myq_driver::database_tables(&pool, &db).await?;
+        assert_eq!(rows.iter().map(|r| r.name.as_str()).collect::<Vec<_>>(), ["a", "b", "v"]);
+        let a = &rows[0];
+        assert_eq!((a.is_view, a.engine.as_deref(), a.collation.as_deref(), a.comment.as_str()), (false, Some("InnoDB"), Some("utf8mb4_unicode_ci"), "first"));
+        assert!(a.bytes.unwrap_or(0) > 0 && a.overhead.is_some());
+        let v = &rows[2];
+        assert!(v.is_view && v.engine.is_none() && v.bytes.is_none() && v.overhead.is_none(), "{v:?}");
+        assert!(myq_driver::database_tables(&pool, "mylodb_no_such_db").await?.is_empty());
+        Ok::<_, myq_driver::Error>(())
+    }
+    .await;
+    conn.query_drop(format!("DROP DATABASE `{db}`")).await.unwrap();
+    result.unwrap();
+}

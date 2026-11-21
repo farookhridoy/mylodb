@@ -25,6 +25,17 @@ fn nonempty(names: &[String], what: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// `CREATE DATABASE`, with a collation when given (its character set is the part of the name before the first underscore).
+pub fn create_database(name: &str, collation: Option<&str>) -> PlanResult {
+    if name.trim().is_empty() {
+        return Err("the database name is empty".into());
+    }
+    if SYSTEM_DATABASES.contains(&name.to_lowercase().as_str()) {
+        return Err(format!("`{name}` is a system database"));
+    }
+    Ok(vec![format!("CREATE DATABASE {}{};", q(name), charset_clause(None, collation).unwrap_or_default())])
+}
+
 /// `DROP DATABASE` for each. The system databases are refused.
 pub fn drop_databases(names: &[String]) -> PlanResult {
     nonempty(names, "database")?;
@@ -220,6 +231,15 @@ mod tests {
     fn dropping_tables_is_one_statement_and_views_use_drop_view() {
         assert_eq!(drop_tables("shop", &objs(&[("a", false), ("b", false)])).unwrap(), ["DROP TABLE `shop`.`a`, `shop`.`b`;"]);
         assert_eq!(drop_tables("shop", &objs(&[("a", false), ("v", true)])).unwrap(), ["DROP TABLE `shop`.`a`;", "DROP VIEW `shop`.`v`;"]);
+    }
+
+    #[test]
+    fn creating_a_database_quotes_the_name_and_checks_the_collation() {
+        assert_eq!(create_database("shop", None).unwrap(), ["CREATE DATABASE `shop`;"]);
+        assert_eq!(create_database("sh`op", Some("utf8mb4_0900_ai_ci")).unwrap(), ["CREATE DATABASE `sh``op` COLLATE utf8mb4_0900_ai_ci;"]);
+        assert_eq!(create_database("a", Some("bad; DROP")).unwrap(), ["CREATE DATABASE `a`;"], "an invalid collation name is dropped, not pasted");
+        assert!(create_database(" ", None).is_err());
+        assert!(create_database("Mysql", None).is_err());
     }
 
     #[test]

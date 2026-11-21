@@ -23,6 +23,8 @@ export interface SavedConnection {
   environment?: Environment;
   read_only?: boolean;
   query_timeout_secs?: number | null;
+  /// Collation of the connection (SET NAMES … COLLATE …); the server default when empty.
+  collation?: string | null;
   confirm_destructive?: boolean;
   /// false + a default database: only that database is listed.
   show_all_databases?: boolean;
@@ -359,6 +361,7 @@ export type PlanOp =
   | { op: "alter_database"; name: string; charset: string | null; collation: string | null }
   | { op: "copy_database"; src: string; dst: string; with_data: boolean; collation: string | null }
   | { op: "rename_database"; old: string; new: string; collation: string | null }
+  | { op: "create_database"; name: string; collation: string | null }
   | { op: "drop_object"; db: string; kind: Kind; name: string }
   | { op: "rename_table"; db: string; from: string; to: string };
 
@@ -367,4 +370,19 @@ export const planApi = {
   build: (id: number, op: PlanOp) => invoke<string[]>("build_plan", { id, op }),
   /** Run statements exactly as shown, stopping at the first error. */
   run: (id: number, statements: string[]) => invoke<StatementResult[]>("run_plan", { id, statements }),
+};
+
+// ---- admin pages ----
+export interface DatabaseRow { name: string; collation: string; charset: string; system: boolean }
+export interface TableRow { name: string; is_view: boolean; engine: string | null; rows: number | null; collation: string | null; bytes: number | null; overhead: number | null; comment: string }
+export interface ServerHome {
+  info: { version: string; version_comment: string; hostname: string; port: number; datadir: string; charset: string; collation: string; sql_mode: string; time_zone: string; max_connections: number; uptime_seconds: number; ssl_cipher: string | null };
+  account: string; protocol: number | null; connections: number | null; connection_collation: string; databases: number;
+}
+export const adminApi = {
+  databases: (id: number) => invoke<DatabaseRow[]>("database_list", { id }),
+  /** [name, tables, bytes] per database. Slower than `databases`. */
+  sizes: (id: number) => invoke<[string, number, number][]>("database_sizes", { id }),
+  tables: (id: number, db: string) => invoke<TableRow[]>("database_tables", { id, db }),
+  home: (id: number) => invoke<ServerHome>("server_home", { id }),
 };

@@ -45,6 +45,13 @@ export function blankTable(opts: ServerOptions | null): TableDef {
   };
 }
 
+/** A blank table with the name and number of columns asked for: `id` first, then `column_2`… as nullable varchar(255). */
+function withInitial(def: TableDef, initial?: { name: string; columns: number }): TableDef {
+  if (!initial) return def;
+  const extra = Array.from({ length: Math.max(0, Math.min(initial.columns, 200) - 1) }, (_, i) => ({ ...newColumn(`column_${i + 2}`), data_type: "varchar", params: "255", nullable: true }));
+  return { ...def, name: initial.name, columns: [...def.columns, ...extra] };
+}
+
 type Tab = "columns" | "indexes" | "fks" | "options" | "sql";
 
 export default function TableDesigner(props: {
@@ -53,6 +60,8 @@ export default function TableDesigner(props: {
   onOpenData(db: string, table: string): void;
   /** The connection is read-only: the definition can be looked at but not applied. */
   readOnly?: boolean;
+  /** For a new table: the name and how many columns to start with (the Create new table box of the Structure page). */
+  initial?: { name: string; columns: number };
 }) {
   const { connectionId: cid, db } = props;
   const [original, setOriginal] = useState<TableDef | null>(null);
@@ -77,7 +86,7 @@ export default function TableDesigner(props: {
         const r = await schemaApi.tableDef(cid, db, props.table);
         setOriginal(r.def); setDraft(structuredClone(r.def)); setWarnings(r.warnings);
       } else {
-        setOriginal(null); setDraft(blankTable(o)); setWarnings([]);
+        setOriginal(null); setDraft(withInitial(blankTable(o), props.initial)); setWarnings([]);
       }
       setError(null);
     } catch (e) { setError(String(e)); }

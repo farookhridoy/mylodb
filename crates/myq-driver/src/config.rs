@@ -39,6 +39,14 @@ pub struct ConnConfig {
     /// The server then refuses writes and schema changes, whatever the client sends.
     #[serde(default)]
     pub read_only: bool,
+    /// Collation of the connection (`SET NAMES <charset> COLLATE <collation>`); the server default when None.
+    #[serde(default)]
+    pub collation: Option<String>,
+}
+
+/// A collation name is letters, digits and underscores: anything else is never pasted into SQL.
+pub fn valid_collation(c: &str) -> bool {
+    !c.is_empty() && c.chars().all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
 }
 
 fn path(p: &str) -> PathBuf {
@@ -51,7 +59,11 @@ fn path(p: &str) -> PathBuf {
 impl ConnConfig {
     pub fn to_opts(&self) -> Opts {
         // `setup` (not `init`): it runs again whenever the pool resets a recycled connection, which wipes session state.
-        let mut setup = vec!["SET NAMES utf8mb4".to_string()];
+        let mut setup = vec![match self.collation.as_deref().filter(|c| valid_collation(c)) {
+            // the character set is the part of the collation name before the first underscore
+            Some(c) => format!("SET NAMES {} COLLATE {c}", c.split('_').next().unwrap_or("utf8mb4")),
+            None => "SET NAMES utf8mb4".to_string(),
+        }];
         if self.read_only {
             setup.push("SET SESSION TRANSACTION READ ONLY".to_string());
         }

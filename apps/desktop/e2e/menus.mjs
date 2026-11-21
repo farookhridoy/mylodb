@@ -94,7 +94,7 @@ assert.ok(await page.locator(".ctx:not(.ctx-nested) > .ctx-sep").count() >= 5, "
 assert.equal(await page.locator(".ctx-item.danger").count(), 2, "Drop and Truncate are drawn as dangerous (Truncate sits in Tools)");
 const sub = async (name) => { await page.hover(`.ctx:not(.ctx-nested) > .ctx-item.sub:has-text('${name}')`); return text(page.locator(`.ctx:not(.ctx-nested) > .ctx-item.sub:has-text('${name}') > .ctx-nested .ctx-label`)); };
 assert.deepEqual(await sub("Create"), ["New table…", "New view…", "New procedure…", "New function…", "New trigger…", "New event…"]);
-assert.deepEqual(await sub("Tools"), ["Dump table…", "Analyze", "Check", "Optimize", "Repair", "Truncate…", "Server tools"]);
+assert.deepEqual(await sub("Tools"), ["Dump table…", "Analyze", "Check", "Optimize", "Repair", "Truncate…", "Databases", "Server tools"]);
 assert.deepEqual(await sub("Generate SQL"), ["SELECT", "INSERT", "UPDATE", "DELETE", "UPSERT", "DDL"]);
 await page.keyboard.press("Escape");
 ok("the table menu has Create, View Table / Diagram / Data, Export / Import, Tools and Generate SQL submenus, icons, shortcuts and separators");

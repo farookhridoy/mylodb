@@ -437,3 +437,12 @@ button.danger { background: var(--bad); border-color: var(--bad); color: #fff; }
 .preview-dialog { width: 680px; max-height: 88vh; overflow: auto; } .preview-dialog h3 { display: flex; align-items: center; gap: 8px; }
 .preview-sql { margin: 0; padding: 10px 12px; background: var(--inset); border: 1px solid var(--line); border-radius: 4px; font: 12px/1.5 "SF Mono", Menlo, monospace; white-space: pre-wrap; word-break: break-all; max-height: 36vh; overflow: auto; user-select: text; }
 .plan-results { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; max-height: 24vh; overflow: auto; } .plan-results li.bad { color: var(--bad-text); }
+
+/* admin pages: server home, Databases, database Structure */
+.admin-page { flex: 1; overflow: auto; padding: 14px 18px 24px; } .admin-page h2 { margin: 0 0 10px; font-size: 18px; font-weight: 600; }
+.admin-card { border: 1px solid var(--line); border-radius: 4px; background: var(--panel); padding: 10px 12px; margin-bottom: 12px; } .admin-card h4 { margin: 0 0 8px; font-size: 12px; }
+.admin-row { display: flex; gap: 8px; align-items: center; } .admin-row input { width: 240px; } .admin-row .ss { width: 280px; }
+.admin-bar { display: flex; align-items: center; gap: 10px; margin: 6px 0 8px; } .admin-search { width: 220px; }
+.admin-table { max-width: 920px; } .admin-table th.sortable { cursor: pointer; user-select: none; } .admin-table tr.picked td { background: var(--row-selected); }
+.admin-table tfoot td { border-top: 2px solid var(--line); background: var(--panel); }
+.admin-table button.link { padding: 0; min-height: 0; border: 0; background: none; color: var(--accent); }

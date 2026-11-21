@@ -188,3 +188,83 @@ pub async fn object_definition(pool: &Pool, kind: Kind, database: &str, name: &s
     // the statement can be NULL for routines the account may not read: that is "no definition", not an error
     Ok(row.and_then(|r| r.get_opt::<Option<String>, _>(column)).and_then(|v| v.ok()).flatten())
 }
+
+/// A database as the Databases page lists it.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+pub struct DatabaseRow {
+    pub name: String,
+    pub collation: String,
+    pub charset: String,
+    /// `mysql`, `sys`, `information_schema`, `performance_schema`: listed on request, never selectable.
+    pub system: bool,
+}
+
+/// Names and default collations: one quick query. Sizes come separately (`database_sizes`), because that one can be slow.
+pub async fn database_list(pool: &Pool) -> Result<Vec<DatabaseRow>> {
+    let mut conn = pool.get_conn().await?;
+    let rows: Vec<(String, String, String)> = conn
+        .query("SELECT SCHEMA_NAME, DEFAULT_COLLATION_NAME, DEFAULT_CHARACTER_SET_NAME FROM information_schema.SCHEMATA ORDER BY SCHEMA_NAME")
+        .await?;
+    Ok(rows
+        .into_iter()
+        .map(|(name, collation, charset)| DatabaseRow { system: SYSTEM_DBS.contains(&name.to_lowercase().as_str()), name, collation, charset })
+        .collect())
+}
+
+/// Table count and data + index bytes per database, in one grouped query over `information_schema.TABLES` (views count as tables, with no size).
+pub async fn database_sizes(pool: &Pool) -> Result<Vec<(String, u64, u64)>> {
+    let mut conn = pool.get_conn().await?;
+    let rows: Vec<(String, u64, Option<u64>)> = conn
+        .query("SELECT TABLE_SCHEMA, COUNT(*), CAST(SUM(COALESCE(DATA_LENGTH,0) + COALESCE(INDEX_LENGTH,0)) AS UNSIGNED) FROM information_schema.TABLES GROUP BY TABLE_SCHEMA")
+        .await?;
+    Ok(rows.into_iter().map(|(n, c, b)| (n, c, b.unwrap_or(0))).collect())
+}
+
+/// A table or view as the Structure page lists it.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+pub struct TableRow {
+    pub name: String,
+    pub is_view: bool,
+    pub engine: Option<String>,
+    /// The server's row estimate (exact for views: none).
+    pub rows: Option<u64>,
+    pub collation: Option<String>,
+    /// Data plus index bytes.
+    pub bytes: Option<u64>,
+    /// Free space inside the table file that `OPTIMIZE TABLE` would give back (phpMyAdmin's "Overhead").
+    pub overhead: Option<u64>,
+    pub comment: String,
+}
+
+pub async fn database_tables(pool: &Pool, database: &str) -> Result<Vec<TableRow>> {
+    use mysql_async::Row;
+    let mut conn = pool.get_conn().await?;
+    let rows: Vec<Row> = conn
+        .exec(
+            "SELECT TABLE_NAME, TABLE_TYPE, ENGINE, TABLE_ROWS, TABLE_COLLATION, DATA_LENGTH, INDEX_LENGTH, DATA_FREE, TABLE_COMMENT \
+             FROM information_schema.TABLES WHERE TABLE_SCHEMA = ? ORDER BY TABLE_NAME",
+            (database,),
+        )
+        .await?;
+    let get = |r: &Row, i: usize| r.as_ref(i).cloned();
+    let text = |r: &Row, i: usize| match get(r, i) {
+        Some(mysql_async::Value::NULL) | None => None,
+        Some(v) => mysql_async::from_value_opt::<String>(v).ok(),
+    };
+    let num = |r: &Row, i: usize| match get(r, i) {
+        Some(mysql_async::Value::NULL) | None => None,
+        Some(v) => mysql_async::from_value_opt::<u64>(v).ok(),
+    };
+    Ok(rows
+        .iter()
+        .filter_map(|r| {
+            let name = text(r, 0)?;
+            let is_view = text(r, 1).is_some_and(|t| t.contains("VIEW"));
+            let bytes = match (num(r, 5), num(r, 6)) {
+                (None, None) => None,
+                (a, b) => Some(a.unwrap_or(0) + b.unwrap_or(0)),
+            };
+            Some(TableRow { name, is_view, engine: text(r, 2), rows: num(r, 3), collation: text(r, 4), bytes, overhead: if is_view { None } else { num(r, 7) }, comment: text(r, 8).unwrap_or_default() })
+        })
+        .collect())
+}

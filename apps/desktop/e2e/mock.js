@@ -425,6 +425,7 @@ Object.assign(handlers, {
       case "copy_tables": return o.copies.flatMap(([f, to]) => [`CREATE TABLE ${t(o.db, to)} LIKE ${t(o.db, f)};`, ...(o.with_data ? [`INSERT INTO ${t(o.db, to)} SELECT * FROM ${t(o.db, f)};`] : [])]);
       case "rename_table": return [`RENAME TABLE ${t(o.db, o.from)} TO ${t(o.db, o.to)};`];
       case "drop_object": return [`DROP ${o.kind.toUpperCase()} ${t(o.db, o.name)};`];
+      case "create_database": return [`CREATE DATABASE ${qn(o.name)}${o.collation ? " COLLATE " + o.collation : ""};`];
       case "drop_databases": return o.names.map((n) => `DROP DATABASE ${qn(n)};`);
       case "add_prefix": return [`RENAME TABLE ${o.tables.map((x) => `${t(o.db, x)} TO ${t(o.db, o.prefix + x)}`).join(", ")};`];
       case "replace_prefix": { const ps = o.tables.filter((x) => x.startsWith(o.old)); if (!ps.length) throw `none of the chosen tables starts with \`${o.old}\``; return [`RENAME TABLE ${ps.map((x) => `${t(o.db, x)} TO ${t(o.db, o.new + x.slice(o.old.length))}`).join(", ")};`]; }
@@ -451,3 +452,12 @@ Object.assign(handlers, {
     return out;
   };
 }
+
+handlers.database_list = () => [
+  { name: "information_schema", collation: "utf8mb3_general_ci", charset: "utf8mb3", system: true },
+  { name: "mysql", collation: "utf8mb4_0900_ai_ci", charset: "utf8mb4", system: true },
+  { name: "shop", collation: "utf8mb4_0900_ai_ci", charset: "utf8mb4", system: false },
+  { name: "blog", collation: "utf8mb4_bin", charset: "utf8mb4", system: false },
+  { name: "old_2019", collation: "latin1_swedish_ci", charset: "latin1", system: false },
+].filter((d) => !(window.__droppedDbs || new Set()).has(d.name));
+handlers.database_sizes = () => [["shop", 5, 3145728], ["blog", 2, 16384], ["old_2019", 12, 52428800], ["mysql", 40, 9000000]];

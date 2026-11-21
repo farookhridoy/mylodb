@@ -10,7 +10,7 @@ mod values;
 pub use config::{ConnConfig, SslMode};
 pub use estimate::estimate_rows;
 pub use overview::{table_overview, ColumnFull, Constraint, ForeignKey, PartitionInfo, TableInfo, TableOverview, TriggerInfo};
-pub use introspect::{index_details, object_definition, IndexDetail, column_details, introspect, introspect_columns, table_stats, ColumnDetail, IntrospectOptions, TableStat};
+pub use introspect::{database_list, database_sizes, database_tables, DatabaseRow, TableRow, index_details, object_definition, IndexDetail, column_details, introspect, introspect_columns, table_stats, ColumnDetail, IntrospectOptions, TableStat};
 pub use mysql_async::{self, Conn, Pool};
 pub use values::{cell_text, hex, is_binary, is_numeric, row_cells};
 pub use myq_sql::{split_statements, Statement};

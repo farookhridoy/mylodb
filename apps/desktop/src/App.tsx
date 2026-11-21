@@ -7,6 +7,7 @@ import ContextMenu, { type MenuItem } from "./ContextMenu";
 import DataGrid, { defaultView, type GridView } from "./DataGrid";
 import { PromptDialog, TypeConfirmDialog } from "./Dialogs";
 import PreviewDialog from "./PreviewDialog";
+import DatabasesPage from "./DatabasesPage";
 import TableDesigner from "./TableDesigner";
 import ServerTools from "./ServerTools";
 import { useTheme, type ThemePref } from "./theme";
@@ -31,7 +32,7 @@ import { ConfirmDialog, FavoritesPanel, HistoryPanel, SaveFavoriteDialog } from 
 /** A SQL editor tab, or a table data tab (`kind: "table"`). Tabs saved before table tabs existed have no kind. */
 interface QueryTab {
   id: string; title: string; sql: string; database: string | null;
-  kind?: "sql" | "table" | "designer" | "users" | "server" | "transfer";
+  kind?: "sql" | "table" | "designer" | "users" | "server" | "transfer" | "databases";
   /// For `transfer` tabs: which tool to show and what it is about.
   transfer?: TransferPreset;
   /// For `table` tabs: the table shown. For `designer` tabs: the table edited (`name: null` = a new table).
@@ -427,6 +428,15 @@ export default function App() {
     setActiveTab(t.id);
   };
 
+  const [dbRefresh, setDbRefresh] = useState(0);
+  const openDatabases = () => {
+    const existing = tabs.find((t) => t.kind === "databases");
+    if (existing) return setActiveTab(existing.id);
+    const t: QueryTab = { id: uid(), title: "Databases", sql: "", database: null, kind: "databases" };
+    setTabs([...tabs, t]);
+    setActiveTab(t.id);
+  };
+
   const openServer = () => {
     const existing = tabs.find((t) => t.kind === "server");
     if (existing) return setActiveTab(existing.id);
@@ -541,6 +551,7 @@ export default function App() {
         { separator: true },
         { label: "Truncate…", icon: "eraser", danger: true, disabled: readOnly, onClick: () => openPlan({ op: "empty_tables", db: d, objects: [[t, false]] }, { title: `Empty ${t}`, confirmLabel: "Truncate", summary: `All rows of ${d}.${t} will be deleted and cannot be restored.` }) },
         { separator: true },
+        { label: "Databases", icon: "database", onClick: openDatabases },
         { label: "Server tools", icon: "pulse", onClick: openServer },
       ] },
       { separator: true },
@@ -616,6 +627,7 @@ export default function App() {
       { label: "New query console", icon: "terminal", onClick: () => addTab("", d) },
       { separator: true },
     );
+    items.push({ label: "Databases (list, bulk drop)", icon: "database", onClick: openDatabases });
     items.push({ label: "Create database…", icon: "database", disabled: readOnly, onClick: () => setPrompt({ title: "Create database", label: "Database name", confirmLabel: "Create",
       onCancel: () => setPrompt(null), onSubmit: async (name) => { setPrompt(null); try { await schemaApi.databaseOp(activeId!, { op: "create", name, charset: "utf8mb4", collation: null }); await reloadIndex(); } catch (err) { setStatus(`Error: ${err}`); } } }) });
     if (d) items.push({ label: "Drop database…", icon: "trash", danger: true, disabled: readOnly, onClick: () => openPlan({ op: "drop_databases", names: [d] }, { title: `Drop database ${d}`, confirmLabel: "Drop database", summary: `The database ${d} with all its tables and data will be permanently deleted.`, after: () => setTabs((prev) => { const rest = prev.filter((t) => t.table?.db !== d || t.kind === "sql"); return rest.length ? rest : [newTab(1)]; }) }) });
@@ -870,6 +882,13 @@ export default function App() {
                 readOnly={readOnly} onApplied={async (name) => { await reloadIndex(); patchTab(tab.id, { title: name, table: { db: tab.table!.db, name } }); }} />
             )}
             {tab.kind === "transfer" && <TransferTools key={`${activeId}:${tab.id}`} connectionId={activeId} nodes={index} ensureColumns={ensureColumns} preset={tab.transfer ?? {}} onSchemaChanged={() => reloadIndex()} />}
+            {tab.kind === "databases" && (
+              <DatabasesPage key={`${activeId}:${tab.id}`} connectionId={activeId} readOnly={readOnly} refreshKey={dbRefresh}
+                onOpenDatabase={(d) => { setSelectedDb(d); addTab("", d, d); }}
+                onCreate={(name, collation) => openPlan({ op: "create_database", name, collation }, { title: `Create database ${name}`, confirmLabel: "Create", after: () => setDbRefresh((n) => n + 1) })}
+                onDrop={(names, summary) => openPlan({ op: "drop_databases", names }, { title: `Drop ${names.length} database${names.length === 1 ? "" : "s"}`, confirmLabel: "Drop", summary,
+                  after: () => { setDbRefresh((n) => n + 1); setTabs((prev) => { const rest = prev.filter((t) => !(t.table && names.includes(t.table.db))); return rest.length ? rest : [newTab(1)]; }); } })} />
+            )}
             {tab.kind === "server" && <ServerTools key={`${activeId}:${tab.id}`} connectionId={activeId} nodes={index} />}
             {tab.kind === "users" && <UsersManager key={`${activeId}:${tab.id}`} connectionId={activeId} nodes={index} ensureColumns={ensureColumns} />}
           </>

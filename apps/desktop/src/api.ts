@@ -219,6 +219,9 @@ export const searchApi = {
   /** Stops the search between tables and kills the statement that is running. */
   cancel: async (jobId: string) => { await invoke<void>("cancel_job", { jobId }); await invoke<void>("cancel_query", { runId: jobId }).catch(() => {}); },
 };
+export interface IndexFinding { table: string; kind: "duplicate" | "redundant" | "missing_foreign_key_index"; index: string; detail: string; sql: string }
+export interface IndexAdvice { findings: IndexFinding[]; unused: [string, string][]; unused_note: string; tables: number }
+export const adviceApi = { indexes: (id: number, db: string) => invoke<IndexAdvice>("index_advice", { id, db }) };
 
 export type ChangeKind = "added" | "changed" | "removed";
 export interface TableChange { table: string; kind: ChangeKind; statements: string[]; deferred: string[]; destructive: boolean }

@@ -114,6 +114,11 @@ const handlers = {
     { table: "customers", rows: 2, columns: [["email", 2], ["note", 1]] },
     { table: "orders", rows: 5, columns: [["ref", 5]] },
   ], tables_total: 4, tables_scanned: 4, cancelled: false, skipped: ["blobs: no text column to search"] },
+  index_advice: (a) => window.__advice ?? { findings: [
+    { table: "orders", kind: "redundant", index: "idx_c", detail: "`idx_c` (customer_id) is the start of `idx_c_p` (customer_id, placed), which serves the same lookups", sql: "DROP INDEX `idx_c` ON `" + a.db + "`.`orders`" },
+    { table: "orders", kind: "duplicate", index: "idx_s2", detail: "`idx_s2` has the same columns (status) as `idx_s1`", sql: "DROP INDEX `idx_s2` ON `" + a.db + "`.`orders`" },
+    { table: "items", kind: "missing_foreign_key_index", index: "fk_order", detail: "foreign key `fk_order` on (order_id) has no index that starts with those columns", sql: "CREATE INDEX `idx_items_order_id` ON `" + a.db + "`.`items` (`order_id`)" },
+  ], unused: [["orders", "idx_old"]], unused_note: "Unused means: no query has used the index since the server started.", tables: 3 },
   schema_compare: (a) => window.__compare ?? { changes: [
     { table: "old_log", kind: "removed", statements: ["DROP TABLE `" + a.targetDb + "`.`old_log`"], deferred: [], destructive: true },
     { table: "posts", kind: "added", statements: ["CREATE TABLE `" + a.targetDb + "`.`posts` (\n  `id` int NOT NULL\n)"], deferred: ["ALTER TABLE `" + a.targetDb + "`.`posts` ADD CONSTRAINT `fk_user` FOREIGN KEY (`id`) REFERENCES `users` (`id`)"], destructive: false },

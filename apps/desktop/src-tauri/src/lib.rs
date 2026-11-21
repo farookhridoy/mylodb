@@ -1384,14 +1384,21 @@ async fn write_text_file(path: String, content: String) -> Result<(), String> {
 /// registered here twice). Standard Edit items use the system's own handlers.
 fn build_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
     use tauri::menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder};
+    // Items with an icon use the same line icons as the window (rendered by scripts/menu-icons.mjs).
+    macro_rules! icon {
+        ($name:literal) => {
+            tauri::image::Image::from_bytes(include_bytes!(concat!("../icons/menu/", $name, ".png")))?
+        };
+    }
     let item = |id: &str, label: &str, accel: Option<&str>| {
         let b = MenuItemBuilder::with_id(id, label);
         match accel { Some(a) => b.accelerator(a).build(app), None => b.build(app) }
     };
+    let with_icon = |id: &str, label: &str, icon: tauri::image::Image<'_>| tauri::menu::IconMenuItemBuilder::with_id(id, label).icon(icon).build(app);
     let app_menu = SubmenuBuilder::new(app, "MyLoDB")
         .about(None)
         .separator()
-        .item(&item("preferences", "Preferences…", None)?)
+        .item(&with_icon("preferences", "Preferences…", icon!("settings"))?)
         .separator()
         .services()
         .separator()
@@ -1402,19 +1409,19 @@ fn build_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::
         .quit()
         .build()?;
     let file = SubmenuBuilder::new(app, "File")
-        .item(&item("new_query", "New SQL Script", None)?)
-        .item(&item("open_file", "Open SQL File…", None)?)
-        .item(&item("save_file", "Save", None)?)
-        .item(&item("save_file_as", "Save As…", None)?)
-        .item(&item("close_tab", "Close Tab", None)?)
+        .item(&with_icon("new_query", "New SQL Script", icon!("terminal"))?)
+        .item(&with_icon("open_file", "Open SQL File…", icon!("folder"))?)
+        .item(&with_icon("save_file", "Save", icon!("save"))?)
+        .item(&with_icon("save_file_as", "Save As…", icon!("save"))?)
+        .item(&with_icon("close_tab", "Close Tab", icon!("close"))?)
         .separator()
-        .item(&item("refresh_tree", "Refresh", None)?)
+        .item(&with_icon("refresh_tree", "Refresh", icon!("refresh"))?)
         .separator()
-        .item(&item("import", "Import Data…", None)?)
-        .item(&item("export", "Export Data…", None)?)
-        .item(&item("backup", "Backup / Restore…", None)?)
+        .item(&with_icon("import", "Import Data…", icon!("import"))?)
+        .item(&with_icon("export", "Export Data…", icon!("export"))?)
+        .item(&with_icon("backup", "Backup / Restore…", icon!("transfer"))?)
         .separator()
-        .item(&item("run_file", "Run SQL File…", None)?)
+        .item(&with_icon("run_file", "Run SQL File…", icon!("play"))?)
         .build()?;
     let edit = SubmenuBuilder::new(app, "Edit")
         .item(&PredefinedMenuItem::undo(app, None)?)
@@ -1425,43 +1432,43 @@ fn build_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::
         .item(&PredefinedMenuItem::paste(app, None)?)
         .item(&PredefinedMenuItem::select_all(app, None)?)
         .separator()
-        .item(&item("format", "Format SQL", None)?)
+        .item(&with_icon("format", "Format SQL", icon!("sql"))?)
         .build()?;
     let search = SubmenuBuilder::new(app, "Search")
-        .item(&item("focus_filter", "Search Objects (DB Metadata)", None)?)
-        .item(&item("palette", "Command Palette…", None)?)
+        .item(&with_icon("focus_filter", "Search Objects (DB Metadata)", icon!("search"))?)
+        .item(&with_icon("palette", "Command Palette…", icon!("terminal"))?)
         .build()?;
     let sql_editor = SubmenuBuilder::new(app, "SQL Editor")
-        .item(&item("new_query", "New SQL Script", None)?)
-        .item(&item("new_query_db", "New Script in Selected Database", None)?)
-        .item(&item("open_file", "Open SQL File…", None)?)
+        .item(&with_icon("new_query", "New SQL Script", icon!("terminal"))?)
+        .item(&with_icon("new_query_db", "New Script in Selected Database", icon!("terminal"))?)
+        .item(&with_icon("open_file", "Open SQL File…", icon!("folder"))?)
         .separator()
-        .item(&item("run", "Execute", None)?)
-        .item(&item("preview", "Preview Before Running…", None)?)
-        .item(&item("explain", "Explain Plan", None)?)
-        .item(&item("format", "Format SQL", None)?)
+        .item(&with_icon("run", "Execute", icon!("play"))?)
+        .item(&with_icon("preview", "Preview Before Running…", icon!("preview"))?)
+        .item(&with_icon("explain", "Explain Plan", icon!("info"))?)
+        .item(&with_icon("format", "Format SQL", icon!("sql"))?)
         .build()?;
     let database = SubmenuBuilder::new(app, "Database")
-        .item(&item("new_connection", "New Database Connection…", None)?)
-        .item(&item("edit_connection", "Edit Connection…", None)?)
+        .item(&with_icon("new_connection", "New Database Connection…", icon!("plus"))?)
+        .item(&with_icon("edit_connection", "Edit Connection…", icon!("edit"))?)
         .separator()
-        .item(&item("disconnect", "Disconnect", None)?)
+        .item(&with_icon("disconnect", "Disconnect", icon!("stop"))?)
         .separator()
-        .item(&item("home", "Server Home", None)?)
-        .item(&item("databases", "Databases…", None)?)
-        .item(&item("structure", "Tables of Selected Database", None)?)
-        .item(&item("new_table", "New Table…", None)?)
+        .item(&with_icon("home", "Server Home", icon!("home"))?)
+        .item(&with_icon("databases", "Databases…", icon!("database"))?)
+        .item(&with_icon("structure", "Tables of Selected Database", icon!("table"))?)
+        .item(&with_icon("new_table", "New Table…", icon!("plus"))?)
         .separator()
         .item(&SubmenuBuilder::new(app, "Tools")
-            .item(&item("users", "Users and Privileges", None)?)
-            .item(&item("server_tools", "Server Tools", None)?)
-            .item(&item("catalog", "Engines, Charsets, Replication", None)?)
+            .item(&with_icon("users", "Users and Privileges", icon!("user"))?)
+            .item(&with_icon("server_tools", "Server Tools", icon!("pulse"))?)
+            .item(&with_icon("catalog", "Engines, Charsets, Replication", icon!("info"))?)
             .build()?)
         .build()?;
     let view = SubmenuBuilder::new(app, "View")
-        .item(&item("theme_system", "Theme: System", None)?)
-        .item(&item("theme_light", "Theme: Light", None)?)
-        .item(&item("theme_dark", "Theme: Dark", None)?)
+        .item(&with_icon("theme_system", "Theme: System", icon!("auto"))?)
+        .item(&with_icon("theme_light", "Theme: Light", icon!("sun"))?)
+        .item(&with_icon("theme_dark", "Theme: Dark", icon!("moon"))?)
         .separator()
         .fullscreen()
         .build()?;

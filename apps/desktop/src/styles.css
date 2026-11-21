@@ -485,3 +485,5 @@ table.kv th { text-align: left; font-weight: 500; color: var(--dim); width: 170p
 .prefs-nav input { margin-bottom: 6px; } .prefs-group { padding: 6px 6px 2px; font-size: 11px; color: var(--dim); font-weight: 600; text-transform: uppercase; }
 .prefs-item { text-align: left; border: 0; background: transparent; padding: 3px 6px 3px 14px; min-height: 22px; border-radius: 3px; width: 100%; } .prefs-item:hover { background: var(--hover); } .prefs-item.active { background: var(--accent-soft); font-weight: 600; }
 .prefs-content { flex: 1; min-width: 0; } .prefs-content h4 { margin: 2px 0 10px; } .prefs-page { display: flex; flex-direction: column; gap: 10px; align-items: flex-start; } .prefs-page label { flex-direction: row; align-items: center; gap: 10px; flex: none; color: var(--text); } .prefs-page .ss { min-width: 240px; }
+.prefs-nav .prefs-item { display: flex; justify-content: flex-start; align-items: center; text-align: left; }
+.prefs-nav input { width: 100%; box-sizing: border-box; }

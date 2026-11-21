@@ -292,7 +292,7 @@ impl IndexDef {
 }
 
 impl ForeignKeyDef {
-    fn constraint_sql(&self, own_db: Option<&str>) -> String {
+    pub fn constraint_sql(&self, own_db: Option<&str>) -> String {
         let cols = |v: &[String]| v.iter().map(|c| q(c)).collect::<Vec<_>>().join(", ");
         let target = qualified(self.ref_schema.as_deref().or(own_db).filter(|_| self.ref_schema.is_some()), &self.ref_table);
         format!(

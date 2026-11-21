@@ -263,6 +263,44 @@ async fn test_connection(state: tauri::State<'_, AppState>, connection: SavedCon
 }
 
 /// Forget the saved host key of a connection's SSH server (after the server was legitimately re-keyed).
+#[derive(serde::Serialize)]
+struct SchemaCompareResult {
+    #[serde(flatten)]
+    diff: myq_schema::compare::SchemaDiff,
+    /// Things a table definition holds that the designer cannot represent (kept as they are); the comparison may miss differences there.
+    warnings: Vec<String>,
+}
+
+/// The base tables of one database as table definitions, in name order, plus the warnings from reading them.
+async fn read_defs(state: &tauri::State<'_, AppState>, id: i64, db: &str) -> Result<(Vec<TableDef>, Vec<String>), String> {
+    let engine = session_engine(state, id)?;
+    let names: Vec<String> = engine.tables(db).await.map_err(err)?.into_iter().filter(|t| !t.is_view).map(|t| t.name).collect();
+    let mut c = conn_for(state, id).await?;
+    let (mut defs, mut warnings) = (Vec::new(), Vec::new());
+    for name in names {
+        let (def, w) = myq_admin::read_table_def(&mut c, db, &name).await.map_err(err)?;
+        warnings.extend(w.into_iter().map(|w| format!("{db}.{name}: {w}")));
+        defs.push(def);
+    }
+    Ok((defs, warnings))
+}
+
+/// What has to change in the target database so that its tables match the source database's. Nothing is changed; the UI previews the
+/// statements and runs them through `run_plan` on the target connection.
+#[tauri::command]
+async fn schema_compare(state: tauri::State<'_, AppState>, source_id: i64, source_db: String, target_id: i64, target_db: String) -> Result<SchemaCompareResult, String> {
+    if source_id == target_id && source_db == target_db {
+        return Err("choose two different databases".into());
+    }
+    let (source, mut warnings) = read_defs(&state, source_id, &source_db).await?;
+    let (target, w2) = read_defs(&state, target_id, &target_db).await?;
+    warnings.extend(w2);
+    warnings.sort();
+    warnings.dedup();
+    let diff = myq_schema::compare::compare(&source, &source_db, &target, &target_db)?;
+    Ok(SchemaCompareResult { diff, warnings })
+}
+
 /// What the connected server can do; the UI hides or disables what it cannot, with the reason.
 #[tauri::command]
 async fn capabilities(state: tauri::State<'_, AppState>, id: i64) -> Result<myq_core::Capabilities, String> {
@@ -1566,6 +1604,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             open_url,
+            schema_compare,
             capabilities,
             list_connections,
             save_connection,

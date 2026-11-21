@@ -6,6 +6,7 @@ import AnalysisPane, { type Analysis } from "./AnalysisPane";
 import ConnectionDialog from "./ConnectionDialog";
 import ContextMenu, { type MenuItem } from "./ContextMenu";
 import DataGrid, { defaultView, type GridView } from "./DataGrid";
+import SchemaComparePage from "./SchemaComparePage";
 import AboutDialog from "./AboutDialog";
 import Manual from "./Manual";
 import Tour, { tourSeen } from "./Tour";
@@ -45,7 +46,7 @@ import { ConfirmDialog, FavoritesPanel, HistoryPanel, SaveFavoriteDialog } from 
 /** A SQL editor tab, or a table data tab (`kind: "table"`). Tabs saved before table tabs existed have no kind. */
 interface QueryTab {
   id: string; title: string; sql: string; database: string | null;
-  kind?: "sql" | "table" | "designer" | "users" | "server" | "transfer" | "databases" | "structure" | "home" | "catalog";
+  kind?: "sql" | "table" | "designer" | "users" | "server" | "transfer" | "databases" | "structure" | "home" | "catalog" | "compare";
   /// For `transfer` tabs: which tool to show and what it is about.
   transfer?: TransferPreset;
   /// For query tabs opened from or saved to a .sql file: its path.
@@ -611,6 +612,16 @@ export default function App() {
     setActiveTab(t.id);
   };
 
+  const openCompare = (db: string) => {
+    const w = caps?.writes;
+    if (w && !w.available) return setStatus(w.reason ?? "Not available for this connection");
+    const existing = tabs.find((t) => t.kind === "compare" && t.table?.db === db);
+    if (existing) return setActiveTab(existing.id);
+    const t: QueryTab = { id: uid(), title: `Compare: ${db}`, sql: "", database: db, kind: "compare", table: { db, name: null } };
+    setTabs([...tabs, t]);
+    setActiveTab(t.id);
+  };
+
   const openCatalog = () => {
     const existing = tabs.find((t) => t.kind === "catalog");
     if (existing) return setActiveTab(existing.id);
@@ -827,6 +838,7 @@ export default function App() {
       { separator: true },
     );
     if (d) items.push({ label: "Structure (all tables)", icon: "table", onClick: () => openStructure(d) });
+    if (d) items.push({ label: "Compare schemas…", icon: "transfer", disabled: readOnly, onClick: () => openCompare(d) });
     items.push({ label: "Databases (list, bulk drop)", icon: "database", onClick: openDatabases });
     items.push({ label: "Create database…", icon: "database", disabled: readOnly, onClick: () => setPrompt({ title: "Create database", label: "Database name", confirmLabel: "Create",
       onCancel: () => setPrompt(null), onSubmit: async (name) => { setPrompt(null); try { await schemaApi.databaseOp(activeId!, { op: "create", name, charset: "utf8mb4", collation: null }); await reloadIndex(); } catch (err) { setStatus(`Error: ${err}`); } } }) });
@@ -1138,6 +1150,11 @@ export default function App() {
                 onCreate={(name, collation) => openPlan({ op: "create_database", name, collation }, { title: `Create database ${name}`, confirmLabel: "Create", after: () => setDbRefresh((n) => n + 1) })}
                 onDrop={(names, summary) => openPlan({ op: "drop_databases", names }, { title: `Drop ${names.length} database${names.length === 1 ? "" : "s"}`, confirmLabel: "Drop", summary,
                   after: () => { setDbRefresh((n) => n + 1); setTabs((prev) => { const rest = prev.filter((t) => !(t.table && names.includes(t.table.db))); return rest.length ? rest : [newTab(1)]; }); } })} />
+            )}
+            {tab.kind === "compare" && tab.table && (
+              <SchemaComparePage key={`${activeId}:${tab.id}`} connectionId={activeId} targetDb={tab.table.db} databases={databases}
+                connections={openIds.map((i) => ({ id: i, name: connections.find((c) => c.id === i)?.name ?? `#${i}` }))}
+                onApply={(statements, summary) => setPlanDlg({ title: `Compare schemas: ${tab.table!.db}`, summary, statements, confirmLabel: "Apply changes", after: () => setDbRefresh((n) => n + 1) })} />
             )}
             {tab.kind === "catalog" && <CatalogPage key={`${activeId}:${tab.id}`} connectionId={activeId} />}
             {tab.kind === "structure" && tab.table && (

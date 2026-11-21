@@ -58,7 +58,7 @@ Do not move MySQL behind a trait in one change (the roadmap's "riskiest step"). 
 `apps/desktop/src-tauri/src` no longer mentions `mysql_async`. The six places that did (connection test, foreign-key-check switch,
 server home facts, SHOW grids, server options, restore of the FK switch) moved into `myq-driver::session`
 (`probe`, `set_foreign_key_checks`, `restore_foreign_key_checks`, `session_facts`, `query_grid`, `server_options`).
-Guard: `apps/desktop/src-tauri/tests/engine_seam.rs` fails if the app imports the driver again.
+Guard: `crates/myq-driver/tests/engine_seam.rs` fails if the app imports the driver again.
 Real-MySQL test: `crates/myq-driver/tests/session.rs`. Full Rust workspace suite passes on MySQL 9.7. Not rerun: MariaDB 13 and the UI suites.
 `myq_driver::Conn` is still a MySQL type that the app passes around (`conn_for`); step 3 replaces it with the `Backend` handle.
 

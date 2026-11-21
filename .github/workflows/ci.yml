@@ -37,12 +37,14 @@ jobs:
         run: |
           docker run -d --name db -p 3306:3306 -e ${{ matrix.server.env }} ${{ matrix.server.image }}
           for i in $(seq 1 60); do
-            docker exec db sh -c 'mysqladmin ping -h127.0.0.1 --silent' >/dev/null 2>&1 && break
+            # MariaDB 11 images ship `mariadb` / `mariadb-admin` and no longer have the mysql-named clients
+            docker exec db sh -c 'if command -v mariadb-admin >/dev/null; then mariadb-admin ping -h127.0.0.1 --silent; else mysqladmin ping -h127.0.0.1 --silent; fi' >/dev/null 2>&1 && break
             sleep 2
           done
-          docker exec db sh -c 'mysql -uroot -h127.0.0.1 -e "SELECT VERSION()"'
+          docker exec db sh -c 'if command -v mariadb >/dev/null; then C=mariadb; else C=mysql; fi; $C -uroot -h127.0.0.1 -e "SELECT VERSION()"'
       - name: Test the workspace
-        run: cargo test --workspace --no-fail-fast
+        # the desktop crate needs GTK and WebKit on Linux; it is built and unit tested on macOS below
+        run: cargo test --workspace --exclude mylodb-desktop --no-fail-fast
         env:
           MYLODB_TEST_HOST: 127.0.0.1
           MYLODB_TEST_PORT: "3306"
@@ -85,4 +87,4 @@ jobs:
         working-directory: apps/desktop
       - run: npm run build
         working-directory: apps/desktop
-      - run: cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml
+      - run: cargo test -p mylodb-desktop --lib

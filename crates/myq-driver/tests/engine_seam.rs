@@ -3,7 +3,7 @@
 
 #[test]
 fn the_tauri_app_does_not_import_the_mysql_driver() {
-    let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../apps/desktop/src-tauri/src");
     for entry in std::fs::read_dir(src).unwrap() {
         let path = entry.unwrap().path();
         if path.extension().is_some_and(|e| e == "rs") {

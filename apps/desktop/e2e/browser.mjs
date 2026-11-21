@@ -39,13 +39,18 @@ ok("table sizes appear in KB and MB next to each table (one query per database)"
 
 // ---- table: columns with types
 await page.click(".row-item.leaf:has-text('orders')");
-await page.waitForTimeout(300);
-assert.equal(await placeholder(), "Filter columns");
+assert.equal(await placeholder(), "Filter tables", "selecting a table does not lock the filter");
+assert.equal(await page.locator(".row-item.leaf").count(), 2, "the other tables stay listed");
 await page.waitForSelector(".row-item.col:not(.idx):not(.idx-head) .ctype");
 assert.deepEqual(await g("__detailCalls"), ["shop.orders"]);
 let cols = await text(page.locator(".row-item.col:not(.idx):not(.idx-head)"));
 assert.deepEqual(cols, ["id bigint unsigned", "customer_id int", "total decimal(10,2)", "note text"]);
-ok("selecting a table lists its columns with type and key, and the filter now says 'Filter columns'");
+ok("selecting a table lists its columns with type and key, without locking the filter");
+
+// ---- the lock icon on the table row locks the filter to it: the box then searches its columns
+await page.click(".row-item.leaf:has-text('orders') .lock-btn");
+assert.equal(await placeholder(), "Filter columns");
+ok("the lock icon on a table locks the filter box to its columns");
 
 // ---- column filter: by name or by type, entirely in the browser
 const before = (await g("__filterCalls"))?.length ?? 0;
@@ -75,7 +80,8 @@ ok("a selected table locks the browser to it; its chip releases the lock and the
 
 // ---- another table: details fetched once per table; Backspace / Esc in the empty box step out one level
 await page.click(".row-item.leaf:has-text('customers')");
-await page.waitForTimeout(300);
+assert.equal(await placeholder(), "Filter tables");
+await page.click(".row-item.leaf:has-text('customers') .lock-btn");
 assert.equal(await placeholder(), "Filter columns");
 await page.waitForFunction(() => window.__detailCalls?.includes("shop.customers"));
 assert.deepEqual(await g("__detailCalls"), ["shop.orders", "shop.customers"]);

@@ -96,7 +96,6 @@ assert.equal(await g("__detailCalls"), undefined, "nor any column details");
 await page.click(".row-item.leaf:has-text('orders')");
 await page.waitForTimeout(300);
 await page.waitForSelector(".row-item.col:has-text('total')");
-await page.click(".scope .x");                                  // orders is locked; release it to pick another table
 await page.click(".row-item.leaf:has-text('customers')");
 await page.waitForTimeout(300);
 await page.waitForSelector(".row-item.col:has-text('email')");
@@ -105,7 +104,6 @@ assert.equal(await g("__loadCalls"), undefined, "selecting tables never loads th
 ok("selecting a table fetches that table's columns only");
 
 // ---- column filter inside the selected database
-await page.click(".scope .x");                                  // release the table lock: back to the database level
 await filter.fill("col:total");
 await page.waitForFunction(() => window.__filterCalls?.some((x) => x.query === "col:total" && x.scope === "shop"));
 await page.waitForTimeout(250);

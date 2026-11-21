@@ -20,8 +20,12 @@ struct Session {
     db_positions: Vec<usize>,
     /// Databases whose columns are in the index (they are loaded on demand, not at connect).
     columns_loaded: std::collections::HashSet<String>,
-    /// Autocomplete's view of the index, rebuilt whenever the index is.
+    /// Autocomplete's view: the index plus `completion_nodes`, rebuilt whenever either changes.
     catalog: myq_sql::Catalog,
+    /// Columns loaded only for autocomplete. They are NOT in `index`: the UI holds a copy of the index and filter results are
+    /// positions into it, so the index may only grow through `load_columns`, which tells the UI where the new nodes start.
+    completion_nodes: Vec<Node>,
+    completion_loaded: std::collections::HashSet<String>,
     /// Keeps the SSH tunnel alive for as long as the session lives (dropping it closes the tunnel).
     #[allow(dead_code)]
     tunnel: Option<myq_tunnel::Tunnel>,
@@ -29,7 +33,7 @@ struct Session {
 
 impl Session {
     fn new(pool: Pool, index: Vec<Node>, tunnel: Option<myq_tunnel::Tunnel>) -> Session {
-        let mut s = Session { pool, index: Vec::new(), by_db: HashMap::new(), db_positions: Vec::new(), columns_loaded: Default::default(), catalog: myq_sql::Catalog::default(), tunnel };
+        let mut s = Session { pool, index: Vec::new(), by_db: HashMap::new(), db_positions: Vec::new(), columns_loaded: Default::default(), catalog: myq_sql::Catalog::default(), completion_nodes: Vec::new(), completion_loaded: Default::default(), tunnel };
         s.set_index(index);
         s
     }
@@ -44,8 +48,22 @@ impl Session {
                 self.db_positions.push(i);
             }
         }
-        self.catalog = myq_sql::Catalog::from_nodes(&index);
         self.index = index;
+        self.rebuild_catalog();
+    }
+
+    fn rebuild_catalog(&mut self) {
+        // completion-only columns of a database the UI has since loaded would be duplicates
+        let all: Vec<Node> = self.index.iter().cloned().chain(self.completion_nodes.iter().filter(|n| !self.columns_loaded.contains(&n.database)).cloned()).collect();
+        self.catalog = myq_sql::Catalog::from_nodes(&all);
+    }
+
+    /// Make the columns of `db` available to autocomplete without touching the index.
+    fn add_completion_columns(&mut self, db: &str, cols: Vec<Node>) {
+        if self.completion_loaded.insert(db.to_string()) && !self.columns_loaded.contains(db) {
+            self.completion_nodes.extend(cols);
+            self.rebuild_catalog();
+        }
     }
 
     /// Add the columns of `db`; returns where in the index they start. A database already loaded is left alone.
@@ -674,7 +692,7 @@ async fn binlog_events(state: tauri::State<'_, AppState>, id: i64, file: String,
 /// keystroke. The columns of the current database, and of any database the statement names, are loaded the first time.
 #[tauri::command]
 async fn complete_sql(state: tauri::State<'_, AppState>, id: i64, sql: String, cursor: usize, database: Option<String>) -> Result<myq_sql::Completions, String> {
-    let wanted: Vec<String> = {
+    let (pool, wanted): (Pool, Vec<String>) = {
         let sessions = state.sessions.lock().unwrap();
         let s = sessions.get(&id).ok_or("not connected")?;
         let mut w: Vec<String> = database.iter().cloned().collect();
@@ -685,10 +703,14 @@ async fn complete_sql(state: tauri::State<'_, AppState>, id: i64, sql: String, c
                 }
             }
         }
-        w.into_iter().filter(|d| !s.columns_loaded.contains(d)).collect()
+        (s.pool.clone(), w.into_iter().filter(|d| s.by_db.contains_key(d) && !s.columns_loaded.contains(d) && !s.completion_loaded.contains(d)).collect())
     };
     for db in wanted {
-        let _ = ensure_columns(&state, id, &db).await;
+        if let Ok(cols) = introspect_columns(&pool, &db).await {
+            if let Some(s) = state.sessions.lock().unwrap().get_mut(&id) {
+                s.add_completion_columns(&db, cols);
+            }
+        }
     }
     let sessions = state.sessions.lock().unwrap();
     let s = sessions.get(&id).ok_or("not connected")?;
@@ -776,8 +798,10 @@ async fn reindex(state: &tauri::State<'_, AppState>, id: i64) -> Result<Vec<Node
     }
     let mut sessions = state.sessions.lock().unwrap();
     if let Some(s) = sessions.get_mut(&id) {
-        s.set_index(index.clone());
+        s.completion_nodes.clear();
+        s.completion_loaded.clear();
         s.columns_loaded = still;
+        s.set_index(index.clone());
     }
     Ok(index)
 }
@@ -1059,4 +1083,43 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running MyLoDB");
+}
+
+#[cfg(test)]
+mod session_tests {
+    use super::*;
+    use myq_schema::filter::Kind;
+
+    fn node(db: &str, kind: Kind, name: &str, parent: Option<&str>) -> Node {
+        Node { database: db.into(), kind, name: name.into(), parent: parent.map(String::from) }
+    }
+
+    fn session() -> Session {
+        // a pool opens no connection until it is used
+        let pool = Pool::new("mysql://root@127.0.0.1:1/");
+        Session::new(pool, vec![node("shop", Kind::Database, "shop", None), node("shop", Kind::Table, "orders", None)], None)
+    }
+
+    fn column_suggested(s: &Session, col: &str) -> bool {
+        let sql = "SELECT o. FROM orders o";
+        let c = myq_sql::complete(sql, "SELECT o.".len(), &s.catalog, Some("shop"), 100);
+        c.items.iter().any(|i| i.label == col)
+    }
+
+    #[test]
+    fn completion_columns_never_change_the_index_the_ui_mirrors() {
+        let mut s = session();
+        let before = s.index.len();
+        s.add_completion_columns("shop", vec![node("shop", Kind::Column, "total", Some("orders"))]);
+        assert_eq!(s.index.len(), before, "the filter index (and so the UI's copy) is untouched");
+        assert!(column_suggested(&s, "total"), "but autocomplete knows the column");
+
+        // the UI then loads the same database: the index grows once, and the column is not offered twice
+        let start = s.add_columns("shop", vec![node("shop", Kind::Column, "total", Some("orders"))]);
+        assert_eq!(start, before);
+        assert_eq!(s.index.len(), before + 1);
+        let sql = "SELECT o. FROM orders o";
+        let c = myq_sql::complete(sql, "SELECT o.".len(), &s.catalog, Some("shop"), 100);
+        assert_eq!(c.items.iter().filter(|i| i.label == "total").count(), 1);
+    }
 }

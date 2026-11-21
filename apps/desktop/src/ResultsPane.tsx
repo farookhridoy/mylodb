@@ -10,38 +10,49 @@ export interface RunState {
   totalMs: number;
 }
 
-export default function ResultsPane({ run, analysis }: { run: RunState | undefined; analysis?: Analysis }) {
+export default function ResultsPane({ run, analysis, data, dataLabel = "Table Data" }: {
+  run: RunState | undefined; analysis?: Analysis;
+  /** The table's own data grid (table tabs). It is the default view; running a query shows its result next to it. */
+  data?: React.ReactNode; dataLabel?: string;
+}) {
   const sets = (run?.results ?? []).flatMap((s) => s.sets.map((set) => ({ sql: s.sql, set })));
-  const [tab, setTab] = useState<number | "messages" | "analysis">("messages");
+  const hasData = data !== undefined;
+  const [tab, setTab] = useState<number | "messages" | "analysis" | "data">(hasData ? "data" : "messages");
   // a new analysis takes focus
   useEffect(() => { if (analysis) setTab("analysis"); }, [analysis]);
 
   // After each run, show the first result set when there is one, else the messages.
   useEffect(() => {
-    if (!run?.running) setTab(sets.length > 0 ? 0 : "messages");
+    if (run && !run.running) setTab(sets.length > 0 ? 0 : "messages");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [run?.results, run?.running]);
 
-  if (!run && !analysis) return <div className="empty">Run a query with ⌘↵</div>;
+  const showing = tab === "data" && !hasData ? "messages" : tab;
+  if (!run && !analysis && !hasData) return <div className="empty">Run a query with ⌘↵</div>;
 
-  const selected = typeof tab === "number" ? sets[tab] : undefined;
-  if (!run) return <div className="results"><div className="result-tabs"><button className="active">Analysis</button></div><div className="result-body">{analysis && <AnalysisPane a={analysis} />}</div></div>;
+  const selected = typeof showing === "number" ? sets[showing] : undefined;
   return (
     <div className="results">
       <div className="result-tabs">
+        {hasData && <button className={showing === "data" ? "active" : ""} onClick={() => setTab("data")}><Icon name="table" size={12} /> {dataLabel}</button>}
         {sets.map((_, i) => (
-          <button key={i} className={tab === i ? "active" : ""} onClick={() => setTab(i)}>Result {i + 1}</button>
+          <button key={i} className={showing === i ? "active" : ""} onClick={() => setTab(i)}>Result {i + 1}</button>
         ))}
-        {analysis && <button className={tab === "analysis" ? "active" : ""} onClick={() => setTab("analysis")}>{analysis.kind === "profile" ? "Profile" : "Explain"}</button>}
-        <button className={tab === "messages" ? "active" : ""} onClick={() => setTab("messages")}>
-          Messages{run.results?.some((r) => r.error) ? <Icon name="warn" size={12} /> : null}
-        </button>
+        {analysis && <button className={showing === "analysis" ? "active" : ""} onClick={() => setTab("analysis")}>{analysis.kind === "profile" ? "Profile" : "Explain"}</button>}
+        {run && (
+          <button className={showing === "messages" ? "active" : ""} onClick={() => setTab("messages")}>
+            Messages{run.results?.some((r) => r.error) ? <Icon name="warn" size={12} /> : null}
+          </button>
+        )}
         <span className="grow" />
-        {run.running ? <span className="dim">Running…</span> : <span className="dim">{run.totalMs} ms</span>}
+        {run ? (run.running ? <span className="dim">Running…</span> : <span className="dim">{run.totalMs} ms</span>) : null}
       </div>
-      <div className="result-body">
-        {run.error && <div className="error">{run.error}</div>}
-        {tab === "analysis" && analysis ? <AnalysisPane a={analysis} /> : selected ? <Grid set={selected.set} /> : <Messages results={run.results ?? []} />}
+      <div className={`result-body ${showing === "data" ? "data" : ""}`}>
+        {run?.error && showing !== "data" && <div className="error">{run.error}</div>}
+        {showing === "data" ? data
+          : showing === "analysis" && analysis ? <AnalysisPane a={analysis} />
+          : selected ? <Grid set={selected.set} />
+          : run ? <Messages results={run.results ?? []} /> : <div className="empty">Run a query with ⌘↵</div>}
       </div>
     </div>
   );

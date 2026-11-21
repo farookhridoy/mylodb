@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import type { Kind, Node } from "./api";
 import Icon, { type IconName } from "./Icon";
 import { columnMatches, formatBytes, type ColumnsOf } from "./browserMeta";
@@ -6,8 +6,6 @@ import type { IndexDetail, TableStat } from "./api";
 
 /** Rows drawn per group before a "show more" row. Keeps a database with thousands of tables responsive. */
 const PAGE = 300;
-/** A table click is applied after this delay so that a double-click can cancel it. */
-const TABLE_CLICK_MS = 220;
 
 const GROUPS: { kind: Kind; label: string }[] = [
   { kind: "table", label: "Tables" },
@@ -33,17 +31,30 @@ const GROUP_ICON: Record<Kind, IconName> = {
   database: "database", table: "table", view: "view", procedure: "procedure", function: "function", trigger: "trigger", event: "event", column: "column",
 };
 
-function Chev({ open }: { open: boolean }) {
-  return <span className={`chev ${open ? "open" : ""}`}><Icon name="chevron" size={10} /></span>;
+function Chev({ open, onClick }: { open: boolean; onClick?: (e: React.MouseEvent) => void }) {
+  return <span className={`chev ${open ? "open" : ""} ${onClick ? "clickable" : ""}`} onClick={onClick}><Icon name="chevron" size={10} /></span>;
 }
+
+/** What a click on a name in the tree refers to, so the console can paste it into the query. */
+export type Pick =
+  | { kind: "database"; db: string }
+  | { kind: "table"; db: string; table: string }
+  | { kind: "column"; db: string; table: string; column: string };
 
 export interface TreeProps {
   /** The connection shown as the root node, e.g. `root@localhost`. Clicking it resets the browser. */
   rootLabel: string;
   onResetRoot(): void;
+  /** The table highlighted in the tree. It does not change the filter. */
   selectedTable: string | null;
   onSelectTable(db: string, table: string): void;
-  /** Filter text for the selected table's columns (when a table is selected). */
+  /** The table the filter is locked to (the box then searches its columns). */
+  lockedTable: string | null;
+  onLockTable(db: string, table: string): void;
+  onUnlockTable(): void;
+  /** Click on a database, table or column name: the console may paste it into the query. */
+  onPick(p: Pick): void;
+  /** Filter text for the locked table's columns. */
   columnQuery: string;
   stats: Record<string, Record<string, TableStat>>;
   ensureStats(db: string): void;
@@ -89,9 +100,11 @@ export default function ObjectTree(props: TreeProps) {
   }, [index]);
 
   const update = (f: (o: Set<string>) => Set<string>) => setOpen((o) => { const n = f(o); props.onOpenChange([...n]); return n; });
-  // selecting a database shows its tables straight away
+  /** Expand nodes (never collapse): selecting or locking something shows it. The chevrons are what collapse. */
+  const openKeys = (keys: string[]) => update((o) => (keys.every((k) => o.has(k)) ? o : new Set([...o, ...keys])));
+  // a selected database shows its tables straight away
   useEffect(() => {
-    if (selectedDb && !open.has(`${selectedDb}/table`)) update((o) => new Set(o).add(`${selectedDb}/table`));
+    if (selectedDb) openKeys([selectedDb, `${selectedDb}/table`]);
   }, [selectedDb]); // eslint-disable-line react-hooks/exhaustive-deps
   const toggle = (key: string) => update((o) => { const n = new Set(o); n.has(key) ? n.delete(key) : n.add(key); return n; });
   const more = (key: string) => setShown((s) => ({ ...s, [key]: (s[key] ?? PAGE) + PAGE }));
@@ -117,21 +130,21 @@ export default function ObjectTree(props: TreeProps) {
       </li>
       {visibleDbs.slice(0, dbLimit).map(({ node }) => {
         const name = node.name;
-        const isOpen = open.has(name) || selectedDb === name;
+        const isOpen = open.has(name);
         const scoped = matches !== null && scope === name;
         return (
           <li key={name} className="under-root">
             <div className={`row-item db ${selectedDb === name && props.selectedTable === null ? "selected" : ""} ${selectedDb === name ? "current" : ""}`}
-                 onClick={() => { props.onSelectDb(name); props.ensureStats(name); }}
+                 onClick={() => { props.onSelectDb(name); props.ensureStats(name); openKeys([name, `${name}/table`]); props.onPick({ kind: "database", db: name }); }}
                  onContextMenu={(e) => { props.onSelectDb(name); props.onDatabaseMenu(e, name); }}>
-              <Chev open={isOpen} />
+              <Chev open={isOpen} onClick={(e) => { e.stopPropagation(); toggle(name); if (!isOpen) props.ensureStats(name); }} />
               <Icon name="database" className="ico-db" />
               <Highlight text={name} terms={scope === null ? props.terms : []} />
               <DbSize stats={props.stats[name]} />
               {scoped && <span className="badge" title="Matching objects">{[...matches!].filter((p) => index[p]?.database === name && index[p].kind !== "database").length}</span>}
             </div>
             {(isOpen || scoped) && (
-              <DbBranch {...props} lockedTable={selectedDb === name ? props.selectedTable : null} db={name} entries={byDb.get(name) ?? []} scopedMatches={scoped ? matches : null} open={open} toggle={toggle} shown={shown} more={more} />
+              <DbBranch {...props} lockedTable={selectedDb === name ? props.lockedTable : null} db={name} entries={byDb.get(name) ?? []} scopedMatches={scoped ? matches : null} open={open} toggle={toggle} openKeys={openKeys} shown={shown} more={more} />
             )}
           </li>
         );
@@ -144,12 +157,10 @@ export default function ObjectTree(props: TreeProps) {
 /** One database's objects. Memoised: typing in the filter only re-renders the database that is being filtered. */
 const DbBranch = memo(function DbBranch(props: TreeProps & {
   lockedTable: string | null; db: string; entries: Entry[]; scopedMatches: Set<number> | null;
-  open: Set<string>; toggle(k: string): void; shown: Record<string, number>; more(k: string): void;
+  open: Set<string>; toggle(k: string): void; openKeys(k: string[]): void; shown: Record<string, number>; more(k: string): void;
 }) {
   const { db, entries, scopedMatches, open, shown, lockedTable } = props;
   const dbStats = props.stats[db];
-  const clickTimer = useRef<number | undefined>(undefined);
-  useEffect(() => () => clearTimeout(clickTimer.current), []);
   useEffect(() => { props.ensureStats(db); }, [db]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const { groups, columnsOf, tablesWithMatchingColumns } = useMemo(() => {
@@ -181,8 +192,7 @@ const DbBranch = memo(function DbBranch(props: TreeProps & {
   }, [entries, scopedMatches, lockedTable]);
 
   const filtering = scopedMatches !== null;
-  const isOpen = (key: string) => filtering || open.has(key) || lockedTable !== null;
-  const loaded = props.columnsLoaded.has(db);
+  const isOpen = (key: string) => filtering || open.has(key);
 
   return (
     <ul>
@@ -191,7 +201,7 @@ const DbBranch = memo(function DbBranch(props: TreeProps & {
         const limit = shown[gk] ?? PAGE;
         return (
           <li key={gk}>
-            <div className="row-item group" onClick={() => lockedTable === null && props.toggle(gk)}>
+            <div className="row-item group" onClick={() => props.toggle(gk)}>
               <Chev open={isOpen(gk)} /><Icon name={GROUP_ICON[g.kind]} className="ico-group" />
               {g.label}<span className="badge">{g.items.length.toLocaleString()}</span>
             </div>
@@ -201,38 +211,49 @@ const DbBranch = memo(function DbBranch(props: TreeProps & {
                   const nk = `${gk}/${n.name}`;
                   const isTable = g.kind === "table" || g.kind === "view";
                   const cols = isTable ? columnsOf.get(n.name) : undefined;
-                  const expanded = open.has(nk) || lockedTable === n.name || (filtering && tablesWithMatchingColumns.has(n.name));
+                  const expanded = open.has(nk) || (filtering && tablesWithMatchingColumns.has(n.name));
+                  const isLocked = lockedTable === n.name;
                   return (
                     <li key={nk}>
                       <div className={`row-item leaf ${isTable && props.selectedTable === n.name && props.selectedDb === db ? "selected" : ""}`}
                            onClick={() => {
                              if (!isTable) return;
-                             // Selecting a table locks the browser to it and moves the row, so it waits briefly: a double-click (open data) cancels it.
-                             clearTimeout(clickTimer.current);
-                             clickTimer.current = window.setTimeout(() => {
-                               const already = props.selectedTable === n.name && props.selectedDb === db;
-                               props.onSelectTable(db, n.name); props.ensureDetails(db, n.name);
-                               if (already || !open.has(nk)) props.toggle(nk);
-                             }, TABLE_CLICK_MS);
+                             props.onSelectTable(db, n.name);
+                             props.openKeys([nk]);
+                             props.ensureDetails(db, n.name);
+                             props.onPick({ kind: "table", db, table: n.name });
                            }}
-                           onDoubleClick={() => { clearTimeout(clickTimer.current); if (isTable) props.onOpenTable(db, n.name); else props.onOpenObject(db, g.kind, n.name); }}
+                           onDoubleClick={() => { if (isTable) props.onOpenTable(db, n.name); else props.onOpenObject(db, g.kind, n.name); }}
                            onContextMenu={(e) => props.onObjectMenu(e, db, g.kind, n.name)}>
-                        {isTable ? <Chev open={expanded} /> : <span className="chev" />}<Icon name={GROUP_ICON[g.kind]} className={`ico-${g.kind}`} />
+                        {isTable
+                          ? <Chev open={expanded} onClick={(e) => { e.stopPropagation(); props.toggle(nk); if (!expanded) props.ensureDetails(db, n.name); }} />
+                          : <span className="chev" />}
+                        <Icon name={GROUP_ICON[g.kind]} className={`ico-${g.kind}`} />
                         <span className="name"><Highlight text={n.name} terms={props.terms} /></span>
                         {n.parent && <span className="dim"> · {n.parent}</span>}
                         {isTable && <TableSize stat={dbStats?.[n.name]} />}
+                        {isTable && (
+                          <button className={`lock-btn ${isLocked ? "on" : ""}`} aria-pressed={isLocked}
+                                  title={isLocked ? "Locked: the filter box searches this table's columns. Click to unlock." : "Lock the filter to this table (search its columns)"}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (isLocked) props.onUnlockTable();
+                                    else { props.onLockTable(db, n.name); props.openKeys([gk, nk]); props.ensureDetails(db, n.name); }
+                                  }}><Icon name="lock" size={11} /></button>
+                        )}
                       </div>
                       {isTable && expanded && (
                         <ColumnList
-                          ensure={() => { if (open.has(nk) || lockedTable === n.name) props.ensureDetails(db, n.name); /* never for tables a filter expanded: that could be thousands of queries */ }}
+                          ensure={() => { if (open.has(nk)) props.ensureDetails(db, n.name); /* never for tables a filter expanded: that could be thousands of queries */ }}
                           detail={props.details[`${db}\0${n.name}`]}
                           indexes={props.indexes[`${db}\0${n.name}`]}
                           fallback={cols}
-                          query={props.selectedTable === n.name && props.selectedDb === db ? props.columnQuery : ""}
+                          query={isLocked ? props.columnQuery : ""}
                           filtering={filtering}
                           matched={scopedMatches}
                           tableHasMatch={tablesWithMatchingColumns.has(n.name)}
                           terms={props.terms}
+                          onPick={(column) => props.onPick({ kind: "column", db, table: n.name, column })}
                         />
                       )}
                     </li>
@@ -256,8 +277,8 @@ function TableSize({ stat }: { stat: TableStat | undefined }) {
 }
 
 /** The columns of a table with their types (`bigint unsigned`, `char(255)`), key and nullability. */
-function ColumnList({ ensure, detail, indexes, fallback, query, filtering, matched, tableHasMatch, terms }: {
-  ensure(): void; detail: ColumnsOf | undefined; indexes: IndexDetail[] | undefined; fallback: Entry[] | undefined; query: string; filtering: boolean;
+function ColumnList({ onPick, ensure, detail, indexes, fallback, query, filtering, matched, tableHasMatch, terms }: {
+  onPick(column: string): void; ensure(): void; detail: ColumnsOf | undefined; indexes: IndexDetail[] | undefined; fallback: Entry[] | undefined; query: string; filtering: boolean;
   matched: Set<number> | null; tableHasMatch: boolean; terms: string[];
 }) {
   useEffect(() => { ensure(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -266,7 +287,7 @@ function ColumnList({ ensure, detail, indexes, fallback, query, filtering, match
     return (
       <ul className="columns">
         {shown.slice(0, 500).map((c) => (
-          <li key={c.name} className="row-item col" title={`${c.name} ${c.column_type}${c.nullable ? "" : " NOT NULL"}${c.extra ? " " + c.extra : ""}`}>
+          <li key={c.name} className="row-item col" onClick={() => onPick(c.name)} title={`${c.name} ${c.column_type}${c.nullable ? "" : " NOT NULL"}${c.extra ? " " + c.extra : ""}`}>
             <span className="key">{c.key === "PRI" ? <Icon name="key" size={12} className="ico-pk" /> : c.key === "UNI" ? <Icon name="unique" size={11} /> : <Icon name="column" size={11} className="ico-col" />}</span>
             <span className="name"><Highlight text={c.name} terms={query ? query.split(/\s+/).map((t) => t.toLowerCase()) : terms} /></span>
             <span className="ctype">{c.column_type}</span>

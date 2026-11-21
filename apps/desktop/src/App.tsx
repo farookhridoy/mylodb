@@ -14,6 +14,9 @@ import Editor, { type EditorHandle } from "./Editor";
 import ObjectTree from "./ObjectTree";
 import { useBrowserMeta } from "./browserMeta";
 import Icon from "./Icon";
+import Splitter, { useSize } from "./Splitter";
+import { sampleQuery, type SampleKind } from "./sqlTemplates";
+import type { Pick } from "./ObjectTree";
 import ResultsPane, { type RunState } from "./ResultsPane";
 import { ConfirmDialog, FavoritesPanel, HistoryPanel, SaveFavoriteDialog } from "./SidePanels";
 
@@ -28,8 +31,8 @@ interface QueryTab {
   grid?: GridView;
 }
 const isTable = (t: QueryTab | undefined) => t?.kind === "table";
-/** Tabs that are not SQL editors (the editor stays mounted behind them). */
-const isSql = (t: QueryTab | undefined) => !t || !t.kind || t.kind === "sql";
+/** Tabs that have the SQL console: query tabs, and table tabs (console on top, the table's data below). */
+const isSql = (t: QueryTab | undefined) => !t || !t.kind || t.kind === "sql" || t.kind === "table";
 type Side = "objects" | "history" | "favorites";
 
 const FORMAT_KEY = "mylodb.formatOptions";
@@ -59,8 +62,12 @@ export default function App() {
   const [selectedDb, setSelectedDb] = useState<string | null>(null);
   /// The table selected in the tree (inside `selectedDb`): the filter then searches its columns.
   const [selectedTable, setSelectedTable] = useState<string | null>(null);
+  /// The table the filter is locked to (the box searches its columns). Selecting a table does not lock it; the lock icon does.
+  const [lockedTable, setLockedTable] = useState<string | null>(null);
   const [columnsLoaded, setColumnsLoaded] = useState<Set<string>>(new Set());
   const meta = useBrowserMeta(activeId);
+  const sidebar = useSize("mylodb.sidebarWidth", 300, 200, () => Math.min(640, window.innerWidth - 360));
+  const consoleSize = useSize("mylodb.editorHeight", 230, 70, () => window.innerHeight - 220);
   const activeIdRef = useRef(activeId);
   activeIdRef.current = activeId;
   // expanded nodes and selection are remembered per connection
@@ -121,7 +128,7 @@ export default function App() {
       savedBrowser = { open: (savedBrowser.open ?? []).filter((k) => dbExists(k.split("/")[0])), db: restoredDb, table: restoredTable };
       browserSaved.current = savedBrowser;
       setBrowserState({ open: savedBrowser.open });
-      setSelectedDb(restoredDb); setSelectedTable(restoredTable); setQuery(""); meta.reset(); setColumnsLoaded(new Set()); setMatches(null); setMatchScope(null);
+      setSelectedDb(restoredDb); setSelectedTable(restoredTable); setLockedTable(null); setQuery(""); meta.reset(); setColumnsLoaded(new Set()); setMatches(null); setMatchScope(null);
       colQueue.current = Promise.resolve();
       let restoredTabs: QueryTab[] = [];
       let restoredActive = "";
@@ -184,30 +191,70 @@ export default function App() {
     return next;
   }, [activeId]);
 
-  // autocomplete in the editor needs the columns of the database it is working in
-  useEffect(() => { if (editorTab?.database) ensureColumns(editorTab.database); }, [editorTab?.database, ensureColumns]); // eslint-disable-line react-hooks/exhaustive-deps
+  // autocomplete loads the columns it needs itself, into its own catalog (the filter index only grows through ensureColumns)
 
-  // ---- selection: nothing → database → table. Each level has its own filter, so the box starts empty at every level. ----
+  // ---- selection: nothing → database (locked) → table (selected; the lock icon locks the filter to it) ----
+  /// The console runs in the locked database: put it on the visible console tab.
+  const useDatabaseInConsole = (db: string) => { if (editorTab && editorTab.database !== db) patchTab(editorTab.id, { database: db }); };
   const selectDb = (db: string) => {
-    if (db === selectedDb && selectedTable === null) return;
-    if (db !== selectedDb) setQuery("");
-    setSelectedDb(db);
-    if (selectedTable !== null) { setSelectedTable(null); setQuery(""); }
+    if (db !== selectedDb || lockedTable !== null) setQuery("");
+    setSelectedDb(db); setSelectedTable(null); setLockedTable(null);
     saveBrowser({ db, table: null });
+    useDatabaseInConsole(db);
   };
   const selectTable = (db: string, table: string) => {
-    if (db === selectedDb && table === selectedTable) return;
-    setSelectedDb(db); setSelectedTable(table); setQuery("");
+    if (db !== selectedDb) { setQuery(""); setLockedTable(null); useDatabaseInConsole(db); }
+    setSelectedDb(db); setSelectedTable(table);
+    saveBrowser({ db, table });
+  };
+  const lockTable = (db: string, table: string) => {
+    if (db !== selectedDb) useDatabaseInConsole(db);
+    setSelectedDb(db); setSelectedTable(table); setLockedTable(table); setQuery("");
     saveBrowser({ db, table });
   };
   /// Clicking the connection node: back to the full list of databases.
-  const resetBrowser = () => { setSelectedDb(null); setSelectedTable(null); setQuery(""); setMatches(null); setMatchScope(null); saveBrowser({ db: null, table: null }); };
+  const resetBrowser = () => { setSelectedDb(null); setSelectedTable(null); setLockedTable(null); setQuery(""); setMatches(null); setMatchScope(null); saveBrowser({ db: null, table: null }); };
 
-  /// Step out of the lock: table → database → all databases.
+  /// Step out of the lock: locked table → database → all databases.
   const unlock = () => {
-    if (selectedTable !== null) { setSelectedTable(null); setQuery(""); saveBrowser({ table: null }); }
+    if (lockedTable !== null) { setLockedTable(null); setQuery(""); }
     else if (selectedDb !== null) resetBrowser();
   };
+
+  // ---- clicking a name in the tree pastes it into the query (only when the editor had the focus) ----
+  const fromEditor = useRef(false);
+  const lastPick = useRef({ text: "", at: 0 });
+  const pickName = (p: Pick) => {
+    if (!fromEditor.current || !editor.current || !isSql(tab)) return;
+    const here = editorTab?.database;
+    const text = p.kind === "database" ? quote(p.db)
+      : p.kind === "table" ? (here === p.db ? quote(p.table) : `${quote(p.db)}.${quote(p.table)}`)
+      : `${quote(p.table)}.${quote(p.column)}`;
+    const now = Date.now();
+    if (lastPick.current.text === text && now - lastPick.current.at < 500) return; // the second click of a double-click
+    lastPick.current = { text, at: now };
+    editor.current.insert(text);
+  };
+
+  // ---- sample queries (SQLyog's "Generate SQL"): the statement is put in the console and copied ----
+  const putSql = (sql: string, db: string) => {
+    if (editor.current && isSql(tab)) editor.current.insert(sql + "\n");
+    else addTab(sql + "\n", db);
+    navigator.clipboard?.writeText(sql).catch(() => {});
+  };
+  const sample = async (kind: SampleKind, db: string, table: string) => {
+    if (activeId === null) return;
+    try {
+      const cached = meta.details[`${db}\0${table}`];
+      const cols = Array.isArray(cached) ? cached : await api.columnDetails(activeId, db, table);
+      putSql(sampleQuery(kind, db, table, cols, editorTab?.database !== db), db);
+      setStatus(`${kind.toUpperCase()} sample for ${table} inserted and copied`);
+    } catch (e) { setStatus(`Error: ${describeError(e)}`); }
+  };
+  const sampleItems = (db: string, table: string, kinds: SampleKind[] = ["select", "insert", "update", "delete"]): MenuItem => ({
+    label: "Sample queries",
+    children: kinds.map((k) => ({ label: k.toUpperCase(), onClick: () => sample(k, db, table) })),
+  });
   // a restored (or newly selected) table needs its column details even if it was not clicked
   useEffect(() => {
     if (activeId !== null && selectedDb) { meta.ensureStats(selectedDb); if (selectedTable) meta.ensureDetails(selectedDb, selectedTable); }
@@ -218,7 +265,7 @@ export default function App() {
   useEffect(() => {
     if (activeId === null) return;
     // with a table selected the box filters its columns in the browser; there is nothing to ask the backend
-    if (selectedTable !== null || !query.trim()) { setMatches(null); setMatchScope(null); setFilterError(null); return; }
+    if (lockedTable !== null || !query.trim()) { setMatches(null); setMatchScope(null); setFilterError(null); return; }
     const mine = ++filterSeq.current;
     const t = setTimeout(async () => {
       try {
@@ -234,7 +281,7 @@ export default function App() {
       }
     }, 150);
     return () => clearTimeout(t);
-  }, [query, activeId, selectedDb, selectedTable, ensureColumns]);
+  }, [query, activeId, selectedDb, lockedTable, ensureColumns]);
 
   const terms = useMemo(
     () => query.split(/\s+/).filter((t) => t && !/[:*?/]/.test(t)).map((t) => t.toLowerCase()),
@@ -246,7 +293,7 @@ export default function App() {
 
   // State updaters must stay pure (React runs them twice in StrictMode), so ids are made outside them.
   const addTab = (sql = "", database: string | null = null, title?: string) => {
-    const t = newTab(nextTitleNumber(tabs), sql, database);
+    const t = newTab(nextTitleNumber(tabs), sql, database ?? selectedDb);
     if (title) t.title = title;
     setTabs([...tabs, t]);
     setActiveTab(t.id);
@@ -307,7 +354,7 @@ export default function App() {
       const existing = tabs.find((t) => isTable(t) && t.table?.db === database && t.table.name === table && Object.keys(t.grid?.filters ?? {}).length === 0);
       if (existing) return setActiveTab(existing.id);
     }
-    const t: QueryTab = { id: uid(), title: table, sql: "", database, kind: "table", table: { db: database, name: table }, grid: { ...defaultView(), filters: filters ?? {} } };
+    const t: QueryTab = { id: uid(), title: table, sql: `SELECT * FROM ${quote(table)} LIMIT 1000;\n`, database, kind: "table", table: { db: database, name: table }, grid: { ...defaultView(), filters: filters ?? {} } };
     setTabs([...tabs, t]);
     setActiveTab(t.id);
   };
@@ -384,6 +431,7 @@ export default function App() {
       { label: "Open data", onClick: () => openTable(d, t) },
       { label: "Design table…", onClick: () => openDesigner(d, t) },
       { label: "Select in SQL editor", onClick: () => selectInEditor(d, t) },
+      sampleItems(d, t),
       { label: "Import CSV into this table…", onClick: () => openTransfer({ tab: "import", db: d, table: t }) },
       { separator: true },
       { label: "Duplicate…", onClick: () => setPrompt({ title: `Duplicate ${t}`, label: "New table name", initial: `${t}_copy`, confirmLabel: "Duplicate", option: { label: "Copy the rows too", initial: false },
@@ -423,7 +471,7 @@ export default function App() {
     e.preventDefault();
     if (!KIND_WORD[kind]) return;
     const items: MenuItem[] = [];
-    if (kind === "view") items.push({ label: "Open data", onClick: () => openTable(d, name) }, { label: "Select in SQL editor", onClick: () => selectInEditor(d, name) });
+    if (kind === "view") items.push({ label: "Open data", onClick: () => openTable(d, name) }, { label: "Select in SQL editor", onClick: () => selectInEditor(d, name) }, sampleItems(d, name, ["select"]));
     items.push(
       { label: "Show / edit definition", onClick: () => showDefinition(d, kind, name) },
       { separator: true },
@@ -507,7 +555,7 @@ export default function App() {
 
   return (
     <div className="app">
-      <aside className="sidebar">
+      <aside className="sidebar" style={{ width: sidebar.size }} onMouseDownCapture={() => { fromEditor.current = !!(document.activeElement as HTMLElement | null)?.closest?.(".editor"); }}>
         <div className="conn-bar">
           <select value={activeId ?? ""} onChange={(e) => e.target.value && open(Number(e.target.value))}>
             <option value="">Select connection…</option>
@@ -536,21 +584,21 @@ export default function App() {
             <div className="filter">
               <div className="filterbox" onClick={() => filterInput.current?.focus()}>
                 {selectedDb && (
-                  <span className="scope" title={selectedTable ? "Locked to this database" : "Locked to this database. The box now searches its tables. ✕ releases the lock."}>
+                  <span className="scope" title={lockedTable ? "Locked to this database" : "Locked to this database. The box searches its tables, and the console runs in it. ✕ releases the lock."}>
                     <Icon name="lock" /><span className="scope-name">{selectedDb}</span>
-                    {!selectedTable && <button className="x" aria-label="Unlock database" onClick={(e) => { e.stopPropagation(); unlock(); }}><Icon name="close" /></button>}
+                    {!lockedTable && <button className="x" aria-label="Unlock database" onClick={(e) => { e.stopPropagation(); unlock(); }}><Icon name="close" /></button>}
                   </span>
                 )}
-                {selectedTable && (
-                  <span className="scope" title="Locked to this table. The box now searches its columns. ✕ releases the lock.">
-                    <Icon name="table" /><span className="scope-name">{selectedTable}</span>
+                {lockedTable && (
+                  <span className="scope" title="Locked to this table. The box searches its columns. ✕ releases the lock.">
+                    <Icon name="table" /><span className="scope-name">{lockedTable}</span>
                     <button className="x" aria-label="Unlock table" onClick={(e) => { e.stopPropagation(); unlock(); }}><Icon name="close" /></button>
                   </span>
                 )}
                 <input
                   ref={filterInput}
-                  placeholder={selectedTable ? "Filter columns" : selectedDb ? "Filter tables" : "Filter databases"}
-                  title={selectedTable ? "Columns of the selected table: a name or a type, e.g.  email  ·  bigint  ·  char*  ·  pk" : "Filter (⇧⌘B). Click a database to lock it and filter its tables, then a table to filter its columns.\nord  ·  ord*  ·  /regex/  ·  type:view  ·  col:email"}
+                  placeholder={lockedTable ? "Filter columns" : selectedDb ? "Filter tables" : "Filter databases"}
+                  title={lockedTable ? "Columns of the locked table: a name or a type, e.g.  email  ·  bigint  ·  char*  ·  pk" : "Filter (⇧⌘B). Click a database to lock it and filter its tables. Use the lock icon on a table to search its columns.\nord  ·  ord*  ·  /regex/  ·  type:view  ·  col:email"}
                   value={query}
                   disabled={activeId === null}
                   onChange={(e) => setQuery(e.target.value)}
@@ -567,7 +615,7 @@ export default function App() {
             <div className="tree-wrap">
               {activeId === null
                 ? <div className="empty">Create or select a connection</div>
-                : <ObjectTree key={activeId} index={index} matches={matches} scope={matchScope} terms={terms} selectedDb={selectedDb} onSelectDb={selectDb} selectedTable={selectedTable} onSelectTable={selectTable} rootLabel={active ? `${active.user}@${active.host}` : ""} onResetRoot={resetBrowser} columnQuery={selectedTable ? query : ""} stats={meta.stats} ensureStats={meta.ensureStats} details={meta.details} ensureDetails={meta.ensureDetails}
+                : <ObjectTree key={activeId} index={index} matches={matches} scope={matchScope} terms={terms} selectedDb={selectedDb} onSelectDb={selectDb} selectedTable={selectedTable} onSelectTable={selectTable} lockedTable={lockedTable} onLockTable={lockTable} onUnlockTable={unlock} onPick={pickName} rootLabel={active ? `${active.user}@${active.host}` : ""} onResetRoot={resetBrowser} columnQuery={lockedTable ? query : ""} stats={meta.stats} ensureStats={meta.ensureStats} details={meta.details} ensureDetails={meta.ensureDetails}
                     columnsLoaded={columnsLoaded} ensureColumns={ensureColumns} onOpenTable={(d, t) => openTable(d, t)} onObjectMenu={objectMenu} onOpenObject={showDefinition} indexes={meta.indexes} initialOpen={browserState.open} onOpenChange={(keys) => saveBrowser({ open: keys })} onDatabaseMenu={databaseMenu} />}
             </div>
           </>
@@ -579,6 +627,7 @@ export default function App() {
           <FavoritesPanel refreshKey={panelKey} onInsert={insertIntoEditor} onOpen={(sql) => addTab(sql, tab?.database ?? null)} />
         )}
       </aside>
+      <Splitter axis="x" label="Resize the sidebar" onDrag={sidebar.adjust} onReset={sidebar.reset} />
 
       <main className="main">
         {activeId === null || !tab ? (
@@ -636,10 +685,20 @@ export default function App() {
                     </select>
                   </label>
                 </div>
-                <div className="editor-wrap">
+                <div className="editor-wrap" style={{ height: consoleSize.size }}>
                   <Editor ref={editor} tabId={editorTab.id} initialDoc={editorTab.sql} onChange={(sql) => patchTab(editorTab.id, { sql })} onRun={run} onFormat={formatSql} connectionId={activeId} database={editorTab.database} dark={theme.resolved === "dark"} />
                 </div>
-                <ResultsPane run={runs[editorTab.id]} analysis={analyses[editorTab.id]} />
+                <Splitter axis="y" label="Resize the console" onDrag={consoleSize.adjust} onReset={consoleSize.reset} />
+                <ResultsPane
+                  key={editorTab.id}
+                  run={runs[editorTab.id]}
+                  analysis={analyses[editorTab.id]}
+                  data={isTable(editorTab) && editorTab.id === tab.id && editorTab.table?.name ? (
+                    <DataGrid key={`${activeId}:${editorTab.id}`} connectionId={activeId} db={editorTab.table.db} table={editorTab.table.name}
+                      initial={editorTab.grid ?? defaultView()} onViewChange={(grid) => patchTab(editorTab.id, { grid })}
+                      onOpenTable={(d, t, f) => openTable(d, t, f)} />
+                  ) : undefined}
+                />
               </div>
             )}
             {tab.kind === "designer" && tab.table && (
@@ -650,11 +709,6 @@ export default function App() {
             {tab.kind === "transfer" && <TransferTools key={`${activeId}:${tab.id}`} connectionId={activeId} nodes={index} ensureColumns={ensureColumns} preset={tab.transfer ?? {}} onSchemaChanged={() => reloadIndex()} />}
             {tab.kind === "server" && <ServerTools key={`${activeId}:${tab.id}`} connectionId={activeId} nodes={index} />}
             {tab.kind === "users" && <UsersManager key={`${activeId}:${tab.id}`} connectionId={activeId} nodes={index} ensureColumns={ensureColumns} />}
-            {isTable(tab) && tab.table && tab.table.name && (
-              <DataGrid key={`${activeId}:${tab.id}`} connectionId={activeId} db={tab.table.db} table={tab.table.name}
-                initial={tab.grid ?? defaultView()} onViewChange={(grid) => patchTab(tab.id, { grid })}
-                onOpenTable={(d, t, f) => openTable(d, t, f)} />
-            )}
           </>
         )}
         <div className="statusbar" style={{ borderTopColor: active?.color }}>{status}</div>

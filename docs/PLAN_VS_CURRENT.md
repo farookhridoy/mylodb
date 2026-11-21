@@ -25,7 +25,7 @@ What you asked for, and where it stands after this change:
 | `root@localhost` is the root node of the tree; clicking it **resets** to the full database list | ✅ the connection is the root (`user@host`, with the database count). Click = no selection, filter cleared, everything collapsed. |
 | **Level 1: filter databases** (nothing selected) | ✅ "Filter databases", names only. |
 | **Level 2: click a database → the box locks to it and filters its tables** | ✅ Like SQLyog: the database becomes a chip in the filter box, only that database is listed, its tables open, and the box searches them. Clearing the text lists all its tables again. ✕ on the chip (or Backspace / Esc in the empty box) releases the lock. |
-| **Level 3: click a table → lock to it and search its columns** | ✅ A second chip; only that table is shown. ✕ returns to the table list. Matches column **name or type** (`email`, `bigint`, `char*`), entirely in the browser. |
+| **Level 3: lock a table and search its columns** | ✅ Clicking a table only selects it (the table search keeps its results). The **lock icon** on a table row locks the filter to it: a second chip, only that table shown, the box searches its columns. Click the icon again, or ✕, to unlock. | Matches column **name or type** (`email`, `bigint`, `char*`), entirely in the browser. |
 | Columns show type like DBeaver (`bigint unsigned`, `char(255)`) | ✅ right-aligned declared type (`COLUMN_TYPE`), 🔑 for primary key, ◆ for unique. Nullability, `auto_increment` and the full definition are in the tooltip. |
 | Table size in KB / MB / GB | ✅ data + index bytes, right-aligned on each table row; tooltip has exact bytes and the row estimate. Views show none. |
 | No hang on big servers | ✅ names only at connect; per-database size query (one round trip); per-table column query; groups paged 300 rows at a time. 90,000-object fake server: connect 0.3–0.6 s, about 600 rows on screen, slowest keystroke about 350–430 ms. |
@@ -139,6 +139,20 @@ Phases 1–8 and the filter, theme and sidebar work are done. Rough effort for o
 **Why this order.** Phase 8 is done. Phases 9 and 10 are the plan's
 "defining" features and must land before the visual tools. Phase 11 removes daily friction. Phase 12 should run alongside 9–11 so the
 version matrix catches MariaDB and 5.7 differences before the power tools depend on them.
+
+## 6a. Done after that: the SQLyog-style workspace
+
+* **Table tab = console on top, data below** (like SQLyog). Opening a table gives a SQL console prefilled with `SELECT * FROM … LIMIT 1000;`
+  and a **Table Data** tab with the editable grid. A query run in the console adds Result tabs beside it; Table Data stays one click away.
+* **Resizable**: the sidebar (drag its edge, 200–640 px) and the console / results divider (drag, double-click resets). Both are remembered.
+* **Arrows** (chevrons) open and close a database, the Tables list and a table's columns. Clicking the row selects; it no longer toggles.
+* **Locked database = the console's database**: selecting a database sets it on the console, and new query tabs start in it.
+* **Click a name to paste it into the query**: a database, table (`users`, or `db`.`users` outside the console's database) or column
+  (`users`.`name`). Only while the editor had the focus, so browsing never changes a query.
+* **Sample queries** in the table menu: SELECT, INSERT, UPDATE, DELETE with the real column names (auto-increment columns left out of INSERT,
+  the primary key in WHERE). Inserted into the console and copied.
+* **Fixed at the root**: autocomplete loaded columns into the same list the filter results index into, so the UI's copy could drift from the
+  backend's. Autocomplete now keeps its columns in its own catalog (`completion_nodes`); the filter index only grows through `load_columns`.
 
 ## 6. Done after Phase 8: lock behaviour and a flatter look
 

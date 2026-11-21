@@ -146,7 +146,7 @@ const handlers = {
 
 // ---- editor intelligence ----
 Object.assign(handlers, {
-  run_query: (a) => [{ sql: a.sql, sets: [], affected_rows: 0, last_insert_id: null, warnings: 0, elapsed_ms: 1, error: null }],
+  run_query: (a) => [{ sql: a.sql, sets: window.__runSets ?? [], affected_rows: 0, last_insert_id: null, warnings: 0, elapsed_ms: 1, error: null }],
   complete_sql: (a) => {
     const before = a.sql.slice(0, a.cursor);
     const word = /[\w$`]*$/.exec(before)[0];

@@ -1,5 +1,5 @@
 /// How an engine spells SQL: quoting and paging. Everything that builds SQL text for an engine goes through its dialect.
-pub trait Dialect {
+pub trait Dialect: Send + Sync {
     /// A quoted identifier (a database, table, column or routine name).
     fn quote_ident(&self, ident: &str) -> String;
     /// A quoted string literal that survives a round trip.

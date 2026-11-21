@@ -1,3 +1,4 @@
+use myq_core::{ColumnDetail, DatabaseRow, IndexDetail, TableRow};
 use crate::Result;
 use mysql_async::{prelude::Queryable, Pool};
 use myq_schema::filter::{Kind, Node};
@@ -109,18 +110,6 @@ pub async fn table_stats(pool: &Pool, database: &str) -> Result<Vec<TableStat>> 
         .collect())
 }
 
-/// A column as the object browser shows it: `bigint unsigned`, `varchar(255)`, key and nullability.
-#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
-pub struct ColumnDetail {
-    pub name: String,
-    /// The full declared type (`COLUMN_TYPE`), e.g. `bigint(20) unsigned` or `varchar(255)`.
-    pub column_type: String,
-    pub nullable: bool,
-    /// `PRI`, `UNI`, `MUL` or empty.
-    pub key: String,
-    /// e.g. `auto_increment`.
-    pub extra: String,
-}
 
 /// Columns of one table in declared order. Loaded when the table is selected, not for the whole database.
 pub async fn column_details(pool: &Pool, database: &str, table: &str) -> Result<Vec<ColumnDetail>> {
@@ -138,15 +127,6 @@ pub async fn column_details(pool: &Pool, database: &str, table: &str) -> Result<
         .collect())
 }
 
-/// An index of a table, columns in order.
-#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
-pub struct IndexDetail {
-    pub name: String,
-    pub unique: bool,
-    /// `BTREE`, `HASH`, `FULLTEXT`, `SPATIAL`.
-    pub kind: String,
-    pub columns: Vec<String>,
-}
 
 /// Indexes of one table (the primary key is the index named `PRIMARY`).
 pub async fn index_details(pool: &Pool, database: &str, table: &str) -> Result<Vec<IndexDetail>> {
@@ -189,15 +169,6 @@ pub async fn object_definition(pool: &Pool, kind: Kind, database: &str, name: &s
     Ok(row.and_then(|r| r.get_opt::<Option<String>, _>(column)).and_then(|v| v.ok()).flatten())
 }
 
-/// A database as the Databases page lists it.
-#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
-pub struct DatabaseRow {
-    pub name: String,
-    pub collation: String,
-    pub charset: String,
-    /// `mysql`, `sys`, `information_schema`, `performance_schema`: listed on request, never selectable.
-    pub system: bool,
-}
 
 /// Names and default collations: one quick query. Sizes come separately (`database_sizes`), because that one can be slow.
 pub async fn database_list(pool: &Pool) -> Result<Vec<DatabaseRow>> {
@@ -220,21 +191,6 @@ pub async fn database_sizes(pool: &Pool) -> Result<Vec<(String, u64, u64)>> {
     Ok(rows.into_iter().map(|(n, c, b)| (n, c, b.unwrap_or(0))).collect())
 }
 
-/// A table or view as the Structure page lists it.
-#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
-pub struct TableRow {
-    pub name: String,
-    pub is_view: bool,
-    pub engine: Option<String>,
-    /// The server's row estimate (exact for views: none).
-    pub rows: Option<u64>,
-    pub collation: Option<String>,
-    /// Data plus index bytes.
-    pub bytes: Option<u64>,
-    /// Free space inside the table file that `OPTIMIZE TABLE` would give back (phpMyAdmin's "Overhead").
-    pub overhead: Option<u64>,
-    pub comment: String,
-}
 
 pub async fn database_tables(pool: &Pool, database: &str) -> Result<Vec<TableRow>> {
     use mysql_async::Row;

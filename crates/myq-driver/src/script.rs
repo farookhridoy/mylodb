@@ -3,39 +3,14 @@
 use crate::Result;
 use myq_sql::split_statements;
 use mysql_async::{prelude::Queryable, Conn, Pool, Row};
-use serde::Serialize;
+use myq_core::{ColumnInfo, ResultSet, StatementResult};
 use std::time::Instant;
 
 /// Rows kept per result set; the rest are counted but dropped (the grid phase adds paging).
 pub const MAX_ROWS: usize = 10_000;
 
-#[derive(Debug, Clone, Serialize)]
-pub struct ColumnInfo {
-    pub name: String,
-    pub type_name: String,
-    /// BINARY/BLOB columns: cells are hex text, not characters.
-    pub binary: bool,
-}
 
-/// `None` cells are SQL NULL (distinct from the empty string).
-#[derive(Debug, Clone, Serialize)]
-pub struct ResultSet {
-    pub columns: Vec<ColumnInfo>,
-    pub rows: Vec<Vec<Option<String>>>,
-    pub total_rows: u64,
-    pub truncated: bool,
-}
 
-#[derive(Debug, Clone, Serialize, Default)]
-pub struct StatementResult {
-    pub sql: String,
-    pub sets: Vec<ResultSet>,
-    pub affected_rows: u64,
-    pub last_insert_id: Option<u64>,
-    pub warnings: u16,
-    pub elapsed_ms: u64,
-    pub error: Option<String>,
-}
 
 async fn run_one(conn: &mut Conn, sql: &str) -> StatementResult {
     let started = Instant::now();

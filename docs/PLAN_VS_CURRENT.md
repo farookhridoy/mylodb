@@ -140,6 +140,22 @@ Phases 1–9 and the filter, theme and sidebar work are done. Rough effort for o
 "defining" features and must land before the visual tools. Phase 11 removes daily friction. Phase 12 should run alongside 9–11 so the
 version matrix catches MariaDB and 5.7 differences before the power tools depend on them.
 
+## 6e. Remote connections, result tabs, searchable dropdowns
+
+* **Remote / hosted servers** (the DBeaver "Main" screen): the connection dialog has *Connect by Host / URL*. Paste `jdbc:mysql://host:3306/db`
+  or `mysql://user:password@host/db?ssl-mode=REQUIRED` and host, port, database, user, password and SSL fill in. **Show all databases**: when
+  off and a default database is set, only that database is listed (right for shared hosting, one database per account); the restriction is applied
+  in the backend and kept when the tree is refreshed. Older connections keep listing everything. Hosting providers usually also need your IP
+  allowed for remote MySQL in their panel; that is outside the app.
+* **Result tabs** under the console: Results (Result 1, 2… for several sets), Profile, Messages, Table Data (table tabs), Info, History, plus
+  Explain when a plan was asked for. Profile offers to profile the statement at the cursor; Info shows the connection, environment and database,
+  each statement's rows, affected rows, warnings and time, and for a table tab a summary of the table; History is the connection's history,
+  click to insert, double-click to open. For plain query tabs Table Data is not shown (it needs a table); running a single-table SELECT into an
+  editable grid is still open.
+* **Searchable dropdowns** everywhere (43 of them), select2 style: type to filter with highlighted matches, arrows / Enter / Esc, grouped options
+  (data types), a search box once a list has 7 or more entries, at most 300 rows drawn and "type to narrow" for huge lists (2,000 databases).
+  The original `<select>` stays in the page, hidden and in sync.
+
 ## 6d. Production Safety (Phase 9)
 
 Per connection (Safety tab of the connection dialog): **environment** (development / staging / production), **read-only**, **query timeout**

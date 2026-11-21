@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Select from "./Select";
 import Icon from "./Icon";
 import {
   serverApi, type BinaryLog, type BinlogEvent, type CheckOption, type KillKind, type LogLine, type LogSettings, type Maintenance,
@@ -149,7 +150,7 @@ function Processes({ id }: { id: number }) {
     <div className="proc">
       <div className="dg-toolbar">
         <label className="check"><input type="checkbox" checked={auto} onChange={(e) => setAuto(e.target.checked)} /> Auto refresh</label>
-        <select value={every} onChange={(e) => setEvery(Number(e.target.value))}>{[1000, 2000, 5000, 10000].map((n) => <option key={n} value={n}>{n / 1000} s</option>)}</select>
+        <Select value={every} onChange={(e) => setEvery(Number(e.target.value))}>{[1000, 2000, 5000, 10000].map((n) => <option key={n} value={n}>{n / 1000} s</option>)}</Select>
         <button onClick={load}>⟳</button>
         <label className="check"><input type="checkbox" checked={hideSleep} onChange={(e) => setHideSleep(e.target.checked)} /> Hide idle</label>
         <input placeholder="Filter user, db, SQL…" value={filter} onChange={(e) => setFilter(e.target.value)} />
@@ -221,7 +222,7 @@ function Variables({ id }: { id: number }) {
   return (
     <div className="vars">
       <div className="dg-toolbar">
-        <select value={scope} onChange={(e) => setScope(e.target.value as VarScope)}><option value="global">Global</option><option value="session">This session (read-only)</option></select>
+        <Select value={scope} onChange={(e) => setScope(e.target.value as VarScope)}><option value="global">Global</option><option value="session">This session (read-only)</option></Select>
         <input placeholder="Search name or value…" value={filter} onChange={(e) => setFilter(e.target.value)} />
         <label className="check" title="Variables whose value was set explicitly or changed at runtime"><input type="checkbox" checked={changed} onChange={(e) => setChanged(e.target.checked)} /> Only changed from default</label>
         <button onClick={load}>⟳</button><span className="grow" /><span className="dim">{shown.length} of {vars.length}</span>
@@ -289,7 +290,7 @@ function Status({ id }: { id: number }) {
   return (
     <div className="vars">
       <div className="dg-toolbar">
-        <select value={scope} onChange={(e) => setScope(e.target.value as VarScope)}><option value="global">Global</option><option value="session">This session</option></select>
+        <Select value={scope} onChange={(e) => setScope(e.target.value as VarScope)}><option value="global">Global</option><option value="session">This session</option></Select>
         <input placeholder="Search…" value={filter} onChange={(e) => setFilter(e.target.value)} />
         <label className="check"><input type="checkbox" checked={auto} onChange={(e) => setAuto(e.target.checked)} /> Auto refresh (2 s)</label>
         <label className="check"><input type="checkbox" checked={moving} onChange={(e) => setMoving(e.target.checked)} /> Only changing</label>
@@ -340,10 +341,10 @@ function MaintenanceTab({ id, nodes }: { id: number; nodes: Node[] }) {
   return (
     <div className="maint">
       <div className="dg-toolbar">
-        <label>Database <select value={db} onChange={(e) => setDb(e.target.value)}>{dbs.map((d) => <option key={d}>{d}</option>)}</select></label>
-        <label>Operation <select value={op} onChange={(e) => setOp(e.target.value as Maintenance["op"])}>
-          <option value="check">CHECK TABLE</option><option value="analyze">ANALYZE TABLE</option><option value="optimize">OPTIMIZE TABLE</option><option value="repair">REPAIR TABLE</option></select></label>
-        {op === "check" && <select value={checkOpt} onChange={(e) => setCheckOpt(e.target.value as CheckOption | "")}><option value="">(default)</option>{["quick", "fast", "changed", "medium", "extended"].map((o) => <option key={o} value={o}>{o.toUpperCase()}</option>)}</select>}
+        <label>Database <Select value={db} onChange={(e) => setDb(e.target.value)}>{dbs.map((d) => <option key={d}>{d}</option>)}</Select></label>
+        <label>Operation <Select value={op} onChange={(e) => setOp(e.target.value as Maintenance["op"])}>
+          <option value="check">CHECK TABLE</option><option value="analyze">ANALYZE TABLE</option><option value="optimize">OPTIMIZE TABLE</option><option value="repair">REPAIR TABLE</option></Select></label>
+        {op === "check" && <Select value={checkOpt} onChange={(e) => setCheckOpt(e.target.value as CheckOption | "")}><option value="">(default)</option>{["quick", "fast", "changed", "medium", "extended"].map((o) => <option key={o} value={o}>{o.toUpperCase()}</option>)}</Select>}
         {op === "repair" && <>
           <label className="check"><input type="checkbox" checked={quick} onChange={(e) => setQuick(e.target.checked)} /> QUICK</label>
           <label className="check"><input type="checkbox" checked={extended} onChange={(e) => setExtended(e.target.checked)} /> EXTENDED</label>

@@ -24,6 +24,8 @@ export interface SavedConnection {
   read_only?: boolean;
   query_timeout_secs?: number | null;
   confirm_destructive?: boolean;
+  /// false + a default database: only that database is listed.
+  show_all_databases?: boolean;
   ssh?: SshConfig | null;
   new_password?: string | null;
   new_ssh_password?: string | null;

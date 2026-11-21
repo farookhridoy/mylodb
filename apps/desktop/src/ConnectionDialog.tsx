@@ -1,13 +1,15 @@
 import { useState } from "react";
+import Select from "./Select";
 import { open as pickFile } from "@tauri-apps/plugin-dialog";
 import { api, describeError, type ConnectError, type Environment, type SavedConnection, type SshConfig } from "./api";
 import { ENV_COLOR, ENV_LABEL } from "./environment";
+import { formatConnectionUrl, parseConnectionUrl } from "./connectionUrl";
 
 const blank: SavedConnection = {
   id: null, name: "", color: "#4f8cff", host: "127.0.0.1", port: 3306,
   user: "root", database: null, ssl: "disabled", new_password: "",
   ssl_ca: null, ssl_cert: null, ssl_key: null, ssh: null, new_ssh_password: "", new_ssh_passphrase: "",
-  environment: "development", read_only: false, query_timeout_secs: null, confirm_destructive: true,
+  environment: "development", read_only: false, query_timeout_secs: null, confirm_destructive: true, show_all_databases: false,
 };
 
 const blankSsh: SshConfig = { host: "", port: 22, user: "", auth: { method: "key", path: "~/.ssh/id_ed25519" } };
@@ -33,6 +35,8 @@ export default function ConnectionDialog(props: {
 }) {
   const [c, setC] = useState<SavedConnection>(props.initial ?? blank);
   const [tab, setTab] = useState<Tab>("general");
+  const [byUrl, setByUrl] = useState(false);
+  const [urlText, setUrlText] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [testing, setTesting] = useState(false);
   const [result, setResult] = useState<string | null>(null);
@@ -81,6 +85,22 @@ export default function ConnectionDialog(props: {
         {tab === "general" && (
           <>
             <label>Name<input value={c.name} onChange={(e) => set("name", e.target.value)} autoFocus /></label>
+            <div className="connect-by">
+              <span>Connect by</span>
+              <label className="check"><input type="radio" name="connect-by" checked={!byUrl} onChange={() => setByUrl(false)} /> Host</label>
+              <label className="check"><input type="radio" name="connect-by" checked={byUrl} onChange={() => { setByUrl(true); setUrlText(formatConnectionUrl(c.host, c.port, c.database)); }} /> URL</label>
+            </div>
+            <label>URL
+              {byUrl ? (
+                <input value={urlText} placeholder="jdbc:mysql://host:3306/database   or   mysql://user:password@host/database" aria-label="Connection URL"
+                       onChange={(e) => {
+                         setUrlText(e.target.value);
+                         const p = parseConnectionUrl(e.target.value);
+                         if (p) setC({ ...c, host: p.host, port: p.port, database: p.database, user: p.user ?? c.user, new_password: p.password ?? c.new_password, ssl: p.ssl ?? c.ssl });
+                       }} />
+              ) : <input readOnly aria-label="Connection URL" value={formatConnectionUrl(c.host, c.port, c.database)} />}
+            </label>
+            {byUrl && urlText.trim() !== "" && !parseConnectionUrl(urlText) && <div className="error small">Not a MySQL URL. Expected jdbc:mysql://host:3306/database or mysql://user:password@host/database.</div>}
             <div className="row">
               <label>Host<input value={c.host} onChange={(e) => set("host", e.target.value)} /></label>
               <label className="narrow">Port<input type="number" value={c.port} onChange={(e) => set("port", Number(e.target.value))} /></label>
@@ -92,6 +112,7 @@ export default function ConnectionDialog(props: {
             </div>
             <div className="row">
               <label>Default database<input value={c.database ?? ""} onChange={(e) => set("database", e.target.value || null)} /></label>
+              <label className="check show-all" title="Off: only the default database is listed. Use it on shared hosting, where the account owns one database."><input type="checkbox" checked={c.show_all_databases !== false || !c.database} disabled={!c.database} onChange={(e) => set("show_all_databases", e.target.checked)} /> Show all databases</label>
               <label className="narrow">Tab color<input type="color" value={c.color} onChange={(e) => set("color", e.target.value)} /></label>
             </div>
           </>
@@ -100,14 +121,14 @@ export default function ConnectionDialog(props: {
         {tab === "safety" && (
           <>
             <label>Environment
-              <select value={c.environment ?? "development"} onChange={(e) => {
+              <Select value={c.environment ?? "development"} onChange={(e) => {
                 const env = e.target.value as Environment;
                 // the tab colour follows the environment unless it was chosen by hand
                 const wasDefault = Object.values(ENV_COLOR).includes(c.color);
                 setC({ ...c, environment: env, color: wasDefault ? ENV_COLOR[env] : c.color });
               }}>
                 {(["development", "staging", "production"] as Environment[]).map((env) => <option key={env} value={env}>{ENV_LABEL[env]}</option>)}
-              </select>
+              </Select>
             </label>
             <div className="dim small">Shown as a badge and colour in the app so the connection cannot be mistaken for another one.</div>
             <label className="check"><input type="checkbox" checked={!!c.read_only} onChange={(e) => set("read_only", e.target.checked)} /> Read-only</label>
@@ -134,9 +155,9 @@ export default function ConnectionDialog(props: {
                 </div>
                 <label>SSH user<input value={ssh.user} onChange={(e) => setSsh({ user: e.target.value })} /></label>
                 <label>Authentication
-                  <select value={ssh.auth.method} onChange={(e) => setSsh({ auth: e.target.value === "password" ? { method: "password" } : { method: "key", path: "~/.ssh/id_ed25519" } })}>
+                  <Select value={ssh.auth.method} onChange={(e) => setSsh({ auth: e.target.value === "password" ? { method: "password" } : { method: "key", path: "~/.ssh/id_ed25519" } })}>
                     <option value="key">Private key</option><option value="password">Password</option>
-                  </select></label>
+                  </Select></label>
                 {ssh.auth.method === "key" ? (
                   <>
                     <PathField label="Private key file" value={ssh.auth.path} onChange={(v) => setSsh({ auth: { method: "key", path: v ?? "" } })} />
@@ -154,12 +175,12 @@ export default function ConnectionDialog(props: {
         {tab === "ssl" && (
           <>
             <label>SSL mode
-              <select value={c.ssl} onChange={(e) => set("ssl", e.target.value as SavedConnection["ssl"])}>
+              <Select value={c.ssl} onChange={(e) => set("ssl", e.target.value as SavedConnection["ssl"])}>
                 <option value="disabled">Disabled</option>
                 <option value="required">Required: verify certificate and host name</option>
                 <option value="verifyca">Required: verify certificate, ignore host name</option>
                 <option value="skipverify">Required: do not verify (self-signed)</option>
-              </select></label>
+              </Select></label>
             {c.ssl !== "disabled" && (
               <>
                 <PathField label="CA certificate (PEM)" value={c.ssl_ca} onChange={(v) => set("ssl_ca", v)} placeholder="(system certificates)" />

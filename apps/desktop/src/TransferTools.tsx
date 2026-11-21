@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Select from "./Select";
 import Icon from "./Icon";
 import { open as pickPath, save as savePath } from "@tauri-apps/plugin-dialog";
 import {
@@ -191,7 +192,7 @@ function Restore({ connectionId, nodes, onSchemaChanged }: { connectionId: numbe
             <div className="path-field"><input value={path} placeholder="Choose…" onChange={(e) => setPath(e.target.value)} />
               <button onClick={() => choose(false)}>File…</button><button onClick={() => choose(true)}>Folder…</button></div></label>
           <label>Run in database
-            <select value={db} onChange={(e) => setDb(e.target.value)}><option value="">(as written in the script)</option>{dbs.map((d) => <option key={d}>{d}</option>)}</select></label>
+            <Select value={db} onChange={(e) => setDb(e.target.value)}><option value="">(as written in the script)</option>{dbs.map((d) => <option key={d}>{d}</option>)}</Select></label>
           <label className="check"><input type="checkbox" checked={stop} onChange={(e) => setStop(e.target.checked)} /> Stop at the first error</label>
           <label className="check"><input type="checkbox" checked={fk} onChange={(e) => setFk(e.target.checked)} /> Disable foreign key checks while running</label>
           <button className="danger" disabled={!path || job.running} onClick={() => setConfirm(true)}>Run script…</button>
@@ -311,28 +312,28 @@ function ImportCsv({ connectionId, nodes, preset, onSchemaChanged, ensureColumns
           <h4>File</h4>
           <label>CSV file<div className="path-field"><input value={path} readOnly placeholder="Choose a file…" /><button onClick={choose}>Browse…</button></div></label>
           <div className="row">
-            <label>Delimiter<select value={fmt.delimiter} onChange={(e) => set({ delimiter: e.target.value })}>{DELIMS.map(([v, l]) => <option key={l} value={v}>{l}</option>)}</select></label>
-            <label>Quote<select value={fmt.quote} onChange={(e) => set({ quote: e.target.value })}><option value={'"'}>"</option><option value="'">'</option></select></label>
+            <label>Delimiter<Select value={fmt.delimiter} onChange={(e) => set({ delimiter: e.target.value })}>{DELIMS.map(([v, l]) => <option key={l} value={v}>{l}</option>)}</Select></label>
+            <label>Quote<Select value={fmt.quote} onChange={(e) => set({ quote: e.target.value })}><option value={'"'}>"</option><option value="'">'</option></Select></label>
           </div>
-          <label>Encoding<select value={fmt.encoding} onChange={(e) => set({ encoding: e.target.value })}>{ENCODINGS.map((x) => <option key={x}>{x}</option>)}</select></label>
+          <label>Encoding<Select value={fmt.encoding} onChange={(e) => set({ encoding: e.target.value })}>{ENCODINGS.map((x) => <option key={x}>{x}</option>)}</Select></label>
           <label className="check"><input type="checkbox" checked={fmt.has_header} onChange={(e) => set({ has_header: e.target.checked })} /> First row is a header</label>
           <label className="check"><input type="checkbox" checked={fmt.trim} onChange={(e) => set({ trim: e.target.checked })} /> Trim spaces around values</label>
           <label>Text meaning NULL<input className="cell-input" placeholder="e.g. NULL or \N" value={fmt.null_text ?? ""} onChange={(e) => set({ null_text: e.target.value || null })} /></label>
         </section>
         <section>
           <h4>Target</h4>
-          <label>Database<select value={db} onChange={(e) => { setDb(e.target.value); setTable(""); }}>{dbs.map((d) => <option key={d}>{d}</option>)}</select></label>
+          <label>Database<Select value={db} onChange={(e) => { setDb(e.target.value); setTable(""); }}>{dbs.map((d) => <option key={d}>{d}</option>)}</Select></label>
           <label className="check"><input type="checkbox" checked={newTable} onChange={(e) => setNewTable(e.target.checked)} /> Create a new table from the file</label>
           {newTable
             ? <label>New table name<input value={newName} onChange={(e) => setNewName(e.target.value)} /></label>
-            : <label>Table<select value={table} onChange={(e) => setTable(e.target.value)}><option value="">(choose)</option>{tables.map((t) => <option key={t}>{t}</option>)}</select></label>}
+            : <label>Table<Select value={table} onChange={(e) => setTable(e.target.value)}><option value="">(choose)</option>{tables.map((t) => <option key={t}>{t}</option>)}</Select></label>}
           {!newTable && (
             <>
               <label>If a row with the same key exists
-                <select value={mode} onChange={(e) => setMode(e.target.value as ImportMode)}>
+                <Select value={mode} onChange={(e) => setMode(e.target.value as ImportMode)}>
                   <option value="insert">Report an error</option><option value="ignore">Skip the new row</option>
                   <option value="update">Update the existing row</option><option value="replace">Replace the existing row</option>
-                </select></label>
+                </Select></label>
               <label className="check"><input type="checkbox" checked={truncate} onChange={(e) => setTruncate(e.target.checked)} /> Empty the table first (cannot be undone)</label>
             </>
           )}
@@ -349,9 +350,9 @@ function ImportCsv({ connectionId, nodes, preset, onSchemaChanged, ensureColumns
             <thead>
               <tr><th className="rownum">Maps to</th>{preview.headers.map((h, i) => (
                 <th key={i}>
-                  <select value={mapping[i] ?? ""} onChange={(e) => setMapping(mapping.map((m, k) => (k === i ? e.target.value || null : m)))}>
+                  <Select value={mapping[i] ?? ""} onChange={(e) => setMapping(mapping.map((m, k) => (k === i ? e.target.value || null : m)))}>
                     <option value="">(skip)</option>{targetColumns.map((c) => <option key={c} value={c}>{c}</option>)}
-                  </select>
+                  </Select>
                 </th>
               ))}</tr>
               {newTable && <tr><th className="rownum">Type</th>{inferred.map((c, i) => (
@@ -408,8 +409,8 @@ function ExportQuery({ connectionId, nodes }: { connectionId: number; nodes: Nod
         </section>
         <section>
           <h4>Output</h4>
-          <label>Database<select value={db} onChange={(e) => setDb(e.target.value)}><option value="">(none)</option>{dbs.map((d) => <option key={d}>{d}</option>)}</select></label>
-          <label>Format<select value={format} onChange={(e) => setFormat(e.target.value as ExportFormat)}>{EXPORT_FORMATS.map((f) => <option key={f.format} value={f.format}>{f.label}</option>)}</select></label>
+          <label>Database<Select value={db} onChange={(e) => setDb(e.target.value)}><option value="">(none)</option>{dbs.map((d) => <option key={d}>{d}</option>)}</Select></label>
+          <label>Format<Select value={format} onChange={(e) => setFormat(e.target.value as ExportFormat)}>{EXPORT_FORMATS.map((f) => <option key={f.format} value={f.format}>{f.label}</option>)}</Select></label>
           {format === "csv" && <label>Text for NULL<input className="cell-input" value={nullText} placeholder="(empty)" onChange={(e) => setNullText(e.target.value)} /></label>}
           <button className="primary" disabled={job.running || !sql.trim()} onClick={go}>Export…</button>
           <div className="dim small">Only a single SELECT is exported. Every row is streamed to the file, however many there are.</div>

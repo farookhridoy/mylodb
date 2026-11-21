@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Select from "./Select";
 import Icon from "./Icon";
 import { userApi, type Account, type AccountEdit, type Node, type Scope, type ScopeGrant } from "./api";
 import { ConfirmDialog } from "./SidePanels";
@@ -161,9 +162,9 @@ export default function UsersManager(props: { connectionId: number; nodes: Node[
                   <label>{draft.original ? "New password" : "Password"}
                     <input type="password" value={draft.edit.password ?? ""} placeholder={draft.original ? "(unchanged)" : ""} onChange={(e) => setEdit({ password: e.target.value })} /></label>
                   <label>Authentication plugin
-                    <select value={draft.edit.plugin ?? ""} onChange={(e) => setEdit({ plugin: e.target.value || null })}>
+                    <Select value={draft.edit.plugin ?? ""} onChange={(e) => setEdit({ plugin: e.target.value || null })}>
                       <option value="">(server default)</option><option value="caching_sha2_password">caching_sha2_password</option><option value="mysql_native_password">mysql_native_password</option>
-                    </select></label>
+                    </Select></label>
                   <label className="check"><input type="checkbox" checked={draft.edit.locked} onChange={(e) => setEdit({ locked: e.target.checked })} /> Account locked</label>
                   <label className="check"><input type="checkbox" checked={draft.edit.expire_password} onChange={(e) => setEdit({ expire_password: e.target.checked })} /> Expire password (must change at next login)</label>
                 </div>
@@ -192,9 +193,9 @@ export default function UsersManager(props: { connectionId: number; nodes: Node[
                     {adding && (
                       <div className="dz-form add-scope">
                         <label>Level
-                          <select value={adding.level} onChange={(e) => setAdding({ ...adding, level: e.target.value as Scope["level"], table: "" })}>
+                          <Select value={adding.level} onChange={(e) => setAdding({ ...adding, level: e.target.value as Scope["level"], table: "" })}>
                             <option value="global">Global</option><option value="database">Database</option><option value="table">Table</option>
-                          </select></label>
+                          </Select></label>
                         {adding.level !== "global" && (
                           <label>Database<input list="u-dbs" value={adding.db} onChange={(e) => setAdding({ ...adding, db: e.target.value })} />
                             <datalist id="u-dbs">{dbs.map((d) => <option key={d} value={d} />)}</datalist></label>

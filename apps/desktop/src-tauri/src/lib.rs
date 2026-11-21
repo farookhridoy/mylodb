@@ -18,6 +18,14 @@ struct Safety {
     confirm_destructive: bool,
 }
 
+/// With a default database set and "show all databases" off, only that database is listed (and everything below it).
+fn restrict_databases(index: Vec<Node>, only: Option<&str>) -> Vec<Node> {
+    match only {
+        Some(db) => index.into_iter().filter(|n| n.database == db).collect(),
+        None => index,
+    }
+}
+
 /// A live connection: its pool and the cached name index the filter runs over.
 struct Session {
     #[allow(dead_code)]
@@ -36,14 +44,16 @@ struct Session {
     completion_nodes: Vec<Node>,
     completion_loaded: std::collections::HashSet<String>,
     safety: Safety,
+    /// Only this database is shown (see `restrict_databases`).
+    only_database: Option<String>,
     /// Keeps the SSH tunnel alive for as long as the session lives (dropping it closes the tunnel).
     #[allow(dead_code)]
     tunnel: Option<myq_tunnel::Tunnel>,
 }
 
 impl Session {
-    fn new(pool: Pool, index: Vec<Node>, tunnel: Option<myq_tunnel::Tunnel>, safety: Safety) -> Session {
-        let mut s = Session { pool, index: Vec::new(), by_db: HashMap::new(), db_positions: Vec::new(), columns_loaded: Default::default(), catalog: myq_sql::Catalog::default(), completion_nodes: Vec::new(), completion_loaded: Default::default(), safety, tunnel };
+    fn new(pool: Pool, index: Vec<Node>, tunnel: Option<myq_tunnel::Tunnel>, safety: Safety, only_database: Option<String>) -> Session {
+        let mut s = Session { pool, index: Vec::new(), by_db: HashMap::new(), db_positions: Vec::new(), columns_loaded: Default::default(), catalog: myq_sql::Catalog::default(), completion_nodes: Vec::new(), completion_loaded: Default::default(), safety, only_database, tunnel };
         s.set_index(index);
         s
     }
@@ -184,13 +194,16 @@ async fn connect(state: tauri::State<'_, AppState>, id: i64, trust_fingerprint: 
     };
     let (cfg, tunnel) = establish(&state.store, cfg, ssh, trust_fingerprint).await?;
     let p = pool(&cfg);
-    // names only: columns are loaded per database when needed, so connecting to a huge server stays fast
-    let index = introspect(&p, &IntrospectOptions::default()).await.map_err(err)?;
-    let safety = {
+    let (safety, only_database) = {
         let store = state.store.lock().unwrap();
-        store.connection(id).map_err(err)?.map(|c| Safety { environment: c.environment, read_only: c.config.read_only, timeout_secs: c.query_timeout_secs, confirm_destructive: c.confirm_destructive }).unwrap_or_default()
+        let saved = store.connection(id).map_err(err)?;
+        let safety = saved.as_ref().map(|c| Safety { environment: c.environment, read_only: c.config.read_only, timeout_secs: c.query_timeout_secs, confirm_destructive: c.confirm_destructive }).unwrap_or_default();
+        let only = saved.and_then(|c| if c.show_all_databases { None } else { c.config.database.filter(|d| !d.is_empty()) });
+        (safety, only)
     };
-    state.sessions.lock().unwrap().insert(id, Session::new(p, index.clone(), tunnel, safety));
+    // names only: columns are loaded per database when needed, so connecting to a huge server stays fast
+    let index = restrict_databases(introspect(&p, &IntrospectOptions::default()).await.map_err(err)?, only_database.as_deref());
+    state.sessions.lock().unwrap().insert(id, Session::new(p, index.clone(), tunnel, safety, only_database));
     Ok(index)
 }
 
@@ -878,14 +891,14 @@ fn ddl_preview(db: String, original: Option<TableDef>, desired: TableDef) -> Ddl
 /// Re-read the object index after the schema changed, so the tree and the filter see it. Databases whose columns
 /// were loaded get them again, so what the UI already shows stays in step.
 async fn reindex(state: &tauri::State<'_, AppState>, id: i64) -> Result<Vec<Node>, String> {
-    let (pool, loaded) = {
+    let (pool, loaded, only) = {
         let sessions = state.sessions.lock().unwrap();
         let s = sessions.get(&id).ok_or("not connected")?;
         let mut loaded: Vec<String> = s.columns_loaded.iter().cloned().collect();
         loaded.sort();
-        (s.pool.clone(), loaded)
+        (s.pool.clone(), loaded, s.only_database.clone())
     };
-    let mut index = introspect(&pool, &IntrospectOptions::default()).await.map_err(err)?;
+    let mut index = restrict_databases(introspect(&pool, &IntrospectOptions::default()).await.map_err(err)?, only.as_deref());
     let mut still = std::collections::HashSet::new();
     for db in loaded {
         if index.iter().any(|n| n.database == db) {
@@ -1201,13 +1214,26 @@ mod session_tests {
     fn session() -> Session {
         // a pool opens no connection until it is used
         let pool = Pool::new("mysql://root@127.0.0.1:1/");
-        Session::new(pool, vec![node("shop", Kind::Database, "shop", None), node("shop", Kind::Table, "orders", None)], None, Safety::default())
+        Session::new(pool, vec![node("shop", Kind::Database, "shop", None), node("shop", Kind::Table, "orders", None)], None, Safety::default(), None)
     }
 
     fn column_suggested(s: &Session, col: &str) -> bool {
         let sql = "SELECT o. FROM orders o";
         let c = myq_sql::complete(sql, "SELECT o.".len(), &s.catalog, Some("shop"), 100);
         c.items.iter().any(|i| i.label == col)
+    }
+
+    #[test]
+    fn a_hosted_account_sees_only_its_own_database() {
+        let index = vec![
+            node("u1_erp", Kind::Database, "u1_erp", None),
+            node("u1_erp", Kind::Table, "orders", None),
+            node("other", Kind::Database, "other", None),
+            node("other", Kind::Table, "secret", None),
+        ];
+        let only = restrict_databases(index.clone(), Some("u1_erp"));
+        assert_eq!(only.iter().map(|n| n.name.as_str()).collect::<Vec<_>>(), ["u1_erp", "orders"]);
+        assert_eq!(restrict_databases(index.clone(), None), index, "no restriction when every database is shown");
     }
 
     #[test]

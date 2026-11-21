@@ -1,4 +1,5 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import Select from "./Select";
 import Icon from "./Icon";
 import {
   schemaApi, type ColumnDef, type ColumnDefault, type ForeignKeyDef, type IndexDef, type IndexKind, type Node, type RefAction,
@@ -232,10 +233,10 @@ export default function TableDesigner(props: {
                         <td><input type="checkbox" checked={isPk} onChange={() => togglePk(c.name)} title="Primary key" /></td>
                         <td><input className="cell-input" value={c.name} onChange={(e) => updateCol(i, { name: e.target.value })} /></td>
                         <td>
-                          <select value={c.data_type} onChange={(e) => updateCol(i, { data_type: e.target.value })}>
+                          <Select value={c.data_type} onChange={(e) => updateCol(i, { data_type: e.target.value })}>
                             {!info && <option value={c.data_type}>{c.data_type}</option>}
                             {GROUPS.map((g) => <optgroup key={g} label={g}>{TYPES.filter((t) => t.group === g).map((t) => <option key={t.name} value={t.name}>{t.name}</option>)}</optgroup>)}
-                          </select>
+                          </Select>
                         </td>
                         <td><input className="cell-input" disabled={!info?.params && !info?.hint} placeholder={info?.hint ?? ""} value={c.params ?? ""} onChange={(e) => updateCol(i, { params: e.target.value || null })} /></td>
                         <td><input type="checkbox" disabled={!info?.numeric} checked={c.unsigned} onChange={(e) => updateCol(i, { unsigned: e.target.checked })} /></td>
@@ -251,13 +252,13 @@ export default function TableDesigner(props: {
                             {info?.text && (
                               <>
                                 <label>Character set
-                                  <select value={c.charset ?? ""} onChange={(e) => updateCol(i, { charset: e.target.value || null, collation: null })}>
+                                  <Select value={c.charset ?? ""} onChange={(e) => updateCol(i, { charset: e.target.value || null, collation: null })}>
                                     <option value="">(table default)</option>{opts?.charsets.map((x) => <option key={x[0]} value={x[0]}>{x[0]}</option>)}
-                                  </select></label>
+                                  </Select></label>
                                 <label>Collation
-                                  <select value={c.collation ?? ""} disabled={!c.charset} onChange={(e) => updateCol(i, { collation: e.target.value || null })}>
+                                  <Select value={c.collation ?? ""} disabled={!c.charset} onChange={(e) => updateCol(i, { collation: e.target.value || null })}>
                                     <option value="">(default)</option>{collationsOf(c.charset).map((x) => <option key={x} value={x}>{x}</option>)}
-                                  </select></label>
+                                  </Select></label>
                               </>
                             )}
                             {(c.data_type === "datetime" || c.data_type === "timestamp") && (
@@ -327,17 +328,17 @@ export default function TableDesigner(props: {
         {tab === "options" && (
           <div className="dz-form">
             <label>Engine
-              <select value={draft.engine ?? ""} onChange={(e) => set({ engine: e.target.value || null })}>
+              <Select value={draft.engine ?? ""} onChange={(e) => set({ engine: e.target.value || null })}>
                 <option value="">(server default)</option>{opts?.engines.map((e) => <option key={e} value={e}>{e}</option>)}
-              </select></label>
+              </Select></label>
             <label>Character set
-              <select value={draft.charset ?? ""} onChange={(e) => { const cs = e.target.value || null; set({ charset: cs, collation: opts?.charsets.find((c) => c[0] === cs)?.[2] ?? null }); }}>
+              <Select value={draft.charset ?? ""} onChange={(e) => { const cs = e.target.value || null; set({ charset: cs, collation: opts?.charsets.find((c) => c[0] === cs)?.[2] ?? null }); }}>
                 <option value="">(server default)</option>{opts?.charsets.map((c) => <option key={c[0]} value={c[0]}>{c[0]}</option>)}
-              </select></label>
+              </Select></label>
             <label>Collation
-              <select value={draft.collation ?? ""} disabled={!draft.charset} onChange={(e) => set({ collation: e.target.value || null })}>
+              <Select value={draft.collation ?? ""} disabled={!draft.charset} onChange={(e) => set({ collation: e.target.value || null })}>
                 <option value="">(default)</option>{collationsOf(draft.charset).map((c) => <option key={c} value={c}>{c}</option>)}
-              </select></label>
+              </Select></label>
             <label>Comment<input value={draft.comment} onChange={(e) => set({ comment: e.target.value })} /></label>
             <p className="dim small">Changing the character set affects new columns; existing columns keep their own until altered.</p>
           </div>
@@ -364,12 +365,12 @@ function DefaultEditor(props: { value: ColumnDefault; disabled: boolean; onChang
   const text = v.kind === "literal" || v.kind === "expression" ? v.value : "";
   return (
     <div className="def-edit">
-      <select disabled={props.disabled} value={v.kind} onChange={(e) => {
+      <Select disabled={props.disabled} value={v.kind} onChange={(e) => {
         const k = e.target.value as ColumnDefault["kind"];
         props.onChange(k === "literal" ? { kind: "literal", value: text } : k === "expression" ? { kind: "expression", value: text || "CURRENT_TIMESTAMP" } : { kind: k });
       }}>
         <option value="none">—</option><option value="null">NULL</option><option value="literal">value</option><option value="expression">expression</option>
-      </select>
+      </Select>
       {(v.kind === "literal" || v.kind === "expression") && (
         <input className="cell-input" value={text} onChange={(e) => props.onChange({ kind: v.kind, value: e.target.value } as ColumnDefault)} />
       )}
@@ -385,9 +386,9 @@ function IndexEditor(props: { ix: IndexDef; columns: string[]; onChange(ix: Inde
     <div className="dz-form">
       <label>Name<input disabled={ix.kind === "primary"} value={ix.kind === "primary" ? "PRIMARY" : ix.name} onChange={(e) => props.onChange({ ...ix, name: e.target.value })} /></label>
       <label>Type
-        <select value={ix.kind} onChange={(e) => props.onChange({ ...ix, kind: e.target.value as IndexKind, name: e.target.value === "primary" ? "PRIMARY" : ix.name === "PRIMARY" ? "idx" : ix.name })}>
+        <Select value={ix.kind} onChange={(e) => props.onChange({ ...ix, kind: e.target.value as IndexKind, name: e.target.value === "primary" ? "PRIMARY" : ix.name === "PRIMARY" ? "idx" : ix.name })}>
           {KINDS.map((k) => <option key={k} value={k}>{k}</option>)}
-        </select></label>
+        </Select></label>
       <div className="dz-cols">
         <div className="dim">Columns (order matters)</div>
         {ix.columns.map((c, i) => (
@@ -400,9 +401,9 @@ function IndexEditor(props: { ix: IndexDef; columns: string[]; onChange(ix: Inde
             <button className="mini" onClick={() => props.onChange({ ...ix, columns: ix.columns.filter((_, k) => k !== i) })}><Icon name="close" size={10} /></button>
           </div>
         ))}
-        <select value="" onChange={(e) => e.target.value && props.onChange({ ...ix, columns: [...ix.columns, { name: e.target.value, length: null, desc: false }] })}>
+        <Select value="" onChange={(e) => e.target.value && props.onChange({ ...ix, columns: [...ix.columns, { name: e.target.value, length: null, desc: false }] })}>
           <option value="">＋ add column…</option>{free.map((c) => <option key={c} value={c}>{c}</option>)}
-        </select>
+        </Select>
       </div>
     </div>
   );
@@ -426,29 +427,29 @@ function FkEditor(props: {
     <div className="dz-form">
       <label>Name<input value={fk.name} onChange={(e) => props.onChange({ ...fk, name: e.target.value })} /></label>
       <label>Referenced database
-        <select value={schema} onChange={(e) => props.onChange({ ...fk, ref_schema: e.target.value === props.db ? null : e.target.value, ref_table: "", ref_columns: [] })}>
+        <Select value={schema} onChange={(e) => props.onChange({ ...fk, ref_schema: e.target.value === props.db ? null : e.target.value, ref_table: "", ref_columns: [] })}>
           {props.dbs.map((d) => <option key={d} value={d}>{d}</option>)}
-        </select></label>
+        </Select></label>
       <label>Referenced table
-        <select value={fk.ref_table} onChange={(e) => props.onChange({ ...fk, ref_table: e.target.value, ref_columns: [] })}>
+        <Select value={fk.ref_table} onChange={(e) => props.onChange({ ...fk, ref_table: e.target.value, ref_columns: [] })}>
           <option value="">(choose)</option>{props.tablesOf(schema).map((t) => <option key={t} value={t}>{t}</option>)}
-        </select></label>
+        </Select></label>
       <div className="dz-cols">
         <div className="dim">Column pairs</div>
         {fk.columns.map((c, i) => (
           <div key={i} className="dz-colrow">
-            <select value={c} onChange={(e) => setPair(i, e.target.value, null)}>{props.localColumns.map((x) => <option key={x} value={x}>{x}</option>)}</select>
+            <Select value={c} onChange={(e) => setPair(i, e.target.value, null)}>{props.localColumns.map((x) => <option key={x} value={x}>{x}</option>)}</Select>
             <span>→</span>
-            <select value={fk.ref_columns[i] ?? ""} onChange={(e) => setPair(i, null, e.target.value)}>
+            <Select value={fk.ref_columns[i] ?? ""} onChange={(e) => setPair(i, null, e.target.value)}>
               <option value="">(choose)</option>{refCols.map((x) => <option key={x} value={x}>{x}</option>)}
-            </select>
+            </Select>
             <button className="mini" onClick={() => props.onChange({ ...fk, columns: fk.columns.filter((_, k) => k !== i), ref_columns: fk.ref_columns.filter((_, k) => k !== i) })}><Icon name="close" size={10} /></button>
           </div>
         ))}
         <button onClick={() => props.onChange({ ...fk, columns: [...fk.columns, props.localColumns[0] ?? ""], ref_columns: [...fk.ref_columns, ""] })}>＋ Add pair</button>
       </div>
-      <label>On delete<select value={fk.on_delete} onChange={(e) => props.onChange({ ...fk, on_delete: e.target.value as RefAction })}>{REF_ACTIONS.map((a) => <option key={a} value={a}>{a.replace("_", " ").toUpperCase()}</option>)}</select></label>
-      <label>On update<select value={fk.on_update} onChange={(e) => props.onChange({ ...fk, on_update: e.target.value as RefAction })}>{REF_ACTIONS.map((a) => <option key={a} value={a}>{a.replace("_", " ").toUpperCase()}</option>)}</select></label>
+      <label>On delete<Select value={fk.on_delete} onChange={(e) => props.onChange({ ...fk, on_delete: e.target.value as RefAction })}>{REF_ACTIONS.map((a) => <option key={a} value={a}>{a.replace("_", " ").toUpperCase()}</option>)}</Select></label>
+      <label>On update<Select value={fk.on_update} onChange={(e) => props.onChange({ ...fk, on_update: e.target.value as RefAction })}>{REF_ACTIONS.map((a) => <option key={a} value={a}>{a.replace("_", " ").toUpperCase()}</option>)}</Select></label>
     </div>
   );
 }

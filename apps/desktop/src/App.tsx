@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Select from "./Select";
 import { api, describeError, editorApi, queryApi, schemaApi, serverApi, type ConnectError, type Favorite, type FormatOptions, type Kind, type Environment, type Maintenance, type Review, type Node, type SavedConnection, type TableOp } from "./api";
 import AnalysisPane, { type Analysis } from "./AnalysisPane";
 import ConnectionDialog from "./ConnectionDialog";
@@ -672,10 +673,10 @@ export default function App() {
     <div className="app">
       <aside className="sidebar" style={{ width: sidebar.size }} onMouseDownCapture={() => { fromEditor.current = !!(document.activeElement as HTMLElement | null)?.closest?.(".editor"); }}>
         <div className="conn-bar">
-          <select value={activeId ?? ""} onChange={(e) => e.target.value && open(Number(e.target.value))}>
+          <Select value={activeId ?? ""} onChange={(e) => e.target.value && open(Number(e.target.value))}>
             <option value="">Select connection…</option>
             {connections.map((c) => <option key={c.id} value={c.id!}>{c.name}</option>)}
-          </select>
+          </Select>
           <button title="New connection" onClick={() => setDialog("new")}><Icon name="plus" /></button>
           <button title="Edit connection" disabled={!active} onClick={() => active && setDialog(active)}><Icon name="edit" /></button>
           <button title="Delete connection" disabled={!active} onClick={() => setConfirmDelete(true)}><Icon name="trash" /></button>
@@ -803,18 +804,18 @@ export default function App() {
                     {formatOpen && (
                       <div className="popup left" onMouseLeave={() => setFormatOpen(false)}>
                         <label>Indent
-                          <select value={format.indent.style === "tab" ? "tab" : String((format.indent as { width: number }).width)}
+                          <Select value={format.indent.style === "tab" ? "tab" : String((format.indent as { width: number }).width)}
                             onChange={(e) => saveFormat({ ...format, indent: e.target.value === "tab" ? { style: "tab" } : { style: "spaces", width: Number(e.target.value) } })}>
                             <option value="2">2 spaces</option><option value="4">4 spaces</option><option value="8">8 spaces</option><option value="tab">Tab</option>
-                          </select></label>
+                          </Select></label>
                         <label>Keywords
-                          <select value={format.keyword_case} onChange={(e) => saveFormat({ ...format, keyword_case: e.target.value as FormatOptions["keyword_case"] })}>
+                          <Select value={format.keyword_case} onChange={(e) => saveFormat({ ...format, keyword_case: e.target.value as FormatOptions["keyword_case"] })}>
                             <option value="upper">UPPER CASE</option><option value="lower">lower case</option><option value="preserve">As typed</option>
-                          </select></label>
+                          </Select></label>
                         <label>Blank lines between statements
-                          <select value={format.lines_between_statements} onChange={(e) => saveFormat({ ...format, lines_between_statements: Number(e.target.value) })}>
+                          <Select value={format.lines_between_statements} onChange={(e) => saveFormat({ ...format, lines_between_statements: Number(e.target.value) })}>
                             <option value="0">0</option><option value="1">1</option><option value="2">2</option>
-                          </select></label>
+                          </Select></label>
                       </div>
                     )}
                   </div>
@@ -825,10 +826,10 @@ export default function App() {
                   {formatError && <span className="error small">{formatError}</span>}
                   <span className="grow" />
                   <label className="dbsel">Database
-                    <select value={editorTab.database ?? ""} onChange={(e) => patchTab(editorTab.id, { database: e.target.value || null })}>
+                    <Select value={editorTab.database ?? ""} onChange={(e) => patchTab(editorTab.id, { database: e.target.value || null })}>
                       <option value="">(none)</option>
                       {databases.map((d) => <option key={d} value={d}>{d}</option>)}
-                    </select>
+                    </Select>
                   </label>
                 </div>
                 <div className="editor-wrap" style={{ height: consoleSize.size }}>
@@ -839,6 +840,10 @@ export default function App() {
                   key={editorTab.id}
                   run={runs[editorTab.id]}
                   analysis={analyses[editorTab.id]}
+                  onProfile={() => analyse("profile")}
+                  info={{ connectionId: activeId, who: active ? `${active.user}@${active.host}` : "", environment: env, readOnly, database: editorTab.database,
+                          ...(isTable(editorTab) && editorTab.table?.name ? { table: { db: editorTab.table.db, name: editorTab.table.name }, onOpenProperties: () => patchTab(editorTab.id, { view: "properties" }) } : {}) }}
+                  history={<HistoryPanel connectionId={activeId} refreshKey={panelKey} onInsert={insertIntoEditor} onOpen={(sql) => addTab(sql, editorTab.database)} />}
                   data={isTable(editorTab) && editorTab.id === tab.id && (tab.view ?? "data") === "data" && editorTab.table?.name ? (
                     <DataGrid key={`${activeId}:${editorTab.id}`} connectionId={activeId} db={editorTab.table.db} table={editorTab.table.name}
                       initial={editorTab.grid ?? defaultView()} onViewChange={(grid) => patchTab(editorTab.id, { grid })}

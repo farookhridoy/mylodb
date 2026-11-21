@@ -365,3 +365,6 @@ Object.assign(handlers, {
     return { items, environment: c.environment || "development", read_only: !!c.read_only, confirm: c.confirm_destructive !== false };
   };
 }
+
+// history of what ran in this page (most recent first)
+handlers.history_list = () => window.__calls.filter((c) => c.cmd === "run_query").map((c, i) => ({ id: i + 1, sql: c.args.sql, ran_at: "2026-01-02 10:00:00", duration_ms: 1, ok: true })).reverse();

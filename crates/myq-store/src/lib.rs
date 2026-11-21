@@ -110,6 +110,10 @@ pub struct SavedConnection {
     /// Stop a run that takes longer than this many seconds (the running statement is killed). None: no limit.
     #[serde(default)]
     pub query_timeout_secs: Option<u32>,
+    /// List every database the account can see. When off and a default database is set, the browser shows only that database
+    /// (what shared hosting needs: one database per account, and the rest are not yours to browse).
+    #[serde(default = "yes")]
+    pub show_all_databases: bool,
     /// Ask before running statements that can destroy data (DROP, TRUNCATE, DELETE/UPDATE without WHERE, ...).
     #[serde(default = "yes")]
     pub confirm_destructive: bool,
@@ -193,6 +197,7 @@ impl Store {
         Self::ensure_column(&db, "connections", "read_only", "INTEGER NOT NULL DEFAULT 0")?;
         Self::ensure_column(&db, "connections", "query_timeout", "INTEGER")?;
         Self::ensure_column(&db, "connections", "confirm_destructive", "INTEGER NOT NULL DEFAULT 1")?;
+        Self::ensure_column(&db, "connections", "show_all_databases", "INTEGER NOT NULL DEFAULT 1")?;
         Ok(Store { db, secrets })
     }
 
@@ -229,15 +234,15 @@ impl Store {
         let id = match c.id {
             Some(id) => {
                 self.db.execute(
-                    "UPDATE connections SET name=?1,color=?2,host=?3,port=?4,user=?5,database=?6,ssl=?7,ssl_ca=?8,ssl_cert=?9,ssl_key=?10,ssh=?11,environment=?12,read_only=?13,query_timeout=?14,confirm_destructive=?15 WHERE id=?16",
-                    params![c.name, c.color, c.config.host, c.config.port, c.config.user, c.config.database, ssl, ca, cert, key, ssh, c.environment.as_str(), c.config.read_only, c.query_timeout_secs, c.confirm_destructive, id],
+                    "UPDATE connections SET name=?1,color=?2,host=?3,port=?4,user=?5,database=?6,ssl=?7,ssl_ca=?8,ssl_cert=?9,ssl_key=?10,ssh=?11,environment=?12,read_only=?13,query_timeout=?14,confirm_destructive=?15,show_all_databases=?16 WHERE id=?17",
+                    params![c.name, c.color, c.config.host, c.config.port, c.config.user, c.config.database, ssl, ca, cert, key, ssh, c.environment.as_str(), c.config.read_only, c.query_timeout_secs, c.confirm_destructive, c.show_all_databases, id],
                 )?;
                 id
             }
             None => {
                 self.db.execute(
-                    "INSERT INTO connections (name,color,host,port,user,database,ssl,ssl_ca,ssl_cert,ssl_key,ssh,environment,read_only,query_timeout,confirm_destructive) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)",
-                    params![c.name, c.color, c.config.host, c.config.port, c.config.user, c.config.database, ssl, ca, cert, key, ssh, c.environment.as_str(), c.config.read_only, c.query_timeout_secs, c.confirm_destructive],
+                    "INSERT INTO connections (name,color,host,port,user,database,ssl,ssl_ca,ssl_cert,ssl_key,ssh,environment,read_only,query_timeout,confirm_destructive,show_all_databases) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16)",
+                    params![c.name, c.color, c.config.host, c.config.port, c.config.user, c.config.database, ssl, ca, cert, key, ssh, c.environment.as_str(), c.config.read_only, c.query_timeout_secs, c.confirm_destructive, c.show_all_databases],
                 )?;
                 self.db.last_insert_rowid()
             }
@@ -259,7 +264,7 @@ impl Store {
 
     pub fn list(&self) -> Result<Vec<SavedConnection>> {
         let mut st = self.db.prepare(
-            "SELECT id,name,color,host,port,user,database,ssl,ssl_ca,ssl_cert,ssl_key,ssh,environment,read_only,query_timeout,confirm_destructive FROM connections ORDER BY name COLLATE NOCASE",
+            "SELECT id,name,color,host,port,user,database,ssl,ssl_ca,ssl_cert,ssl_key,ssh,environment,read_only,query_timeout,confirm_destructive,show_all_databases FROM connections ORDER BY name COLLATE NOCASE",
         )?;
         let rows = st.query_map([], |r| {
             let ssh: Option<String> = r.get(11)?;
@@ -283,6 +288,7 @@ impl Store {
                     environment: Environment::parse(&r.get::<_, String>(12)?),
                     query_timeout_secs: r.get(14)?,
                     confirm_destructive: r.get::<_, i64>(15)? != 0,
+                    show_all_databases: r.get::<_, i64>(16)? != 0,
                     ssh: None,
                     new_password: None,
                     new_ssh_password: None,
@@ -500,6 +506,7 @@ mod tests {
             environment: Environment::Development,
             query_timeout_secs: None,
             confirm_destructive: true,
+            show_all_databases: true,
             ssh: None,
             new_password: Some("s3cret".into()),
             new_ssh_password: None,
@@ -528,7 +535,9 @@ mod tests {
         c.config.read_only = true;
         c.query_timeout_secs = Some(30);
         c.confirm_destructive = false;
+        c.show_all_databases = false;
         let id = s.save(&c).unwrap();
+        assert!(!s.connection(id).unwrap().unwrap().show_all_databases);
         let got = s.connection(id).unwrap().unwrap();
         assert_eq!((got.environment, got.config.read_only, got.query_timeout_secs, got.confirm_destructive), (Environment::Production, true, Some(30), false));
         assert!(s.config_for(id).unwrap().unwrap().read_only, "the driver config carries read-only");
@@ -546,6 +555,7 @@ mod tests {
     fn a_json_connection_without_the_new_fields_means_development_with_warnings_on() {
         let c: SavedConnection = serde_json::from_str(r##"{"id":null,"name":"x","color":"#fff","host":"h","port":3306,"user":"u","database":null}"##).unwrap();
         assert_eq!((c.environment, c.config.read_only, c.query_timeout_secs, c.confirm_destructive), (Environment::Development, false, None, true));
+        assert!(c.show_all_databases, "older connections keep listing every database");
     }
 
     fn ssh_conn() -> SavedConnection {

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Select from "./Select";
 import Icon from "./Icon";
 import { save as saveDialog } from "@tauri-apps/plugin-dialog";
 import {
@@ -468,9 +469,9 @@ export default function DataGrid(props: {
         <span className="dim pager">{range} of {total === null ? "…" : total.toLocaleString()}</span>
         <button disabled={!page?.has_more} onClick={() => guard(() => setOffset(offset + view.pageSize))} title="Next page"><Icon name="next" /></button>
         <button disabled={lastOffset === null || offset >= lastOffset} onClick={() => lastOffset !== null && guard(() => setOffset(lastOffset))} title="Last page"><Icon name="last" /></button>
-        <select value={view.pageSize} onChange={(e) => patchView({ pageSize: Number(e.target.value) })} title="Rows per page">
+        <Select value={view.pageSize} onChange={(e) => patchView({ pageSize: Number(e.target.value) })} title="Rows per page">
           {[100, 250, 500, 1000, 5000].map((n) => <option key={n} value={n}>{n} rows</option>)}
-        </select>
+        </Select>
         <span className="sep" />
         <button disabled={!meta || meta.is_view || props.readOnlyConnection} onClick={addRow} title="Add row">＋</button>
         <button disabled={!rows.length || props.readOnlyConnection} onClick={deleteRows} title="Delete selected row(s) (Delete)">－</button>
@@ -730,9 +731,9 @@ function FilterCell(props: { value: FilterInput | undefined; numeric: boolean; o
   const active = toFilter("x", v) !== null;
   return (
     <div className={`fcell ${active ? "on" : ""}`} onClick={(e) => e.stopPropagation()}>
-      <select value={v.op} onChange={(e) => set({ op: e.target.value as FilterInput["op"] })} title="Filter operator">
+      <Select value={v.op} onChange={(e) => set({ op: e.target.value as FilterInput["op"] })} title="Filter operator">
         {OPS.map((o) => <option key={o.op} value={o.op}>{o.label}</option>)}
-      </select>
+      </Select>
       {arity !== 0 && <input value={v.text} placeholder={arity === "many" ? "a, b, c" : arity === 2 ? "from" : "filter"} onChange={(e) => set({ text: e.target.value })} />}
       {arity === 2 && <input value={v.text2} placeholder="to" onChange={(e) => set({ text2: e.target.value })} />}
       {props.value && <button className="mini" title="Clear" onClick={() => props.onChange(null)}><Icon name="close" size={10} /></button>}

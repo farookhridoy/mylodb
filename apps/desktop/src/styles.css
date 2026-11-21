@@ -525,3 +525,15 @@ table.kv th { text-align: left; font-weight: 500; color: var(--dim); width: 170p
 .tour-actions { display: flex; justify-content: space-between; align-items: center; }
 .tour-actions button { margin-left: 6px; }
 .manual nav button { display: flex; justify-content: flex-start; width: 100%; }
+
+/* Server charts */
+.charts { padding: 10px 14px; overflow: auto; }
+.chart-bar { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; }
+.chart-grid-layout { display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); gap: 14px; }
+.chart { border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; background: var(--panel); }
+.chart h4 { margin: 0 0 4px; font-size: 12px; }
+.chart-grid { stroke: var(--line); stroke-width: 1; }
+.chart-axis { fill: var(--dim); font-size: 9px; }
+.chart-cursor { stroke: var(--dim); stroke-dasharray: 3 3; }
+.chart-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 11px; }
+.chart-legend i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 4px; }

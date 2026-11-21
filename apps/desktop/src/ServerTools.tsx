@@ -6,34 +6,23 @@ import {
   type MaintenanceRow, type Node, type Process, type ServerInfo, type SlowQuery, type Variable, type VarScope,
 } from "./api";
 import { ConfirmDialog } from "./SidePanels";
+import { usePoll } from "./usePoll";
+import StatusCharts from "./StatusCharts";
 
-type Tab = "overview" | "processes" | "variables" | "status" | "maintenance" | "logs";
+type Tab = "overview" | "charts" | "processes" | "variables" | "status" | "maintenance" | "logs";
 
 const fmtUptime = (s: number) => { const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60); return `${d ? d + "d " : ""}${h}h ${m}m`; };
 const fmtBytes = (n: number) => (n >= 1 << 30 ? `${(n / (1 << 30)).toFixed(1)} GB` : n >= 1 << 20 ? `${(n / (1 << 20)).toFixed(1)} MB` : n >= 1024 ? `${(n / 1024).toFixed(1)} KB` : `${Math.round(n)} B`);
 
-/** Run `fn` every `ms` while `on`; the latest `fn` is always used and nothing overlaps. */
-function usePoll(fn: () => Promise<void>, ms: number, on: boolean) {
-  const ref = useRef(fn);
-  ref.current = fn;
-  useEffect(() => {
-    if (!on) return;
-    let live = true;
-    let timer: ReturnType<typeof setTimeout>;
-    const tick = async () => { await ref.current().catch(() => {}); if (live) timer = setTimeout(tick, ms); };
-    tick();
-    return () => { live = false; clearTimeout(timer); };
-  }, [ms, on]);
-}
-
 export default function ServerTools(props: { connectionId: number; nodes: Node[] }) {
   const [tab, setTab] = useState<Tab>("overview");
-  const names: [Tab, string][] = [["overview", "Overview"], ["processes", "Processes"], ["variables", "Variables"], ["status", "Status"], ["maintenance", "Maintenance"], ["logs", "Logs"]];
+  const names: [Tab, string][] = [["overview", "Overview"], ["charts", "Charts"], ["processes", "Processes"], ["variables", "Variables"], ["status", "Status"], ["maintenance", "Maintenance"], ["logs", "Logs"]];
   return (
     <div className="server-tools">
       <div className="dz-tabs">{names.map(([t, label]) => <button key={t} className={tab === t ? "active" : ""} onClick={() => setTab(t)}>{label}</button>)}</div>
       <div className="st-body">
         {tab === "overview" && <Overview id={props.connectionId} />}
+        {tab === "charts" && <StatusCharts id={props.connectionId} />}
         {tab === "processes" && <Processes id={props.connectionId} />}
         {tab === "variables" && <Variables id={props.connectionId} />}
         {tab === "status" && <Status id={props.connectionId} />}

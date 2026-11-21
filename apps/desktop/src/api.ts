@@ -26,6 +26,8 @@ export interface SavedConnection {
   /// Collation of the connection (SET NAMES … COLLATE …); the server default when empty.
   collation?: string | null;
   confirm_destructive?: boolean;
+  /// Folder the connection is listed under in the picker; empty or null: ungrouped.
+  group?: string | null;
   /// false + a default database: only that database is listed.
   show_all_databases?: boolean;
   ssh?: SshConfig | null;

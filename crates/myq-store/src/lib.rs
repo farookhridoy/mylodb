@@ -114,6 +114,9 @@ pub struct SavedConnection {
     /// (what shared hosting needs: one database per account, and the rest are not yours to browse).
     #[serde(default = "yes")]
     pub show_all_databases: bool,
+    /// Folder this connection is listed under in the connection picker. None or empty: ungrouped.
+    #[serde(default)]
+    pub group: Option<String>,
     /// Ask before running statements that can destroy data (DROP, TRUNCATE, DELETE/UPDATE without WHERE, ...).
     #[serde(default = "yes")]
     pub confirm_destructive: bool,
@@ -199,6 +202,7 @@ impl Store {
         Self::ensure_column(&db, "connections", "confirm_destructive", "INTEGER NOT NULL DEFAULT 1")?;
         Self::ensure_column(&db, "connections", "show_all_databases", "INTEGER NOT NULL DEFAULT 1")?;
         Self::ensure_column(&db, "connections", "collation", "TEXT")?;
+        Self::ensure_column(&db, "connections", "group_name", "TEXT")?;
         Ok(Store { db, secrets })
     }
 
@@ -232,18 +236,19 @@ impl Store {
         let ssl = Self::ssl_str(c.config.ssl);
         let ssh = c.ssh.as_ref().map(serde_json::to_string).transpose()?;
         let (ca, cert, key) = (&c.config.ssl_ca, &c.config.ssl_cert, &c.config.ssl_key);
+        let group = c.group.as_deref().map(str::trim).filter(|g| !g.is_empty());
         let id = match c.id {
             Some(id) => {
                 self.db.execute(
-                    "UPDATE connections SET name=?1,color=?2,host=?3,port=?4,user=?5,database=?6,ssl=?7,ssl_ca=?8,ssl_cert=?9,ssl_key=?10,ssh=?11,environment=?12,read_only=?13,query_timeout=?14,confirm_destructive=?15,show_all_databases=?16,collation=?17 WHERE id=?18",
-                    params![c.name, c.color, c.config.host, c.config.port, c.config.user, c.config.database, ssl, ca, cert, key, ssh, c.environment.as_str(), c.config.read_only, c.query_timeout_secs, c.confirm_destructive, c.show_all_databases, c.config.collation, id],
+                    "UPDATE connections SET name=?1,color=?2,host=?3,port=?4,user=?5,database=?6,ssl=?7,ssl_ca=?8,ssl_cert=?9,ssl_key=?10,ssh=?11,environment=?12,read_only=?13,query_timeout=?14,confirm_destructive=?15,show_all_databases=?16,collation=?17,group_name=?18 WHERE id=?19",
+                    params![c.name, c.color, c.config.host, c.config.port, c.config.user, c.config.database, ssl, ca, cert, key, ssh, c.environment.as_str(), c.config.read_only, c.query_timeout_secs, c.confirm_destructive, c.show_all_databases, c.config.collation, group, id],
                 )?;
                 id
             }
             None => {
                 self.db.execute(
-                    "INSERT INTO connections (name,color,host,port,user,database,ssl,ssl_ca,ssl_cert,ssl_key,ssh,environment,read_only,query_timeout,confirm_destructive,show_all_databases,collation) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17)",
-                    params![c.name, c.color, c.config.host, c.config.port, c.config.user, c.config.database, ssl, ca, cert, key, ssh, c.environment.as_str(), c.config.read_only, c.query_timeout_secs, c.confirm_destructive, c.show_all_databases, c.config.collation],
+                    "INSERT INTO connections (name,color,host,port,user,database,ssl,ssl_ca,ssl_cert,ssl_key,ssh,environment,read_only,query_timeout,confirm_destructive,show_all_databases,collation,group_name) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18)",
+                    params![c.name, c.color, c.config.host, c.config.port, c.config.user, c.config.database, ssl, ca, cert, key, ssh, c.environment.as_str(), c.config.read_only, c.query_timeout_secs, c.confirm_destructive, c.show_all_databases, c.config.collation, group],
                 )?;
                 self.db.last_insert_rowid()
             }
@@ -265,7 +270,7 @@ impl Store {
 
     pub fn list(&self) -> Result<Vec<SavedConnection>> {
         let mut st = self.db.prepare(
-            "SELECT id,name,color,host,port,user,database,ssl,ssl_ca,ssl_cert,ssl_key,ssh,environment,read_only,query_timeout,confirm_destructive,show_all_databases,collation FROM connections ORDER BY name COLLATE NOCASE",
+            "SELECT id,name,color,host,port,user,database,ssl,ssl_ca,ssl_cert,ssl_key,ssh,environment,read_only,query_timeout,confirm_destructive,show_all_databases,collation,group_name FROM connections ORDER BY group_name COLLATE NOCASE, name COLLATE NOCASE",
         )?;
         let rows = st.query_map([], |r| {
             let ssh: Option<String> = r.get(11)?;
@@ -291,6 +296,7 @@ impl Store {
                     query_timeout_secs: r.get(14)?,
                     confirm_destructive: r.get::<_, i64>(15)? != 0,
                     show_all_databases: r.get::<_, i64>(16)? != 0,
+                    group: r.get(18)?,
                     ssh: None,
                     new_password: None,
                     new_ssh_password: None,
@@ -509,6 +515,7 @@ mod tests {
             query_timeout_secs: None,
             confirm_destructive: true,
             show_all_databases: true,
+            group: None,
             ssh: None,
             new_password: Some("s3cret".into()),
             new_ssh_password: None,
@@ -527,6 +534,19 @@ mod tests {
         assert_eq!(s.config_for(id).unwrap().unwrap().password.as_deref(), Some("s3cret"));
         let n: i64 = s.db.query_row("SELECT COUNT(*) FROM connections WHERE name LIKE '%s3cret%' OR host LIKE '%s3cret%'", [], |r| r.get(0)).unwrap();
         assert_eq!(n, 0);
+    }
+
+    #[test]
+    fn a_connection_group_is_saved_trimmed_and_blank_means_ungrouped() {
+        let s = Store::in_memory(Box::new(Mem::default())).unwrap();
+        let mut c = conn("a");
+        c.group = Some("  Clients  ".into());
+        let id = s.save(&c).unwrap();
+        assert_eq!(s.connection(id).unwrap().unwrap().group.as_deref(), Some("Clients"));
+        c.id = Some(id);
+        c.group = Some("   ".into());
+        s.save(&c).unwrap();
+        assert_eq!(s.connection(id).unwrap().unwrap().group, None);
     }
 
     #[test]

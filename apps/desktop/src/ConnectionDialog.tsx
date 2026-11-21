@@ -30,6 +30,8 @@ function PathField(props: { label: string; value: string | null | undefined; onC
 
 export default function ConnectionDialog(props: {
   initial?: SavedConnection;
+  /** Group names already in use, offered as suggestions. */
+  groups?: string[];
   onClose: () => void;
   onSaved: (id: number) => void;
 }) {
@@ -85,6 +87,10 @@ export default function ConnectionDialog(props: {
         {tab === "general" && (
           <>
             <label>Name<input value={c.name} onChange={(e) => set("name", e.target.value)} autoFocus /></label>
+            <label>Group (folder)
+              <input value={c.group ?? ""} list="connection-groups" placeholder="None" onChange={(e) => set("group", e.target.value)} />
+              <datalist id="connection-groups">{(props.groups ?? []).map((g) => <option key={g} value={g} />)}</datalist>
+            </label>
             <div className="connect-by">
               <span>Connect by</span>
               <label className="check"><input type="radio" name="connect-by" checked={!byUrl} onChange={() => setByUrl(false)} /> Host</label>

@@ -132,6 +132,7 @@ export default function App() {
   const [formatOpen, setFormatOpen] = useState(false);
   const [formatError, setFormatError] = useState<string | null>(null);
   const [prompt, setPrompt] = useState<React.ComponentProps<typeof PromptDialog> | null>(null);
+  const connectionGroups = useMemo(() => [...new Set(connections.map((c) => c.group?.trim()).filter((g): g is string => !!g))].sort((a, b) => a.localeCompare(b)), [connections]);
   const [mySnippets, setMySnippets] = useState<MySnippet[]>(loadMySnippets);
   const [typeConfirm, setTypeConfirm] = useState<React.ComponentProps<typeof TypeConfirmDialog> | null>(null);
   const [restored, setRestored] = useState(false);
@@ -886,7 +887,10 @@ export default function App() {
         <div className="conn-bar">
           <Select value={activeId ?? ""} onChange={(e) => e.target.value && open(Number(e.target.value))}>
             <option value="">Select connection…</option>
-            {connections.map((c) => <option key={c.id} value={c.id!}>{c.name}</option>)}
+            {connections.filter((c) => !c.group?.trim()).map((c) => <option key={c.id} value={c.id!}>{c.name}</option>)}
+            {connectionGroups.map((g) => (
+              <optgroup key={g} label={g}>{connections.filter((c) => c.group?.trim() === g).map((c) => <option key={c.id} value={c.id!}>{c.name}</option>)}</optgroup>
+            ))}
           </Select>
           <button title="New connection" onClick={() => setDialog("new")}><Icon name="plus" /></button>
           <button title="Edit connection" disabled={!active} onClick={() => active && setDialog(active)}><Icon name="edit" /></button>
@@ -1198,6 +1202,7 @@ export default function App() {
       {dialog && (
         <ConnectionDialog
           initial={dialog === "new" ? undefined : dialog}
+          groups={connectionGroups}
           onClose={() => setDialog(null)}
           onSaved={async (id) => { setDialog(null); await refresh(); open(id); }}
         />

@@ -24,4 +24,4 @@ First public release. macOS, Apple Silicon, unsigned.
 **Known limits**
 * Not signed or notarised: macOS asks you to confirm the first launch.
 * Apple Silicon only; no Intel, Windows or Linux build yet.
-* MySQL and MariaDB only. Tested and passing in CI on MySQL 8.0, 8.4 and 9 and locally on MySQL 9.7 and MariaDB 13. On MariaDB 10.11 / 11.4 and MySQL 5.7 some integration tests still fail ([details](docs/SERVER_COMPATIBILITY.md)); treat those servers as unverified.
+* MySQL and MariaDB only. Tested and passing in CI on MySQL 8.0, 8.4 and 9 and locally on MySQL 9.7 and MariaDB 13. MariaDB 10.11 / 11.4 were fixed and pass in CI after this release (see `main`); MySQL 5.7 still fails some integration tests ([details](docs/SERVER_COMPATIBILITY.md)) and is unsupported.

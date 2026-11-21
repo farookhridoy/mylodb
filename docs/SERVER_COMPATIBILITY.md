@@ -7,7 +7,7 @@ Measured, not assumed. The whole Rust test suite (165 tests, many against a live
 | MySQL 9.7.2 (local) | 165 / 165 | `cargo test --workspace` |
 | MariaDB 13.0.2 (local, Homebrew, own data directory on port 3399) | 165 / 165 | `MYLODB_TEST_PORT=3399 cargo test --workspace` |
 | MySQL 8.0, 8.4, 9 | **pass in CI** (first GitHub run, 2026-11-21) | Docker services, `.github/workflows/ci.yml` |
-| MariaDB 10.11, 11.4 | **fail some tests in CI** (list below); non-blocking until fixed | Docker services |
+| MariaDB 10.11, 11.4 | **pass in CI** (since PR #1; two product bugs fixed, see below) | Docker services |
 | MySQL 5.7 | **fails some tests in CI**; non-blocking (end of life) | Docker services |
 
 The first MariaDB run failed **8 of 165** tests. Each one was triaged as a product bug or a wrong assumption in a test:
@@ -42,12 +42,21 @@ The first MariaDB run failed **8 of 165** tests. Each one was triaged as a produ
 
 A real network drop (packets disappearing, not a clean `KILL`), a server restart during a long export, TLS variants, MySQL 5.7 by hand, and the Windows / Linux builds.
 
-## Open: failures seen on the first GitHub CI run (2026-11-21, run 44900271042)
+## Found by the first GitHub CI run (2026-11-21) and fixed in PR #1
 
-Not reproduced locally yet (the local servers are MySQL 9.7 and MariaDB 13). Each needs triage as a product bug or a wrong test assumption.
+| Area | What went wrong | Fix |
+|---|---|---|
+| Collation lists (designer, Alter database) | MariaDB 10.10+ lists generic `uca1400_*` collations with a NULL character set and leaves `IS_DEFAULT` empty for most rows: the list panicked on 10.x, and on 11.4 / 13 the default collation of a character set was empty | read `COLLATION_CHARACTER_SET_APPLICABILITY` (charset-prefixed names) and `CHARACTER_SETS.DEFAULT_COLLATE_NAME` |
+| Table overview | the table's character set was looked up in `COLLATIONS` and came back NULL for `uca1400_*` | derive it from the collation name (`myq_schema::ddl::charset_of_collation`) |
+| Tests | `@@transaction_read_only` does not exist on MariaDB 10.x (`tx_read_only`); the backup test used the MySQL-only `utf8mb4_0900_ai_ci` | the tests ask the server (fallback variable, the server's own utf8mb4 default) |
 
-* **MariaDB 11.4:** `overview_reports_keys_in_both_directions_triggers_partitions_and_ddl`.
-* **MariaDB 10.11:** `a_cancelled_backup_leaves_no_files_and_the_connection_is_usable`, `a_connection_killed_mid_statement_reports_an_error_and_the_pool_recovers` (read-only not re-applied to the replacement connection), `a_database_survives_backup_drop_and_restore`, `a_read_only_connection_refuses_writes_and_schema_changes`, `restore_into_another_database_and_the_other_output_layouts`.
-* **MySQL 5.7:** `a_cancelled_backup_...`, `a_database_survives_backup_drop_and_restore`, `designer_and_privileges_end_to_end`, `explain_and_profile_against_a_real_server`, `new_formats_and_query_export`, `overview_reports_keys_...`, `plans_do_what_the_preview_says`, `restore_into_another_database_and_the_other_output_layouts`, `tls_modes_behave_as_documented`.
+Also noted: `SHOW CREATE TABLE` prints a column collation that is not its charset's default differently after a dump and restore
+(`COLLATE x` before, `CHARACTER SET y COLLATE x` after). The data and the collation are the same; only the text differs, so the round-trip
+test compares text only when the database uses the server's default collation.
 
-Fixed from that run: on MariaDB 10.10+ the collation list contains `uca1400_*` rows with a NULL character set, which made the server-options call panic (`myq_driver::server_options` now skips them).
+## Still open: MySQL 5.7 (end of life, non-blocking in CI)
+
+Fails on the first run (not triaged): `a_cancelled_backup_...`, `a_database_survives_backup_drop_and_restore`, `designer_and_privileges_end_to_end`,
+`explain_and_profile_against_a_real_server`, `new_formats_and_query_export`, `overview_reports_keys_...`, `plans_do_what_the_preview_says`,
+`restore_into_another_database_and_the_other_output_layouts`, `tls_modes_behave_as_documented`. Several of these use features 5.7 lacks
+(window functions, EXPLAIN ANALYZE, roles, utf8mb4_0900), so some are expected; 5.7 is documented as unsupported until triaged.

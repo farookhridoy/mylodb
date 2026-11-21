@@ -1,0 +1,15 @@
+[package]
+name = "myq-sqlite"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+myq-core = { path = "../myq-core" }
+myq-data = { path = "../myq-data" }
+myq-sql = { path = "../myq-sql" }
+rusqlite = { version = "0.32", features = ["bundled", "column_decltype"] }
+tokio = { version = "1", features = ["rt"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }

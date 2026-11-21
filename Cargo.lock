@@ -2917,6 +2917,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "myq-sqlite"
+version = "0.1.0"
+dependencies = [
+ "myq-core",
+ "myq-data",
+ "myq-sql",
+ "rusqlite",
+ "tokio",
+]
+
+[[package]]
 name = "myq-store"
 version = "0.1.0"
 dependencies = [

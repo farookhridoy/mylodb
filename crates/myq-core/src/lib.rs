@@ -12,4 +12,4 @@ mod objects;
 pub use backend::{Backend, BackendError, BackendResult, ColumnDetail, ColumnInfo, DatabaseRow, IndexDetail, ResultSet, StatementResult, TableRow};
 pub use capabilities::{Cap, Capabilities, Flavor};
 pub use objects::{Kind, Node};
-pub use dialect::{lit, q, Dialect, MySql};
+pub use dialect::{lit, q, Dialect, MySql, Sqlite};

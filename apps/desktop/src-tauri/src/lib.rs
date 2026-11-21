@@ -302,7 +302,7 @@ async fn index_advice(state: tauri::State<'_, AppState>, id: i64, db: String) ->
     let (defs, _) = read_defs(&state, id, &db).await?;
     let findings = myq_schema::advisor::analyze(&db, &defs);
     let mut c = conn_for(&state, id).await?;
-    let unused: Result<Vec<(String, String)>, _> = myq_driver::mysql_async::prelude::Queryable::exec(&mut c, "SELECT object_name, index_name FROM sys.schema_unused_indexes WHERE object_schema = ? ORDER BY 1, 2", (db.as_str(),)).await;
+    let unused = myq_driver::unused_indexes(&mut c, &db).await;
     let (unused, unused_note) = match unused {
         Ok(rows) => (rows, "Unused means: no query has used the index since the server started (performance_schema). Check the uptime before dropping: a rarely used index may serve a monthly report.".to_string()),
         Err(e) => (vec![], format!("Unused indexes are not available on this server: {e}")),

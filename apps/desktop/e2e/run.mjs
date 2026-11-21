@@ -24,13 +24,12 @@ const ok = (m) => console.log(`ok ${++step} ${m}`);
 await page.selectOption(".conn-bar select", "1");
 await page.waitForSelector(".tree .db");
 await page.click(".tree .db");
-await page.click("text=Tables");
 await page.dblclick(".row-item.leaf:has-text('orders')");
 await page.waitForSelector("table.dg tbody tr");
 assert.equal(await page.locator("table.dg tbody tr").count(), 3);
 assert.deepEqual(await page.locator("table.dg thead tr:first-child th .th-name").allTextContents(), ["id", "customer_id", "total", "note"]);
-assert.equal(await page.locator("th:has-text('id') >> text=🔑").count() > 0, true);
-assert.equal(await page.locator("th:has-text('customer_id') >> text=🔗").count() > 0, true);
+assert.equal(await page.locator("th:has-text('id') .ico-pk").count() > 0, true);
+assert.equal(await page.locator("th:has-text('customer_id') .icon-link").count() > 0, true);
 ok("table opens as a grid tab with PK/FK markers");
 
 // ---- column-wise filter: text contains ----

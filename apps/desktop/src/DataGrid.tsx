@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Icon from "./Icon";
 import { save as saveDialog } from "@tauri-apps/plugin-dialog";
 import {
   dataApi, EXPORT_FORMATS, type Assign, type CellValue, type Change, type ExportFormat, type ForeignKey, type Page, type Sort, type TableMeta,
@@ -452,26 +453,26 @@ export default function DataGrid(props: {
       <div className="dg-toolbar">
         <button title="Reload" onClick={() => guard(() => setTick((t) => t + 1))}>⟳</button>
         <span className="sep" />
-        <button disabled={offset === 0} onClick={() => guard(() => setOffset(0))} title="First page">⏮</button>
-        <button disabled={offset === 0} onClick={() => guard(() => setOffset(Math.max(0, offset - view.pageSize)))} title="Previous page">◀</button>
+        <button disabled={offset === 0} onClick={() => guard(() => setOffset(0))} title="First page"><Icon name="first" /></button>
+        <button disabled={offset === 0} onClick={() => guard(() => setOffset(Math.max(0, offset - view.pageSize)))} title="Previous page"><Icon name="prev" /></button>
         <span className="dim pager">{range} of {total === null ? "…" : total.toLocaleString()}</span>
-        <button disabled={!page?.has_more} onClick={() => guard(() => setOffset(offset + view.pageSize))} title="Next page">▶</button>
-        <button disabled={lastOffset === null || offset >= lastOffset} onClick={() => lastOffset !== null && guard(() => setOffset(lastOffset))} title="Last page">⏭</button>
+        <button disabled={!page?.has_more} onClick={() => guard(() => setOffset(offset + view.pageSize))} title="Next page"><Icon name="next" /></button>
+        <button disabled={lastOffset === null || offset >= lastOffset} onClick={() => lastOffset !== null && guard(() => setOffset(lastOffset))} title="Last page"><Icon name="last" /></button>
         <select value={view.pageSize} onChange={(e) => patchView({ pageSize: Number(e.target.value) })} title="Rows per page">
           {[100, 250, 500, 1000, 5000].map((n) => <option key={n} value={n}>{n} rows</option>)}
         </select>
         <span className="sep" />
         <button disabled={!meta || meta.is_view} onClick={addRow} title="Add row">＋</button>
         <button disabled={!rows.length} onClick={deleteRows} title="Delete selected row(s) (Delete)">－</button>
-        <button disabled={!active || !!meta?.is_view} onClick={duplicateRows} title="Duplicate row">⎘</button>
+        <button disabled={!active || !!meta?.is_view} onClick={duplicateRows} title="Duplicate row"><Icon name="copy" /></button>
         <button disabled={!pendingCount} onClick={() => setStaged(noStaged())} title="Revert pending changes">↶</button>
-        <button className="primary" disabled={!pendingCount} onClick={submit} title="Submit changes (⌘↵)">✓ Submit{pendingCount ? ` (${pendingCount})` : ""}</button>
+        <button className="primary" disabled={!pendingCount} onClick={submit} title="Submit changes (⌘↵)"><Icon name="check" /> Submit{pendingCount ? ` (${pendingCount})` : ""}</button>
         <button onClick={showSql} title="View queries">SQL</button>
         <span className="grow" />
         <button className={view.filterRow ? "toggled" : ""} onClick={() => setView({ ...view, filterRow: !view.filterRow })} title="Column filters">
-          ⏷ Filter{activeFilters.length ? ` (${activeFilters.length})` : ""}
+          <Icon name="filter" /> Filter{activeFilters.length ? ` (${activeFilters.length})` : ""}
         </button>
-        {activeFilters.length > 0 && <button onClick={() => patchView({ filters: {} })} title="Clear all column filters">✕</button>}
+        {activeFilters.length > 0 && <button onClick={() => patchView({ filters: {} })} title="Clear all column filters"><Icon name="close" size={10} /></button>}
         <div className="popup-host">
           <button onClick={() => setPopup(popup === "columns" ? null : "columns")}>Columns</button>
           {popup === "columns" && page && (
@@ -505,12 +506,12 @@ export default function DataGrid(props: {
           onBlur={() => whereDraft !== view.where && patchView({ where: whereDraft })} />
         {view.sort.length > 0 && (
           <span className="dim">ORDER BY {view.sort.map((s) => `${s.column}${s.desc ? " DESC" : ""}`).join(", ")}
-            <button className="mini" onClick={() => patchView({ sort: [] })}>✕</button></span>
+            <button className="mini" onClick={() => patchView({ sort: [] })}><Icon name="close" size={10} /></button></span>
         )}
       </div>
 
       {meta?.read_only_reason && <div className="banner">Read-only: {meta.read_only_reason}.</div>}
-      {error && <div className="banner bad">{error} <button className="mini" onClick={() => setError(null)}>✕</button></div>}
+      {error && <div className="banner bad">{error} <button className="mini" onClick={() => setError(null)}><Icon name="close" size={10} /></button></div>}
       {notice && <div className="banner ok">{notice}</div>}
 
       <div className="dg-main">
@@ -530,8 +531,8 @@ export default function DataGrid(props: {
                     return (
                       <th key={c.name} onClick={(e) => toggleSort(c.name, e.shiftKey)} title={`${m?.column_type ?? c.type_name}${m?.comment ? " — " + m.comment : ""}\nClick: sort · Shift-click: add to sort`}>
                         <div className="th">
-                          {meta?.primary_key.includes(c.name) && <span title="Primary key">🔑</span>}
-                          {fkFor(c.name) && <span title={`→ ${fkFor(c.name)!.ref_table}`}>🔗</span>}
+                          {meta?.primary_key.includes(c.name) && <span title="Primary key"><Icon name="key" size={12} className="ico-pk" /></span>}
+                          {fkFor(c.name) && <span title={`→ ${fkFor(c.name)!.ref_table}`}><Icon name="link" size={12} /></span>}
                           <span className="th-name">{c.name}</span>
                           <span className="dim th-type">{m?.column_type ?? ""}</span>
                           {s >= 0 && <span className="sortmark">{view.sort[s].desc ? "▼" : "▲"}{view.sort.length > 1 ? s + 1 : ""}</span>}
@@ -643,8 +644,8 @@ export default function DataGrid(props: {
               <>
                 <div className="vp-head"><b>Row {activeRow.isNew ? "(new)" : offset + activeRow.index + 1}</b>
                   <span className="grow" />
-                  <button className="mini" disabled={active!.r === 0} onClick={() => setActive({ r: active!.r - 1, c: active!.c })}>◀</button>
-                  <button className="mini" disabled={active!.r >= rows.length - 1} onClick={() => setActive({ r: active!.r + 1, c: active!.c })}>▶</button>
+                  <button className="mini" disabled={active!.r === 0} onClick={() => setActive({ r: active!.r - 1, c: active!.c })}><Icon name="prev" size={12} /></button>
+                  <button className="mini" disabled={active!.r >= rows.length - 1} onClick={() => setActive({ r: active!.r + 1, c: active!.c })}><Icon name="next" size={12} /></button>
                 </div>
                 <div className="record-fields">
                   {page.columns.map((col, ci) => {
@@ -654,7 +655,7 @@ export default function DataGrid(props: {
                     const fk = fkFor(col.name);
                     return (
                       <label key={`${activeRow.id}:${col.name}:${cell.text}:${cell.staged?.kind}`} className={cell.staged ? "edited" : ""}>
-                        <span>{meta.primary_key.includes(col.name) ? "🔑 " : ""}{col.name} <span className="dim">{m?.column_type}</span></span>
+                        <span>{meta.primary_key.includes(col.name) ? <Icon name="key" size={12} className="ico-pk" /> : null}{col.name} <span className="dim">{m?.column_type}</span></span>
                         <div className="rf-input">
                           <input disabled={!can || cell.long} defaultValue={cell.staged && cell.staged.kind !== "text" ? "" : cell.text ?? ""}
                             placeholder={cell.staged?.kind === "default" ? "DEFAULT" : cell.text === null && !activeRow.isNew ? "NULL" : ""}
@@ -719,7 +720,7 @@ function FilterCell(props: { value: FilterInput | undefined; numeric: boolean; o
       </select>
       {arity !== 0 && <input value={v.text} placeholder={arity === "many" ? "a, b, c" : arity === 2 ? "from" : "filter"} onChange={(e) => set({ text: e.target.value })} />}
       {arity === 2 && <input value={v.text2} placeholder="to" onChange={(e) => set({ text2: e.target.value })} />}
-      {props.value && <button className="mini" title="Clear" onClick={() => props.onChange(null)}>✕</button>}
+      {props.value && <button className="mini" title="Clear" onClick={() => props.onChange(null)}><Icon name="close" size={10} /></button>}
     </div>
   );
 }

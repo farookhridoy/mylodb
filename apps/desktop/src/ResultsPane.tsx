@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import Icon from "./Icon";
 import AnalysisPane, { type Analysis } from "./AnalysisPane";
 import type { StatementResult } from "./api";
 
@@ -33,7 +34,7 @@ export default function ResultsPane({ run, analysis }: { run: RunState | undefin
         ))}
         {analysis && <button className={tab === "analysis" ? "active" : ""} onClick={() => setTab("analysis")}>{analysis.kind === "profile" ? "Profile" : "Explain"}</button>}
         <button className={tab === "messages" ? "active" : ""} onClick={() => setTab("messages")}>
-          Messages{run.results?.some((r) => r.error) ? " ⚠" : ""}
+          Messages{run.results?.some((r) => r.error) ? <Icon name="warn" size={12} /> : null}
         </button>
         <span className="grow" />
         {run.running ? <span className="dim">Running…</span> : <span className="dim">{run.totalMs} ms</span>}

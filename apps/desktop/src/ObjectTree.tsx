@@ -1,10 +1,13 @@
-import { memo, useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import type { Kind, Node } from "./api";
+import Icon, { type IconName } from "./Icon";
 import { columnMatches, formatBytes, type ColumnsOf } from "./browserMeta";
 import type { IndexDetail, TableStat } from "./api";
 
 /** Rows drawn per group before a "show more" row. Keeps a database with thousands of tables responsive. */
 const PAGE = 300;
+/** A table click is applied after this delay so that a double-click can cancel it. */
+const TABLE_CLICK_MS = 220;
 
 const GROUPS: { kind: Kind; label: string }[] = [
   { kind: "table", label: "Tables" },
@@ -25,6 +28,14 @@ function Highlight({ text, terms }: { text: string; terms: string[] }) {
 }
 
 interface Entry { pos: number; node: Node }
+
+const GROUP_ICON: Record<Kind, IconName> = {
+  database: "database", table: "table", view: "view", procedure: "procedure", function: "function", trigger: "trigger", event: "event", column: "column",
+};
+
+function Chev({ open }: { open: boolean }) {
+  return <span className={`chev ${open ? "open" : ""}`}><Icon name="chevron" size={10} /></span>;
+}
 
 export interface TreeProps {
   /** The connection shown as the root node, e.g. `root@localhost`. Clicking it resets the browser. */
@@ -78,14 +89,20 @@ export default function ObjectTree(props: TreeProps) {
   }, [index]);
 
   const update = (f: (o: Set<string>) => Set<string>) => setOpen((o) => { const n = f(o); props.onOpenChange([...n]); return n; });
+  // selecting a database shows its tables straight away
+  useEffect(() => {
+    if (selectedDb && !open.has(`${selectedDb}/table`)) update((o) => new Set(o).add(`${selectedDb}/table`));
+  }, [selectedDb]); // eslint-disable-line react-hooks/exhaustive-deps
   const toggle = (key: string) => update((o) => { const n = new Set(o); n.has(key) ? n.delete(key) : n.add(key); return n; });
   const more = (key: string) => setShown((s) => ({ ...s, [key]: (s[key] ?? PAGE) + PAGE }));
 
   // With no scope the filter is on database names: hide the databases that do not match.
-  const visibleDbs = matches && scope === null ? dbs.filter((d) => matches.has(d.pos)) : dbs;
+  // Selecting a database locks the browser to it (like SQLyog): only that database is listed until the lock is released.
+  const locked = selectedDb !== null && dbs.some((d) => d.node.name === selectedDb);
+  const visibleDbs = locked ? dbs.filter((d) => d.node.name === selectedDb) : matches && scope === null ? dbs.filter((d) => matches.has(d.pos)) : dbs;
   const dbLimit = shown["*dbs"] ?? PAGE * 2;
 
-  if (matches && scope === null && visibleDbs.length === 0) return <div className="empty">No matching databases</div>;
+  if (!locked && matches && scope === null && visibleDbs.length === 0) return <div className="empty">No matching databases</div>;
 
   return (
     <ul className="tree" onContextMenu={(e) => e.target === e.currentTarget && props.onDatabaseMenu(e, null)}>
@@ -93,28 +110,28 @@ export default function ObjectTree(props: TreeProps) {
         <div className={`row-item root ${selectedDb === null ? "selected" : ""}`} title="Show all databases (clears the selection and the filter)"
              onClick={() => { update(() => new Set()); props.onResetRoot(); }}
              onContextMenu={(e) => props.onDatabaseMenu(e, null)}>
-          <span className="chev">▾</span><span className="icon">🖥</span>
+          <Chev open /><Icon name="server" className="ico-server" />
           <strong>{props.rootLabel}</strong>
           <span className="badge" title="Databases">{dbs.length.toLocaleString()}</span>
         </div>
       </li>
       {visibleDbs.slice(0, dbLimit).map(({ node }) => {
         const name = node.name;
-        const isOpen = open.has(name);
+        const isOpen = open.has(name) || selectedDb === name;
         const scoped = matches !== null && scope === name;
         return (
           <li key={name} className="under-root">
             <div className={`row-item db ${selectedDb === name && props.selectedTable === null ? "selected" : ""} ${selectedDb === name ? "current" : ""}`}
-                 onClick={() => { props.onSelectDb(name); props.ensureStats(name); toggle(name); }}
+                 onClick={() => { props.onSelectDb(name); props.ensureStats(name); }}
                  onContextMenu={(e) => { props.onSelectDb(name); props.onDatabaseMenu(e, name); }}>
-              <span className="chev">{isOpen ? "▾" : "▸"}</span>
-              <span className="icon">🛢</span>
+              <Chev open={isOpen} />
+              <Icon name="database" className="ico-db" />
               <Highlight text={name} terms={scope === null ? props.terms : []} />
               <DbSize stats={props.stats[name]} />
               {scoped && <span className="badge" title="Matching objects">{[...matches!].filter((p) => index[p]?.database === name && index[p].kind !== "database").length}</span>}
             </div>
             {(isOpen || scoped) && (
-              <DbBranch {...props} db={name} entries={byDb.get(name) ?? []} scopedMatches={scoped ? matches : null} open={open} toggle={toggle} shown={shown} more={more} />
+              <DbBranch {...props} lockedTable={selectedDb === name ? props.selectedTable : null} db={name} entries={byDb.get(name) ?? []} scopedMatches={scoped ? matches : null} open={open} toggle={toggle} shown={shown} more={more} />
             )}
           </li>
         );
@@ -126,15 +143,17 @@ export default function ObjectTree(props: TreeProps) {
 
 /** One database's objects. Memoised: typing in the filter only re-renders the database that is being filtered. */
 const DbBranch = memo(function DbBranch(props: TreeProps & {
-  db: string; entries: Entry[]; scopedMatches: Set<number> | null;
+  lockedTable: string | null; db: string; entries: Entry[]; scopedMatches: Set<number> | null;
   open: Set<string>; toggle(k: string): void; shown: Record<string, number>; more(k: string): void;
 }) {
-  const { db, entries, scopedMatches, open, shown } = props;
+  const { db, entries, scopedMatches, open, shown, lockedTable } = props;
   const dbStats = props.stats[db];
+  const clickTimer = useRef<number | undefined>(undefined);
+  useEffect(() => () => clearTimeout(clickTimer.current), []);
   useEffect(() => { props.ensureStats(db); }, [db]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const { groups, columnsOf, tablesWithMatchingColumns } = useMemo(() => {
-    const keep = (e: Entry) => scopedMatches === null || scopedMatches.has(e.pos);
+    const keep = (e: Entry) => (scopedMatches === null || scopedMatches.has(e.pos)) && (lockedTable === null || ((e.node.kind === "table" || e.node.kind === "view") && e.node.name === lockedTable));
     const groups = GROUPS.map((g) => ({ ...g, items: [] as Entry[] }));
     const columnsOf = new Map<string, Entry[]>();
     const tablesWithMatchingColumns = new Set<string>();
@@ -159,10 +178,10 @@ const DbBranch = memo(function DbBranch(props: TreeProps & {
       groups[0].items.sort((a, b) => a.pos - b.pos);
     }
     return { groups, columnsOf, tablesWithMatchingColumns };
-  }, [entries, scopedMatches]);
+  }, [entries, scopedMatches, lockedTable]);
 
   const filtering = scopedMatches !== null;
-  const isOpen = (key: string) => filtering || open.has(key);
+  const isOpen = (key: string) => filtering || open.has(key) || lockedTable !== null;
   const loaded = props.columnsLoaded.has(db);
 
   return (
@@ -172,8 +191,8 @@ const DbBranch = memo(function DbBranch(props: TreeProps & {
         const limit = shown[gk] ?? PAGE;
         return (
           <li key={gk}>
-            <div className="row-item group" onClick={() => props.toggle(gk)}>
-              <span className="chev">{isOpen(gk) ? "▾" : "▸"}</span>
+            <div className="row-item group" onClick={() => lockedTable === null && props.toggle(gk)}>
+              <Chev open={isOpen(gk)} /><Icon name={GROUP_ICON[g.kind]} className="ico-group" />
               {g.label}<span className="badge">{g.items.length.toLocaleString()}</span>
             </div>
             {isOpen(gk) && (
@@ -182,21 +201,30 @@ const DbBranch = memo(function DbBranch(props: TreeProps & {
                   const nk = `${gk}/${n.name}`;
                   const isTable = g.kind === "table" || g.kind === "view";
                   const cols = isTable ? columnsOf.get(n.name) : undefined;
-                  const expanded = open.has(nk) || (filtering && tablesWithMatchingColumns.has(n.name));
+                  const expanded = open.has(nk) || lockedTable === n.name || (filtering && tablesWithMatchingColumns.has(n.name));
                   return (
                     <li key={nk}>
                       <div className={`row-item leaf ${isTable && props.selectedTable === n.name && props.selectedDb === db ? "selected" : ""}`}
-                           onClick={() => { if (!isTable) return; const already = props.selectedTable === n.name && props.selectedDb === db; props.onSelectTable(db, n.name); props.ensureDetails(db, n.name); if (already || !open.has(nk)) props.toggle(nk); }}
-                           onDoubleClick={() => (isTable ? props.onOpenTable(db, n.name) : props.onOpenObject(db, g.kind, n.name))}
+                           onClick={() => {
+                             if (!isTable) return;
+                             // Selecting a table locks the browser to it and moves the row, so it waits briefly: a double-click (open data) cancels it.
+                             clearTimeout(clickTimer.current);
+                             clickTimer.current = window.setTimeout(() => {
+                               const already = props.selectedTable === n.name && props.selectedDb === db;
+                               props.onSelectTable(db, n.name); props.ensureDetails(db, n.name);
+                               if (already || !open.has(nk)) props.toggle(nk);
+                             }, TABLE_CLICK_MS);
+                           }}
+                           onDoubleClick={() => { clearTimeout(clickTimer.current); if (isTable) props.onOpenTable(db, n.name); else props.onOpenObject(db, g.kind, n.name); }}
                            onContextMenu={(e) => props.onObjectMenu(e, db, g.kind, n.name)}>
-                        <span className="chev">{isTable ? (expanded ? "▾" : "▸") : ""}</span>
+                        {isTable ? <Chev open={expanded} /> : <span className="chev" />}<Icon name={GROUP_ICON[g.kind]} className={`ico-${g.kind}`} />
                         <span className="name"><Highlight text={n.name} terms={props.terms} /></span>
                         {n.parent && <span className="dim"> · {n.parent}</span>}
                         {isTable && <TableSize stat={dbStats?.[n.name]} />}
                       </div>
                       {isTable && expanded && (
                         <ColumnList
-                          ensure={() => { if (open.has(nk)) props.ensureDetails(db, n.name); /* never for tables a filter expanded: that could be thousands of queries */ }}
+                          ensure={() => { if (open.has(nk) || lockedTable === n.name) props.ensureDetails(db, n.name); /* never for tables a filter expanded: that could be thousands of queries */ }}
                           detail={props.details[`${db}\0${n.name}`]}
                           indexes={props.indexes[`${db}\0${n.name}`]}
                           fallback={cols}
@@ -239,7 +267,7 @@ function ColumnList({ ensure, detail, indexes, fallback, query, filtering, match
       <ul className="columns">
         {shown.slice(0, 500).map((c) => (
           <li key={c.name} className="row-item col" title={`${c.name} ${c.column_type}${c.nullable ? "" : " NOT NULL"}${c.extra ? " " + c.extra : ""}`}>
-            <span className="key">{c.key === "PRI" ? "🔑" : c.key === "UNI" ? "◆" : ""}</span>
+            <span className="key">{c.key === "PRI" ? <Icon name="key" size={12} className="ico-pk" /> : c.key === "UNI" ? <Icon name="unique" size={11} /> : <Icon name="column" size={11} className="ico-col" />}</span>
             <span className="name"><Highlight text={c.name} terms={query ? query.split(/\s+/).map((t) => t.toLowerCase()) : terms} /></span>
             <span className="ctype">{c.column_type}</span>
           </li>
@@ -251,7 +279,7 @@ function ColumnList({ ensure, detail, indexes, fallback, query, filtering, match
             <li className="row-item col idx-head">Indexes<span className="badge">{indexes.length}</span></li>
             {indexes.map((i) => (
               <li key={i.name} className="row-item col idx" title={`${i.unique ? "Unique " : ""}${i.kind} index ${i.name} on (${i.columns.join(", ")})`}>
-                <span className="key">{i.name === "PRIMARY" ? "🔑" : i.unique ? "◆" : ""}</span>
+                <span className="key">{i.name === "PRIMARY" ? <Icon name="key" size={12} className="ico-pk" /> : i.unique ? <Icon name="unique" size={11} /> : <Icon name="index" size={11} />}</span>
                 <span className="name">{i.name}</span>
                 <span className="ctype">({i.columns.join(", ")})</span>
               </li>

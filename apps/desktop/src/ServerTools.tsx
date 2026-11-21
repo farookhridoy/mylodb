@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Icon from "./Icon";
 import {
   serverApi, type BinaryLog, type BinlogEvent, type CheckOption, type KillKind, type LogLine, type LogSettings, type Maintenance,
   type MaintenanceRow, type Node, type Process, type ServerInfo, type SlowQuery, type Variable, type VarScope,
@@ -226,7 +227,7 @@ function Variables({ id }: { id: number }) {
         <button onClick={load}>⟳</button><span className="grow" /><span className="dim">{shown.length} of {vars.length}</span>
       </div>
       {error && <div className="banner bad">{error}</div>}
-      {warnings.length > 0 && <div className="banner">{warnings.map((w) => <div key={w}>⚠ {w}</div>)}</div>}
+      {warnings.length > 0 && <div className="banner">{warnings.map((w) => <div key={w}><Icon name="warn" size={12} /> {w}</div>)}</div>}
       <div className="dg-scroll">
         <table className="grid">
           <thead><tr><th>Variable</th><th>Value</th><th>Source</th><th /></tr></thead>
@@ -240,8 +241,8 @@ function Variables({ id }: { id: number }) {
                 ) : v.value}</td>
                 <td className="dim">{v.source ?? ""}</td>
                 <td>{scope === "global" && (edit?.name === v.name
-                  ? <><button className="mini" onClick={() => setConfirm(edit)}>Apply…</button><button className="mini" onClick={() => setEdit(null)}>✕</button></>
-                  : <button className="mini" title="Change this global variable" onClick={() => setEdit({ name: v.name, value: v.value })}>✎</button>)}</td>
+                  ? <><button className="mini" onClick={() => setConfirm(edit)}>Apply…</button><button className="mini" onClick={() => setEdit(null)}><Icon name="close" size={10} /></button></>
+                  : <button className="mini" title="Change this global variable" onClick={() => setEdit({ name: v.name, value: v.value })}><Icon name="edit" size={12} /></button>)}</td>
               </tr>
             ))}
           </tbody>

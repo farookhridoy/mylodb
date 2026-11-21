@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import Icon from "./Icon";
 import type { ExplainResult, ProfileResult } from "./api";
 import { Grid } from "./ResultsPane";
 
@@ -6,7 +7,7 @@ export type Analysis =
   | { kind: "explain" | "analyze"; sql: string; running: boolean; error: string | null; data: ExplainResult | null }
   | { kind: "profile"; sql: string; running: boolean; error: string | null; data: ProfileResult | null };
 
-const ICON = { warning: "⚠", info: "ℹ", good: "✔" } as const;
+const ICON = { warning: <Icon name="warn" size={13} />, info: <Icon name="info" size={13} />, good: <Icon name="check" size={13} /> } as const;
 
 /** Collapsible view of the JSON plan. Keys that matter for tuning are highlighted. */
 function JsonTree({ value, name, depth = 0 }: { value: unknown; name?: string; depth?: number }) {
@@ -33,11 +34,11 @@ function ExplainView({ a }: { a: Extract<Analysis, { kind: "explain" | "analyze"
   return (
     <div className="analysis">
       <div className="hints">
-        {d.hints.length === 0 && <div className="hint good">✔ Nothing to worry about in this plan.</div>}
+        {d.hints.length === 0 && <div className="hint good"><Icon name="check" size={13} /> Nothing to worry about in this plan.</div>}
         {d.hints.map((h, i) => <div key={i} className={`hint ${h.severity}`}><span>{ICON[h.severity]}</span> {h.message}</div>)}
       </div>
       <div className="result-tabs sub">
-        <button className={tab === "plan" ? "active" : ""} onClick={() => setTab("plan")}>Plan{warnings ? ` (${warnings} ⚠)` : ""}</button>
+        <button className={tab === "plan" ? "active" : ""} onClick={() => setTab("plan")}>Plan{warnings ? ` (${warnings})` : ""}</button>
         {d.tree && <button className={tab === "tree" ? "active" : ""} onClick={() => setTab("tree")}>Timed tree</button>}
         {doc && <button className={tab === "json" ? "active" : ""} onClick={() => setTab("json")}>JSON</button>}
       </div>

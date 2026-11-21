@@ -22,7 +22,6 @@ const ok = (m) => console.log(`ok ${++step} ${m}`);
 await page.selectOption(".conn-bar select", "1");
 await page.waitForSelector(".tree .db");
 await page.click(".tree .db");
-await page.click("text=Tables");
 
 // ---------- designer ----------
 await page.click(".row-item.leaf:has-text('orders')", { button: "right" });
@@ -151,7 +150,7 @@ ok("create database");
 await page.click("button[title='Users and privileges']");
 await page.waitForSelector(".users .u-list li");
 assert.equal(await page.locator(".u-list li").count(), 2);
-assert.equal(await page.locator(".u-list li:has-text('report') >> text=🔒").count(), 1, "locked accounts are marked");
+assert.equal(await page.locator(".u-list li:has-text('report') .icon-lock").count(), 1, "locked accounts are marked");
 await page.click(".u-list li:has-text('app')");
 await page.waitForSelector("text=Account locked");
 await page.click(".dz-tabs button:text-is('Privileges')");

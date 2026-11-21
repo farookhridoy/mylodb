@@ -13,6 +13,7 @@ import UsersManager from "./UsersManager";
 import Editor, { type EditorHandle } from "./Editor";
 import ObjectTree from "./ObjectTree";
 import { useBrowserMeta } from "./browserMeta";
+import Icon from "./Icon";
 import ResultsPane, { type RunState } from "./ResultsPane";
 import { ConfirmDialog, FavoritesPanel, HistoryPanel, SaveFavoriteDialog } from "./SidePanels";
 
@@ -201,6 +202,16 @@ export default function App() {
   };
   /// Clicking the connection node: back to the full list of databases.
   const resetBrowser = () => { setSelectedDb(null); setSelectedTable(null); setQuery(""); setMatches(null); setMatchScope(null); saveBrowser({ db: null, table: null }); };
+
+  /// Step out of the lock: table → database → all databases.
+  const unlock = () => {
+    if (selectedTable !== null) { setSelectedTable(null); setQuery(""); saveBrowser({ table: null }); }
+    else if (selectedDb !== null) resetBrowser();
+  };
+  // a restored (or newly selected) table needs its column details even if it was not clicked
+  useEffect(() => {
+    if (activeId !== null && selectedDb) { meta.ensureStats(selectedDb); if (selectedTable) meta.ensureDetails(selectedDb, selectedTable); }
+  }, [activeId, selectedDb, selectedTable, meta.ensureStats, meta.ensureDetails]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ---- filter ----
   // Scoped to the selected database; with none selected it matches database names only.
@@ -502,16 +513,16 @@ export default function App() {
             <option value="">Select connection…</option>
             {connections.map((c) => <option key={c.id} value={c.id!}>{c.name}</option>)}
           </select>
-          <button title="New connection" onClick={() => setDialog("new")}>＋</button>
-          <button title="Edit connection" disabled={!active} onClick={() => active && setDialog(active)}>✎</button>
-          <button title="Delete connection" disabled={!active} onClick={() => setConfirmDelete(true)}>🗑</button>
-          <button title="Users and privileges" disabled={activeId === null} onClick={openUsers}>👤</button>
- <button title="Backup, restore, import and export" disabled={activeId === null} onClick={() => openTransfer()}>⇅</button>
+          <button title="New connection" onClick={() => setDialog("new")}><Icon name="plus" /></button>
+          <button title="Edit connection" disabled={!active} onClick={() => active && setDialog(active)}><Icon name="edit" /></button>
+          <button title="Delete connection" disabled={!active} onClick={() => setConfirmDelete(true)}><Icon name="trash" /></button>
+          <button title="Users and privileges" disabled={activeId === null} onClick={openUsers}><Icon name="user" /></button>
+ <button title="Backup, restore, import and export" disabled={activeId === null} onClick={() => openTransfer()}><Icon name="transfer" /></button>
           <button className="theme-toggle" title={`Theme: ${theme.pref} (click to change)`}
             onClick={() => { const order: ThemePref[] = ["system", "light", "dark"]; theme.setPref(order[(order.indexOf(theme.pref) + 1) % 3]); }}>
-            {theme.pref === "system" ? "◐" : theme.pref === "light" ? "☀" : "☾"}
+            <Icon name={theme.pref === "system" ? "auto" : theme.pref === "light" ? "sun" : "moon"} />
           </button>
-          <button title="Server: processes, variables, status, maintenance, logs" disabled={activeId === null} onClick={openServer}>🖥</button>
+          <button title="Server: processes, variables, status, maintenance, logs" disabled={activeId === null} onClick={openServer}><Icon name="pulse" /></button>
         </div>
         <div className="side-tabs">
           {(["objects", "history", "favorites"] as Side[]).map((s) => (
@@ -523,17 +534,34 @@ export default function App() {
         {side === "objects" && (
           <>
             <div className="filter">
-              <input
-                ref={filterInput}
-                placeholder={selectedTable ? `Filter columns in ${selectedTable}` : selectedDb ? `Filter tables in ${selectedDb}` : "Filter databases"}
-                title={selectedTable ? "Columns of the selected table: a name or a type, e.g.  email  ·  bigint  ·  char*  ·  pk" : "Filter (⇧⌘B). Click a database to filter its tables, then a table to filter its columns.\nord  ·  ord*  ·  /regex/  ·  type:view  ·  col:email"}
-                value={query}
-                disabled={activeId === null}
-                onChange={(e) => setQuery(e.target.value)}
-                onKeyDown={(e) => e.key === "Escape" && setQuery("")}
-              />
-              {query && <button className="clear" onClick={() => setQuery("")}>✕</button>}
-              <button className="refresh" disabled={activeId === null} title="Refresh objects and rebuild autocomplete" onClick={() => reloadIndex()}>⟳</button>
+              <div className="filterbox" onClick={() => filterInput.current?.focus()}>
+                {selectedDb && (
+                  <span className="scope" title={selectedTable ? "Locked to this database" : "Locked to this database. The box now searches its tables. ✕ releases the lock."}>
+                    <Icon name="lock" /><span className="scope-name">{selectedDb}</span>
+                    {!selectedTable && <button className="x" aria-label="Unlock database" onClick={(e) => { e.stopPropagation(); unlock(); }}><Icon name="close" /></button>}
+                  </span>
+                )}
+                {selectedTable && (
+                  <span className="scope" title="Locked to this table. The box now searches its columns. ✕ releases the lock.">
+                    <Icon name="table" /><span className="scope-name">{selectedTable}</span>
+                    <button className="x" aria-label="Unlock table" onClick={(e) => { e.stopPropagation(); unlock(); }}><Icon name="close" /></button>
+                  </span>
+                )}
+                <input
+                  ref={filterInput}
+                  placeholder={selectedTable ? "Filter columns" : selectedDb ? "Filter tables" : "Filter databases"}
+                  title={selectedTable ? "Columns of the selected table: a name or a type, e.g.  email  ·  bigint  ·  char*  ·  pk" : "Filter (⇧⌘B). Click a database to lock it and filter its tables, then a table to filter its columns.\nord  ·  ord*  ·  /regex/  ·  type:view  ·  col:email"}
+                  value={query}
+                  disabled={activeId === null}
+                  onChange={(e) => setQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Escape") { if (query) setQuery(""); else unlock(); }
+                    else if (e.key === "Backspace" && !query) unlock();
+                  }}
+                />
+                {query && <button className="clear" aria-label="Clear filter" onClick={() => setQuery("")}><Icon name="close" /></button>}
+              </div>
+              <button className="refresh icon-btn" disabled={activeId === null} title="Refresh objects and rebuild autocomplete (F5)" onClick={() => reloadIndex()}><Icon name="refresh" /></button>
             </div>
             {filterError && <div className="error small">{filterError}</div>}
             <div className="tree-wrap">
@@ -560,11 +588,11 @@ export default function App() {
             <div className="query-tabs" style={{ borderBottomColor: active?.color }}>
               {tabs.map((t) => (
                 <div key={t.id} className={`qtab ${t.id === activeTab ? "active" : ""}`} onClick={() => setActiveTab(t.id)}>
-                  {isTable(t) ? "▦ " : t.kind === "designer" ? "✎ " : t.kind === "users" ? "👤 " : t.kind === "server" ? "🖥 " : t.kind === "transfer" ? "⇅ " : ""}{runs[t.id]?.running ? "⏳ " : ""}{t.title}
-                  <button className="mini" onClick={(e) => { e.stopPropagation(); closeTab(t.id); }}>✕</button>
+                  {runs[t.id]?.running ? <Icon name="clock" size={12} /> : isTable(t) ? <Icon name="table" size={12} /> : t.kind === "designer" ? <Icon name="edit" size={12} /> : t.kind === "users" ? <Icon name="user" size={12} /> : t.kind === "server" ? <Icon name="pulse" size={12} /> : t.kind === "transfer" ? <Icon name="transfer" size={12} /> : null}<span>{t.title}</span>
+                  <button className="mini" onClick={(e) => { e.stopPropagation(); closeTab(t.id); }}><Icon name="close" size={10} /></button>
                 </div>
               ))}
-              <button className="mini plus" title="New query tab (⌘T)" onClick={() => addTab("", tab.database)}>＋</button>
+              <button className="mini plus" title="New query tab (⌘T)" onClick={() => addTab("", tab.database)}><Icon name="plus" size={12} /></button>
             </div>
             {/* The editor stays mounted while a table tab is shown so each SQL tab keeps its undo history. */}
             {editorTab && (
@@ -572,11 +600,11 @@ export default function App() {
                 <div className="toolbar">
                   <button className="primary" disabled={running} onClick={run} title="Run selection or all (⌘↵)">▶ Run</button>
                   <button disabled={!running} onClick={cancel} title="Cancel running query">■ Cancel</button>
-                  <button onClick={openFavDialog} title="Save to favorites">☆</button>
+                  <button onClick={openFavDialog} title="Save to favorites"><Icon name="star" /></button>
                   <span className="sep" />
                   <button onClick={formatSql} title="Format the selection or the whole script (⇧⌘F)">Format</button>
                   <div className="popup-host">
-                    <button className="mini" title="Formatting options" onClick={() => setFormatOpen(!formatOpen)}>⚙</button>
+                    <button className="mini" title="Formatting options" onClick={() => setFormatOpen(!formatOpen)}><Icon name="index" size={12} /></button>
                     {formatOpen && (
                       <div className="popup left" onMouseLeave={() => setFormatOpen(false)}>
                         <label>Indent
@@ -648,7 +676,7 @@ export default function App() {
               </>
             ) : (
               <>
-                <h3>⚠ SSH host key changed</h3>
+                <h3><Icon name="warn" /> SSH host key changed</h3>
                 <p>The host key of <b>{hostPrompt.host}</b> is not the one saved before. Someone may be intercepting the connection, or the server was re-installed. The connection was <b>not</b> made.</p>
                 <code className="preview">saved:   {hostPrompt.changed}{"\n"}now:     {hostPrompt.fingerprint}</code>
                 <div className="actions">

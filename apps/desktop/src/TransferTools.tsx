@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Icon from "./Icon";
 import { open as pickPath, save as savePath } from "@tauri-apps/plugin-dialog";
 import {
   EXPORT_FORMATS, onJobProgress, transferApi, type BackupOptions, type BackupResult, type CsvFormat, type CsvPreview, type ExportFormat, type ImportMode,
@@ -155,7 +156,7 @@ function Backup({ connectionId, nodes, preset }: { connectionId: number; nodes: 
         <div className="banner ok result-card">
           <b>Backup complete</b> in {fmtMs(r.elapsed_ms)}: {r.databases} database(s), {r.tables} table(s), {r.rows.toLocaleString()} row(s), {fmtBytes(r.bytes)}, {r.files} file(s).
           <div><code>{r.path}</code> <button className="mini" onClick={() => navigator.clipboard.writeText(r.path)}>Copy path</button></div>
-          {r.warnings.map((w) => <div key={w} className="dim">⚠ {w}</div>)}
+          {r.warnings.map((w) => <div key={w} className="dim"><Icon name="warn" size={12} /> {w}</div>)}
         </div>
       )}
     </div>
@@ -373,7 +374,7 @@ function ImportCsv({ connectionId, nodes, preset, onSchemaChanged, ensureColumns
       {r && (
         <div className={`banner result-card ${r.aborted ? "bad" : r.errors.length ? "" : "ok"}`}>
           <b>{r.aborted ? "Import stopped and undone" : "Import finished"}</b> in {fmtMs(r.elapsed_ms)}: {r.rows_read.toLocaleString()} row(s) read, {r.affected_rows.toLocaleString()} affected{r.errors.length ? `, ${r.errors.length} bad row(s)` : ""}.
-          {r.warnings.map((w) => <div key={w} className="dim">⚠ {w}</div>)}
+          {r.warnings.map((w) => <div key={w} className="dim"><Icon name="warn" size={12} /> {w}</div>)}
           {r.errors.slice(0, 20).map((e, i) => <div key={i} className="dim">line {e.line}: {e.message}</div>)}
         </div>
       )}
@@ -416,7 +417,7 @@ function ExportQuery({ connectionId, nodes }: { connectionId: number; nodes: Nod
       </div>
       <ProgressBar p={null} running={job.running} onCancel={() => {}} />
       {job.error && <div className="banner bad">{job.error}</div>}
-      {r && <div className="banner ok result-card"><b>Exported {r.rows.toLocaleString()} row(s)</b><div><code>{r.path}</code></div>{r.warnings.map((w) => <div key={w} className="dim">⚠ {w}</div>)}</div>}
+      {r && <div className="banner ok result-card"><b>Exported {r.rows.toLocaleString()} row(s)</b><div><code>{r.path}</code></div>{r.warnings.map((w) => <div key={w} className="dim"><Icon name="warn" size={12} /> {w}</div>)}</div>}
     </div>
   );
 }

@@ -24,8 +24,8 @@ What you asked for, and where it stands after this change:
 |---|---|
 | `root@localhost` is the root node of the tree; clicking it **resets** to the full database list | ✅ the connection is the root (`user@host`, with the database count). Click = no selection, filter cleared, everything collapsed. |
 | **Level 1: filter databases** (nothing selected) | ✅ "Filter databases", names only. |
-| **Level 2: click a database → filter its tables** | ✅ "Filter tables in `db`", scoped to that database; the other databases stay listed. Box clears on every change of level. |
-| **Level 3: click a table → search its columns** | ✅ "Filter columns in `table`". Matches column **name or type** (`email`, `bigint`, `char*`), entirely in the browser. |
+| **Level 2: click a database → the box locks to it and filters its tables** | ✅ Like SQLyog: the database becomes a chip in the filter box, only that database is listed, its tables open, and the box searches them. Clearing the text lists all its tables again. ✕ on the chip (or Backspace / Esc in the empty box) releases the lock. |
+| **Level 3: click a table → lock to it and search its columns** | ✅ A second chip; only that table is shown. ✕ returns to the table list. Matches column **name or type** (`email`, `bigint`, `char*`), entirely in the browser. |
 | Columns show type like DBeaver (`bigint unsigned`, `char(255)`) | ✅ right-aligned declared type (`COLUMN_TYPE`), 🔑 for primary key, ◆ for unique. Nullability, `auto_increment` and the full definition are in the tooltip. |
 | Table size in KB / MB / GB | ✅ data + index bytes, right-aligned on each table row; tooltip has exact bytes and the row estimate. Views show none. |
 | No hang on big servers | ✅ names only at connect; per-database size query (one round trip); per-table column query; groups paged 300 rows at a time. 90,000-object fake server: connect 0.3–0.6 s, about 600 rows on screen, slowest keystroke about 350–430 ms. |
@@ -140,7 +140,16 @@ Phases 1–8 and the filter, theme and sidebar work are done. Rough effort for o
 "defining" features and must land before the visual tools. Phase 11 removes daily friction. Phase 12 should run alongside 9–11 so the
 version matrix catches MariaDB and 5.7 differences before the power tools depend on them.
 
-## 6. Done in Phase 8
+## 6. Done after Phase 8: lock behaviour and a flatter look
+
+* **Lock** (your report: searching databases, then clicking one, showed all databases again): selecting a database now locks the browser to it,
+  selecting a table locks to the table. See section 2.
+* **Double-click fix**: a table click is applied after 220 ms so that a double-click (open data) still hits the row; otherwise the first click
+  locks the browser and the row moves away from the cursor.
+* **Look**: the emoji icons are replaced by one set of flat line icons (`Icon.tsx`); neutral IDE-style palette (DataGrip-like dark and light),
+  12 px type, 22 px rows, rectangular controls, underlined active tabs, plain counts instead of pill badges, borderless toolbar icons.
+
+## 6b. Done in Phase 8
 
 * Views, procedures, functions, triggers and events: menus, definitions as runnable scripts, drop, templates.
 * Indexes under tables, database sizes, per-connection memory of expansion and selection, F5.

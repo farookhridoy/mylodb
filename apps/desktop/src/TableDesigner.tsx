@@ -1,4 +1,5 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import Icon from "./Icon";
 import {
   schemaApi, type ColumnDef, type ColumnDefault, type ForeignKeyDef, type IndexDef, type IndexKind, type Node, type RefAction,
   type ServerOptions, type TableDef,
@@ -197,7 +198,7 @@ export default function TableDesigner(props: {
         </button>
       </div>
       {warnings.map((w) => <div key={w} className="banner">{w}</div>)}
-      {error && <div className="banner bad">{error} <button className="mini" onClick={() => setError(null)}>✕</button></div>}
+      {error && <div className="banner bad">{error} <button className="mini" onClick={() => setError(null)}><Icon name="close" size={10} /></button></div>}
       {notice && <div className="banner ok">{notice}</div>}
       {preview.errors.length > 0 && <div className="banner bad">{preview.errors.map((e) => <div key={e}>• {e}</div>)}</div>}
 
@@ -393,7 +394,7 @@ function IndexEditor(props: { ix: IndexDef; columns: string[]; onChange(ix: Inde
             <label className="check"><input type="checkbox" checked={c.desc} onChange={(e) => setCol(i, { desc: e.target.checked })} /> DESC</label>
             <button className="mini" disabled={i === 0} onClick={() => { const cols = [...ix.columns]; [cols[i - 1], cols[i]] = [cols[i], cols[i - 1]]; props.onChange({ ...ix, columns: cols }); }}>↑</button>
             <button className="mini" disabled={i === ix.columns.length - 1} onClick={() => { const cols = [...ix.columns]; [cols[i + 1], cols[i]] = [cols[i], cols[i + 1]]; props.onChange({ ...ix, columns: cols }); }}>↓</button>
-            <button className="mini" onClick={() => props.onChange({ ...ix, columns: ix.columns.filter((_, k) => k !== i) })}>✕</button>
+            <button className="mini" onClick={() => props.onChange({ ...ix, columns: ix.columns.filter((_, k) => k !== i) })}><Icon name="close" size={10} /></button>
           </div>
         ))}
         <select value="" onChange={(e) => e.target.value && props.onChange({ ...ix, columns: [...ix.columns, { name: e.target.value, length: null, desc: false }] })}>
@@ -438,7 +439,7 @@ function FkEditor(props: {
             <select value={fk.ref_columns[i] ?? ""} onChange={(e) => setPair(i, null, e.target.value)}>
               <option value="">(choose)</option>{refCols.map((x) => <option key={x} value={x}>{x}</option>)}
             </select>
-            <button className="mini" onClick={() => props.onChange({ ...fk, columns: fk.columns.filter((_, k) => k !== i), ref_columns: fk.ref_columns.filter((_, k) => k !== i) })}>✕</button>
+            <button className="mini" onClick={() => props.onChange({ ...fk, columns: fk.columns.filter((_, k) => k !== i), ref_columns: fk.ref_columns.filter((_, k) => k !== i) })}><Icon name="close" size={10} /></button>
           </div>
         ))}
         <button onClick={() => props.onChange({ ...fk, columns: [...fk.columns, props.localColumns[0] ?? ""], ref_columns: [...fk.ref_columns, ""] })}>＋ Add pair</button>

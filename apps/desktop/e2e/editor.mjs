@@ -113,7 +113,7 @@ assert.equal(ex.sql, "SELECT * FROM orders", "explains the statement at the curs
 assert.equal(ex.analyze, false);
 assert.equal(await page.locator(".hint.warning").count(), 1);
 assert.equal(await page.locator(".hint.good").count(), 1);
-assert.match(await page.locator(".result-tabs.sub button.active").innerText(), /Plan \(1 ⚠\)/);
+assert.match(await page.locator(".result-tabs.sub button.active").innerText(), /Plan \(1\)/);
 assert.equal(await page.locator(".analysis-body table.grid tbody tr").count(), 1);
 ok("Explain targets the statement at the cursor and lists plain-language hints");
 
@@ -173,7 +173,7 @@ await page.keyboard.type("SELECT 1");
 await page.keyboard.press("Meta+Enter");
 await settle();
 assert.equal((await page.evaluate(() => window.__refreshed)) || 0, before + 1, "a plain SELECT does not");
-await page.click("button[title='Refresh objects and rebuild autocomplete']");
+await page.click("button[title^='Refresh objects']");
 await settle();
 assert.equal((await page.evaluate(() => window.__refreshed)) || 0, before + 2, "the tree button rebuilds on demand");
 ok("DDL (and the refresh button) rebuild the object index that autocomplete uses");

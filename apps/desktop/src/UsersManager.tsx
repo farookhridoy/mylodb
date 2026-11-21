@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Icon from "./Icon";
 import { userApi, type Account, type AccountEdit, type Node, type Scope, type ScopeGrant } from "./api";
 import { ConfirmDialog } from "./SidePanels";
 
@@ -130,14 +131,14 @@ export default function UsersManager(props: { connectionId: number; nodes: Node[
         <ul className="list">
           {accounts.map((a) => (
             <li key={`${a.user}@${a.host}`} className={draft?.original && draft.original.user === a.user && draft.original.host === a.host ? "sel" : ""} onClick={() => choose(a)}>
-              <span><b>{a.user || "(anonymous)"}</b><span className="dim">@{a.host}</span> {a.locked && <span title="Locked">🔒</span>}{a.password_expired && <span title="Password expired"> ⏰</span>}</span>
+              <span><b>{a.user || "(anonymous)"}</b><span className="dim">@{a.host}</span> {a.locked && <span title="Locked"><Icon name="lock" size={12} /></span>}{a.password_expired && <span title="Password expired"> <Icon name="clock" size={12} /></span>}</span>
             </li>
           ))}
         </ul>
       </aside>
 
       <section className="u-main">
-        {error && <div className="banner bad">{error} <button className="mini" onClick={() => setError(null)}>✕</button></div>}
+        {error && <div className="banner bad">{error} <button className="mini" onClick={() => setError(null)}><Icon name="close" size={10} /></button></div>}
         {notice && <div className="banner ok">{notice}</div>}
         {!draft ? <div className="empty">Select a user, or create a new one</div> : (
           <>

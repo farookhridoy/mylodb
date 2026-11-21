@@ -39,20 +39,23 @@ assert.equal(await page.locator(".tree .db").count(), 100, "db0000 … db0099");
 assert.equal(await page.locator(".row-item.leaf").count(), 0, "no tables are listed while filtering databases");
 ok("with nothing selected the filter matches database names only");
 
-// ---- select a database: the filter now searches inside it
-await filter.fill("");
+// ---- the reported scenario: search databases, click one, and it is locked
+await filter.fill("db00");
+await page.waitForFunction(() => window.__filterCalls?.some((x) => x.query === "db00"));
 await page.click(".tree .db:has-text('db0005')");
-assert.equal(await filter.getAttribute("placeholder"), "Filter tables in db0005");
-assert.equal(await page.locator(".row-item.db.selected").count(), 1, "exactly one database is selected");
-assert.match(await page.locator(".row-item.db.selected").innerText(), /db0005/);
+assert.equal(await filter.getAttribute("placeholder"), "Filter tables");
+assert.equal(await filter.inputValue(), "", "the box is now for tables");
+assert.equal(await page.locator(".tree .db").count(), 1, "only the locked database is listed, not all 2,000 again");
+assert.equal(await page.locator(".scope-name").innerText(), "db0005");
+assert.equal(await page.locator(".row-item.leaf").count(), 40, "its tables are listed");
 await filter.fill("t_0001");
 await page.waitForFunction(() => window.__filterCalls?.some((x) => x.query === "t_0001" && x.scope === "db0005"));
 await page.waitForTimeout(250);
-const tableRows = await page.locator(".row-item.leaf").count();
-assert.equal(tableRows, 10, "t_00010 … t_00019");
-assert.equal(await page.locator(".tree .db").count() > 1, true, "the other databases stay listed (collapsed), unfiltered");
+assert.equal(await page.locator(".row-item.leaf").count(), 10, "t_00010 … t_00019");
 assert.match(await page.locator(".row-item.group:has-text('Tables') .badge").innerText(), /^10$/);
-ok("selecting a database scopes the filter to it ('Filter tables in db0005')");
+await filter.fill("");
+await page.waitForFunction(() => document.querySelectorAll(".row-item.leaf").length === 40);
+ok("search databases, click one: it is locked, only it is listed, tables are searched, clearing the text shows all its tables");
 
 // ---- typing stays responsive
 const timing = await page.evaluate(async () => {
@@ -75,34 +78,34 @@ ok(`typing is responsive on a 90k-object server (slowest keystroke ${timing.wors
 // ---- a database with thousands of tables is shown a page at a time
 await filter.fill("");
 await page.waitForTimeout(250);
+await page.click(".row-item.root");                              // release the lock: all databases again
 await page.click(".tree .db:has-text('db0000')");
-await page.click(".row-item.group:has-text('Tables')");
 assert.equal(await page.locator(".row-item.leaf").count(), 300);
 const moreTables = page.locator(".row-item.more", { hasText: /of 5,7\d\d…/ });
 assert.match(await moreTables.innerText(), /Show 300 more of 5,7\d\d…/);
-assert.match(await page.locator(".row-item.more", { hasText: "databases" }).innerText(), /more of 1\d{3} databases/, "the database list is paged too");
 await moreTables.click();
 assert.equal(await page.locator(".row-item.leaf").count(), 600);
 assert.ok(await rows() < 1500);
 ok("6,040 tables render 300 at a time, with a 'show more' row");
 
 // ---- columns load on demand: details per table when selected, whole-database names only for col: filters
-await page.click(".tree .db:has-text('db0000')");               // collapse the huge database
+await page.click(".row-item.root");
 await page.click(".tree .db:has-text('shop')");
-await page.click(".row-item.group:has-text('Tables')");
 assert.equal(await g("__loadCalls"), undefined, "expanding a database loads no columns");
 assert.equal(await g("__detailCalls"), undefined, "nor any column details");
 await page.click(".row-item.leaf:has-text('orders')");
+await page.waitForTimeout(300);
 await page.waitForSelector(".row-item.col:has-text('total')");
+await page.click(".scope .x");                                  // orders is locked; release it to pick another table
 await page.click(".row-item.leaf:has-text('customers')");
+await page.waitForTimeout(300);
 await page.waitForSelector(".row-item.col:has-text('email')");
 assert.deepEqual(await g("__detailCalls"), ["shop.orders", "shop.customers"], "one query per table, not per database");
 assert.equal(await g("__loadCalls"), undefined, "selecting tables never loads the whole database's columns");
 ok("selecting a table fetches that table's columns only");
 
 // ---- column filter inside the selected database
-await page.click(".tree .db:has-text('shop')");                 // back to the database level (the table was selected)
-await page.click(".tree .db:has-text('shop')");                 // ...and expanded again
+await page.click(".scope .x");                                  // release the table lock: back to the database level
 await filter.fill("col:total");
 await page.waitForFunction(() => window.__filterCalls?.some((x) => x.query === "col:total" && x.scope === "shop"));
 await page.waitForTimeout(250);

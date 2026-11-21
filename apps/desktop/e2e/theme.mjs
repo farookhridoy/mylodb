@@ -29,7 +29,7 @@ assert.equal(await bg(page), "rgb(255, 255, 255)");
 await ctx.close();
 ({ ctx, page } = await open("dark"));
 assert.equal(await theme(page), "dark");
-assert.equal(await bg(page), "rgb(22, 26, 35)");
+assert.equal(await bg(page), "rgb(30, 31, 34)");
 ok("with no choice made, the theme follows the system appearance");
 
 // cycling: system -> light -> dark -> system

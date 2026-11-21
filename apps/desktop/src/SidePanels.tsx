@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import Icon from "./Icon";
 import { queryApi, type Favorite, type HistoryEntry } from "./api";
 
 export function HistoryPanel(props: { connectionId: number; refreshKey: number; onInsert(sql: string): void; onOpen(sql: string): void }) {
@@ -14,7 +15,7 @@ export function HistoryPanel(props: { connectionId: number; refreshKey: number; 
     <div className="panel">
       <div className="panel-bar">
         <input placeholder="Search history…" value={search} onChange={(e) => setSearch(e.target.value)} />
-        <button title="Clear history" onClick={async () => { await queryApi.historyClear(props.connectionId); setRows([]); }}>🗑</button>
+        <button title="Clear history" onClick={async () => { await queryApi.historyClear(props.connectionId); setRows([]); }}><Icon name="trash" /></button>
       </div>
       <ul className="list">
         {rows.map((h) => (
@@ -41,18 +42,18 @@ export function FavoritesPanel(props: { refreshKey: number; onInsert(sql: string
       <ul className="list">
         {folders.map((folder) => (
           <li key={folder} className="folder">
-            <div className="dim">📁 {folder || "Unfiled"}</div>
+            <div className="dim"><Icon name="folder" size={12} /> {folder || "Unfiled"}</div>
             <ul>
               {favs.filter((f) => f.folder === folder).map((f) => (
                 <li key={f.id} title={f.sql} onClick={() => props.onInsert(f.sql)} onDoubleClick={() => props.onOpen(f.sql)}>
-                  ★ {f.name}
-                  <button className="mini" title="Delete" onClick={async (e) => { e.stopPropagation(); await queryApi.favoriteDelete(f.id!); load(); }}>✕</button>
+                  <Icon name="star" size={12} className="ico-fav" /> {f.name}
+                  <button className="mini" title="Delete" onClick={async (e) => { e.stopPropagation(); await queryApi.favoriteDelete(f.id!); load(); }}><Icon name="close" size={10} /></button>
                 </li>
               ))}
             </ul>
           </li>
         ))}
-        {favs.length === 0 && <div className="empty">Save a query with ☆ in the toolbar</div>}
+        {favs.length === 0 && <div className="empty">Save a query with the star in the toolbar</div>}
       </ul>
     </div>
   );

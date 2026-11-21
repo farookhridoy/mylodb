@@ -31,12 +31,14 @@ for (const label of ["Tables", "Views", "Stored Procs", "Functions", "Triggers",
 ok("the database shows its total size and all six object groups");
 
 // ---- indexes under a table
-await page.click(".row-item.group:has-text('Tables')");
 await page.click(".row-item.leaf:has-text('orders')");
+await page.waitForTimeout(300);          // the Tables group is already open
 await page.waitForSelector(".row-item.idx");
-assert.deepEqual(await text(page.locator(".row-item.idx")), ["🔑 PRIMARY (id)", "idx_customer_total (customer_id, total)"]);
+assert.deepEqual(await text(page.locator(".row-item.idx")), ["PRIMARY (id)", "idx_customer_total (customer_id, total)"]);
 assert.match(await page.locator(".idx-head").innerText(), /indexes\s*2/i);
 ok("a table lists its indexes with their columns");
+
+await page.click(".scope .x");                                  // release the table lock to reach the other objects
 
 // ---- show a view's definition: becomes a runnable CREATE OR REPLACE
 await page.click(".row-item.group:has-text('Views')");
@@ -93,11 +95,12 @@ assert.match(await editorText(), /DELIMITER \$\$[\s\S]*BEFORE INSERT ON `shop`\.
 ok("the database menu offers templates for new views, procedures, functions, triggers and events");
 
 // ---- expansion and selection come back after reconnecting (a reload here)
-await page.click(".row-item.leaf:has-text('orders')");            // select the table
+await page.click(".row-item.leaf:has-text('orders')");
+await page.waitForTimeout(300);            // select the table
 await page.reload();
 await page.selectOption(".conn-bar select", "1");
 await page.waitForSelector(".row-item.idx", { timeout: 5000 });
-assert.equal(await page.locator(".filter input").getAttribute("placeholder"), "Filter columns in orders");
+assert.equal(await page.locator(".filter input").getAttribute("placeholder"), "Filter columns");
 assert.ok(await page.locator(".row-item.group:has-text('Tables')").count() === 1);
 ok("what was expanded and selected is restored the next time the connection opens");
 

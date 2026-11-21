@@ -20,7 +20,6 @@ const ok = (m) => console.log(`ok ${++step} ${m}`);
 await page.selectOption(".conn-bar select", "1");
 await page.waitForSelector(".tree .db");
 await page.click(".tree .db");
-await page.click("text=Tables");
 
 // ======================================================= backup
 await page.click("button[title='Backup, restore, import and export']");

@@ -13,8 +13,7 @@ MyLoDB covers the **daily-driver core** of SQLyog: connections (SSH, SSL), objec
 server tools, backup, restore and import/export, all tested against a real MySQL. The gaps fall into three groups:
 
 1. **The two features the plan calls defining are not built**: Production Safety and the Large Data Engine.
-2. **SQLyog's "complete manager" surface is thin**: views, procedures, functions, triggers and events can be *listed* but not opened, edited
-   or created; there is no `.sql` file handling, no Data Search, no Query Builder, no Schema Designer, no compare/sync, no Preferences.
+2. **SQLyog's "complete manager" surface is thin**: there is no `.sql` file handling, no Data Search, no Query Builder, no Schema Designer, no compare/sync, no Preferences.
 3. **Distribution and quality gates**: no CI, no database-version matrix, no signing.
 
 ## 2. Object browser (the left sidebar), against your brief
@@ -31,9 +30,16 @@ What you asked for, and where it stands after this change:
 | Table size in KB / MB / GB | ✅ data + index bytes, right-aligned on each table row; tooltip has exact bytes and the row estimate. Views show none. |
 | No hang on big servers | ✅ names only at connect; per-database size query (one round trip); per-table column query; groups paged 300 rows at a time. 90,000-object fake server: connect 0.3–0.6 s, about 600 rows on screen, slowest keystroke about 350–430 ms. |
 
-Still open in the browser (these are Phase 8 below): `Indexes` node per table, database total size, row-count column, sort by name/size,
-views/routines/triggers/events menus and editors, remember expanded state and selection per connection, F5 refresh of one node,
-collapse all, keyboard navigation, drag a table or column into the editor, an Info panel for the selected object.
+Added in Phase 8: an `Indexes` list under each table (name, columns, 🔑 primary, ◆ unique), total size on each database row, a context menu
+and double-click for **views, procedures, functions, triggers and events** (show / edit definition, drop with typed confirmation), "New view /
+procedure / function / trigger / event" templates in the database menu, expanded nodes and selection remembered per connection, F5 to refresh.
+
+"Show / edit definition" opens a script you can run as it is: views as `CREATE OR REPLACE VIEW`, routines, triggers and events as
+`DROP … IF EXISTS` + the server's own `CREATE` wrapped in `DELIMITER $$`. The tab is opened on the object's database, because the server
+returns unqualified names. A real-MySQL test runs these scripts for every kind and checks the object exists afterwards.
+
+Still open in the browser (carried over to Phase 11): sort by name / size / rows, an Info panel for the selected object, drag a table or column
+into the editor, alter database (charset / collation), keyboard navigation, collapse all, and routine / trigger / event *rename*.
 
 Note on sizes: MySQL 8 caches table statistics (`information_schema_stats_expiry`, 24 h by default), so sizes and row counts are estimates;
 `ANALYZE TABLE` refreshes them. The tooltip says so.
@@ -47,7 +53,7 @@ Note on sizes: MySQL 8 caches table statistics (`information_schema_stats_expiry
 | Connection options: TCP, SSH, SSL | ✅ | Keychain, CA and client certificates, fail-closed SSH host-key policy. ❌ HTTP tunnel (not planned), ❌ LDAP/PAM. |
 | Object browser lazy metadata | ✅ | Lazy by database and by table. |
 | Browser context menus for tables | ✅ | Open, design, select, import CSV, duplicate, rename, truncate, drop, copy name. |
-| Browser menus for views, procedures, functions, triggers, events | ❌ | Listed in the tree only. No create / alter / drop / view source. |
+| Browser menus for views, procedures, functions, triggers, events | ✅ | Show / edit definition, drop, new-object templates. Edits are made in the SQL editor (the script is runnable). A form-based routine editor is not planned. |
 | Browser: refresh, create database, drop database, backup | ✅ | ❌ alter database (charset), ❌ copy database to another host, ❌ schema documentation, ❌ flush dialog. |
 | SQL editor: tabs, autocomplete, formatter, favorites, history | ✅ | |
 | SQL editor: open / save `.sql` files, drag-open, templates | ❌ | |
@@ -58,7 +64,7 @@ Note on sizes: MySQL 8 caches table statistics (`information_schema_stats_expiry
 | Table data editing, staged, SQL preview, FK picker, BLOB viewer | ✅ | Beyond SQLyog: staged changes with exact SQL preview. |
 | Table designer: columns, indexes, FKs, preview DDL | ✅ | Beyond SQLyog: previews before applying. ❌ reorder columns by drag, ❌ engine-specific advanced properties. |
 | Rename, truncate, drop table | ✅ | Typed confirmation for destructive ones. |
-| Views, routines, triggers, events: browse, create, alter | ❌ | **Largest functional gap versus a "complete MySQL manager".** |
+| Views, routines, triggers, events: browse, create, alter | ✅ | Closed in Phase 8, through the SQL editor. |
 | Query Builder | ❌ | |
 | Schema Designer / ER diagram | ❌ | The plan suggests a read-only ER view first. |
 | Data Search across tables | ❌ | |
@@ -70,7 +76,7 @@ Note on sizes: MySQL 8 caches table statistics (`information_schema_stats_expiry
 | User and privilege manager | ✅ | Server, database, table and column scope. |
 | Process list, status, variables, flush | 🟡 | ✅ process list (kill), status, variables, maintenance, logs. ❌ flush. |
 | Favorites, History | ✅ | |
-| Info tab (details of the selected object) | ❌ | Partly covered by the new tooltips; a real Info panel is Phase 8. |
+| Info tab (details of the selected object) | 🟡 | Tooltips show sizes, row estimates and column definitions; a real Info panel is open. |
 | Profiler, messages | ✅ | `SHOW PROFILE` based. |
 | Preferences dialog | ❌ | Only theme (toggle) and a few per-feature settings. |
 | Keyboard shortcuts (mac-native) | 🟡 | ⌘↵, ⌘T, ⌘W, ⇧⌘F, ⇧⌘B. No command palette. |
@@ -116,25 +122,31 @@ Note on sizes: MySQL 8 caches table statistics (`information_schema_stats_expiry
 
 ## 5. Next phases
 
-Phases 1–7 and the filter, theme and sidebar work are done. Rough effort for one developer; each phase ends with tests and a DMG.
+Phases 1–8 and the filter, theme and sidebar work are done. Rough effort for one developer; each phase ends with tests and a DMG.
 
 | Phase | Theme | Scope | Effort |
 |---|---|---|---|
-| **8** | **Object browser completion** | `Indexes` and `Keys` nodes per table; database total size; sort by name / size / rows; menus and editors for **views, procedures, functions, triggers, events** (show source, create, alter, drop, rename); remember expansion and selection per connection; refresh one node (F5), collapse all; an **Info panel** for the selected object; drag a table or column into the editor; alter database. | 1.5–2 wk |
+| **8** ✅ | **Object browser completion** | Done: indexes under tables, database size, views / routines / triggers / events (definition, drop, templates), state remembered per connection, F5. Moved to Phase 11: sort, Info panel, drag into editor, alter database, collapse all, rename of routines. | done |
 | **9** | **Production Safety** | Environment label and badge (prod / staging / dev); server-enforced read-only; destructive-SQL review; query timeout; confirm-on-commit for production. | 2–3 wk |
 | **10** | **Large Data Engine** | Virtualized grid; lazy fetch with a bounded cache; keyset pagination; estimated counts; exports as cancellable tasks (progress, JSON Lines, GZIP); 1M and 10M-row benchmarks. | 3–4 wk |
-| **11** | **SQL workspace parity** | Open / save `.sql` (new tab or current), drag-open, templates; text result mode; copy with options; **Preferences** dialog; command palette (⌘K); connection tabs (several servers at once); connection groups and environments. | 2–3 wk |
+| **11** | **SQL workspace parity** | Browser leftovers (sort, Info panel, drag into editor, alter database); open / save `.sql` (new tab or current), drag-open, templates; text result mode; copy with options; **Preferences** dialog; command palette (⌘K); connection tabs (several servers at once); connection groups and environments. | 2–3 wk |
 | **12** | **Quality gates** | Tasks panel; GitHub Actions on macOS arm64 / x64; MySQL 5.7 / 8.0 / 9 and MariaDB in containers; network-drop and restart tests. | 1–2 wk |
 | **13** | **Power tools** | Data Search; schema compare with migration preview; data compare; copy database / table between connections; schema documentation (HTML). | 4–5 wk |
 | **14** | **Visual tools** | Query Builder (canvas, grid, SQL preview, round trip); ER / Schema Designer (read-only first, then migration-plan workflow, never live-edit). | 4–5 wk |
 | **15** | **Beta release** | Signing and notarisation (needs an Apple Developer account), Intel build, Homebrew cask, user documentation. | 1–2 wk |
 | Later | Automation and AI | Job agent, scheduler and reports, scheduled backups, SQL inspections, index advisor, MCP server, AI assistant, plugin API. | |
 
-**Why this order.** Phase 8 finishes the part of the app you use all day and closes the largest SQLyog gap. Phases 9 and 10 are the plan's
+**Why this order.** Phase 8 is done. Phases 9 and 10 are the plan's
 "defining" features and must land before the visual tools. Phase 11 removes daily friction. Phase 12 should run alongside 9–11 so the
 version matrix catches MariaDB and 5.7 differences before the power tools depend on them.
 
-## 6. Done in this change
+## 6. Done in Phase 8
+
+* Views, procedures, functions, triggers and events: menus, definitions as runnable scripts, drop, templates.
+* Indexes under tables, database sizes, per-connection memory of expansion and selection, F5.
+* New backend: `index_details`, `object_definition`, `drop_object_sql` (tested on a real server), `table_index_details`, `object_definition`, `drop_object` commands.
+
+## 7. Done earlier
 
 * Object browser: connection root node with reset, three-level filter (databases → tables → columns), column types, table sizes.
 * New backend queries `table_stats` (one per database) and `column_details` (one per table), with a real-MySQL test.

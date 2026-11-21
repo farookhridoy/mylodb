@@ -46,6 +46,11 @@ const nodes = () => {
     { database: "shop", kind: "database", name: "shop", parent: null },
     { database: "shop", kind: "table", name: "customers", parent: null },
     { database: "shop", kind: "table", name: "orders", parent: null },
+    ...(window.__droppedObjects || new Set()).has("view:v_orders") ? [] : [{ database: "shop", kind: "view", name: "v_orders", parent: null }],
+    { database: "shop", kind: "procedure", name: "p_total", parent: null },
+    { database: "shop", kind: "function", name: "f_tax", parent: null },
+    { database: "shop", kind: "trigger", name: "trg_orders_bi", parent: "orders" },
+    { database: "shop", kind: "event", name: "ev_nightly", parent: null },
   ];
   const big = window.__bigServer;
   if (big) {
@@ -276,5 +281,34 @@ Object.assign(handlers, {
       return m.columns.map((c) => ({ name: c[0], column_type: typeOf(c), nullable: !!c[3], key: m.pk.includes(c[0]) ? "PRI" : "", extra: c[2] ? "auto_increment" : "" }));
     }
     return [{ name: "id", column_type: "bigint unsigned", nullable: false, key: "PRI", extra: "auto_increment" }, { name: "code", column_type: "char(255)", nullable: true, key: "", extra: "" }];
+  },
+});
+
+// ---- objects and indexes ----
+const DEFS = {
+  "view:v_orders": "CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `v_orders` AS select `orders`.`id` AS `id` from `orders`",
+  "procedure:p_total": "CREATE DEFINER=`root`@`localhost` PROCEDURE `p_total`()\nBEGIN SELECT 1; SELECT 2; END",
+  "function:f_tax": "CREATE DEFINER=`root`@`localhost` FUNCTION `f_tax`(a INT) RETURNS int DETERMINISTIC RETURN a * 2",
+  "trigger:trg_orders_bi": "CREATE TRIGGER `trg_orders_bi` BEFORE INSERT ON `orders` FOR EACH ROW SET NEW.note = 'x'",
+  "event:ev_nightly": "CREATE EVENT `ev_nightly` ON SCHEDULE EVERY 1 DAY DO SELECT 1",
+};
+Object.assign(handlers, {
+  table_index_details: (a) => {
+    window.__indexCalls = (window.__indexCalls || []).concat([`${a.db}.${a.table}`]);
+    return a.table === "orders"
+      ? [{ name: "PRIMARY", unique: true, kind: "BTREE", columns: ["id"] }, { name: "idx_customer_total", unique: false, kind: "BTREE", columns: ["customer_id", "total"] }]
+      : [{ name: "PRIMARY", unique: true, kind: "BTREE", columns: ["id"] }];
+  },
+  object_definition: (a) => {
+    window.__defCalls = (window.__defCalls || []).concat([`${a.kind}:${a.name}`]);
+    const d = DEFS[`${a.kind}:${a.name}`];
+    if (!d) throw "no such object";
+    return d;
+  },
+  drop_object: (a) => {
+    window.__droppedObjects = window.__droppedObjects || new Set();
+    window.__droppedObjects.add(`${a.kind}:${a.name}`);
+    window.__dropCalls = (window.__dropCalls || []).concat([`${a.kind}:${a.db}.${a.name}`]);
+    return `DROP ${a.kind.toUpperCase()} \`${a.db}\`.\`${a.name}\``;
   },
 });

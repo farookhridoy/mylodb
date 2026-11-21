@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api, describeError, editorApi, queryApi, schemaApi, type ConnectError, type Favorite, type FormatOptions, type Node, type SavedConnection, type TableOp } from "./api";
+import { api, describeError, editorApi, queryApi, schemaApi, type ConnectError, type Favorite, type FormatOptions, type Kind, type Node, type SavedConnection, type TableOp } from "./api";
 import AnalysisPane, { type Analysis } from "./AnalysisPane";
 import ConnectionDialog from "./ConnectionDialog";
 import ContextMenu, { type MenuItem } from "./ContextMenu";
@@ -60,6 +60,15 @@ export default function App() {
   const [selectedTable, setSelectedTable] = useState<string | null>(null);
   const [columnsLoaded, setColumnsLoaded] = useState<Set<string>>(new Set());
   const meta = useBrowserMeta(activeId);
+  const activeIdRef = useRef(activeId);
+  activeIdRef.current = activeId;
+  // expanded nodes and selection are remembered per connection
+  const [browserState, setBrowserState] = useState<{ open: string[] }>({ open: [] });
+  const browserSaved = useRef<{ open: string[]; db: string | null; table: string | null }>({ open: [], db: null, table: null });
+  const saveBrowser = (patch: Partial<{ open: string[]; db: string | null; table: string | null }>) => {
+    browserSaved.current = { ...browserSaved.current, ...patch };
+    if (activeIdRef.current !== null) localStorage.setItem(`mylodb.browser.${activeIdRef.current}`, JSON.stringify(browserSaved.current));
+  };
   const colQueue = useRef<Promise<unknown>>(Promise.resolve());
   const filterInput = useRef<HTMLInputElement>(null);
   const [dialog, setDialog] = useState<SavedConnection | "new" | null>(null);
@@ -102,7 +111,16 @@ export default function App() {
     try {
       if (activeId !== null && activeId !== id) await api.disconnect(activeId);
       const idx = await api.connect(id, trust);
-      setSelectedDb(null); setSelectedTable(null); setQuery(""); meta.reset(); setColumnsLoaded(new Set()); setMatches(null); setMatchScope(null);
+      // what was expanded and selected last time on this connection (only what still exists on the server)
+      let savedBrowser: { open: string[]; db: string | null; table: string | null } = { open: [], db: null, table: null };
+      try { savedBrowser = { ...savedBrowser, ...JSON.parse(localStorage.getItem(`mylodb.browser.${id}`) ?? "{}") }; } catch { /* a damaged entry is ignored */ }
+      const dbExists = (d: string | null) => !!d && idx.some((n) => n.kind === "database" && n.name === d);
+      const restoredDb = dbExists(savedBrowser.db) ? savedBrowser.db : null;
+      const restoredTable = restoredDb && idx.some((n) => n.database === restoredDb && (n.kind === "table" || n.kind === "view") && n.name === savedBrowser.table) ? savedBrowser.table : null;
+      savedBrowser = { open: (savedBrowser.open ?? []).filter((k) => dbExists(k.split("/")[0])), db: restoredDb, table: restoredTable };
+      browserSaved.current = savedBrowser;
+      setBrowserState({ open: savedBrowser.open });
+      setSelectedDb(restoredDb); setSelectedTable(restoredTable); setQuery(""); meta.reset(); setColumnsLoaded(new Set()); setMatches(null); setMatchScope(null);
       colQueue.current = Promise.resolve();
       let restoredTabs: QueryTab[] = [];
       let restoredActive = "";
@@ -174,13 +192,15 @@ export default function App() {
     if (db !== selectedDb) setQuery("");
     setSelectedDb(db);
     if (selectedTable !== null) { setSelectedTable(null); setQuery(""); }
+    saveBrowser({ db, table: null });
   };
   const selectTable = (db: string, table: string) => {
     if (db === selectedDb && table === selectedTable) return;
     setSelectedDb(db); setSelectedTable(table); setQuery("");
+    saveBrowser({ db, table });
   };
   /// Clicking the connection node: back to the full list of databases.
-  const resetBrowser = () => { setSelectedDb(null); setSelectedTable(null); setQuery(""); setMatches(null); setMatchScope(null); };
+  const resetBrowser = () => { setSelectedDb(null); setSelectedTable(null); setQuery(""); setMatches(null); setMatchScope(null); saveBrowser({ db: null, table: null }); };
 
   // ---- filter ----
   // Scoped to the selected database; with none selected it matches database names only.
@@ -369,10 +389,54 @@ export default function App() {
     ] });
   };
 
+  // ---- views, routines, triggers, events ----
+  const KIND_WORD: Record<string, string> = { view: "VIEW", procedure: "PROCEDURE", function: "FUNCTION", trigger: "TRIGGER", event: "EVENT" };
+  const KIND_LABEL: Record<string, string> = { view: "view", procedure: "procedure", function: "function", trigger: "trigger", event: "event" };
+
+  /// A script that recreates the object: a DROP followed by the server's own CREATE, with DELIMITER where the body needs it.
+  const definitionScript = (kind: Kind, d: string, name: string, ddl: string) => {
+    const word = KIND_WORD[kind];
+    const qn = `${quote(d)}.${quote(name)}`;
+    if (kind === "view") return `${ddl.replace(/^CREATE\b/i, "CREATE OR REPLACE")};\n`;
+    return `DELIMITER $$\nDROP ${word} IF EXISTS ${qn}$$\n${ddl}$$\nDELIMITER ;\n`;
+  };
+  const showDefinition = async (d: string, kind: Kind, name: string) => {
+    if (activeId === null) return;
+    try {
+      const ddl = await api.objectDefinition(activeId, kind, d, name);
+      addTab(definitionScript(kind, d, name, ddl), d, name);
+    } catch (e) { setStatus(`Error: ${describeError(e)}`); }
+  };
+  const objectMenu = (e: React.MouseEvent, d: string, kind: Kind, name: string) => {
+    if (kind === "table") return tableMenu(e, d, name);
+    e.preventDefault();
+    if (!KIND_WORD[kind]) return;
+    const items: MenuItem[] = [];
+    if (kind === "view") items.push({ label: "Open data", onClick: () => openTable(d, name) }, { label: "Select in SQL editor", onClick: () => selectInEditor(d, name) });
+    items.push(
+      { label: "Show / edit definition", onClick: () => showDefinition(d, kind, name) },
+      { separator: true },
+      { label: "Drop…", onClick: () => setTypeConfirm({ title: `Drop ${KIND_LABEL[kind]} ${name}`, message: `The ${KIND_LABEL[kind]} ${d}.${name} will be permanently deleted.`, expect: name, confirmLabel: `Drop ${KIND_LABEL[kind]}`,
+          onCancel: () => setTypeConfirm(null),
+          onConfirm: async () => { setTypeConfirm(null); try { await api.dropObject(activeId!, kind, d, name); await reloadIndex(); setStatus(`Dropped ${KIND_LABEL[kind]} ${d}.${name}`); } catch (err) { setStatus(`Error: ${describeError(err)}`); } } }) },
+      { separator: true },
+      { label: "Copy name", onClick: () => navigator.clipboard.writeText(name) },
+    );
+    setTreeMenu({ x: e.clientX, y: e.clientY, items });
+  };
+  const TEMPLATES: Record<string, (d: string) => string> = {
+    view: (d) => `CREATE VIEW ${quote(d)}.\`new_view\` AS\nSELECT 1 AS id;\n`,
+    procedure: (d) => `DELIMITER $$\nCREATE PROCEDURE ${quote(d)}.\`new_procedure\`(IN p_id INT)\nBEGIN\n  SELECT p_id;\nEND$$\nDELIMITER ;\n`,
+    function: (d) => `DELIMITER $$\nCREATE FUNCTION ${quote(d)}.\`new_function\`(p_a INT) RETURNS INT\nDETERMINISTIC\nBEGIN\n  RETURN p_a + 1;\nEND$$\nDELIMITER ;\n`,
+    trigger: (d) => `DELIMITER $$\nCREATE TRIGGER ${quote(d)}.\`new_trigger\`\nBEFORE INSERT ON ${quote(d)}.\`table_name\` FOR EACH ROW\nBEGIN\n  -- SET NEW.column = ...;\nEND$$\nDELIMITER ;\n`,
+    event: (d) => `CREATE EVENT ${quote(d)}.\`new_event\`\nON SCHEDULE EVERY 1 DAY\nDO\n  SELECT 1;\n`,
+  };
+
   const databaseMenu = (e: React.MouseEvent, d: string | null) => {
     e.preventDefault();
     const items: MenuItem[] = [];
-    if (d) items.push({ label: "New table…", onClick: () => openDesigner(d, null) }, { label: "Back up this database…", onClick: () => openTransfer({ tab: "backup", db: d }) }, { label: "Import CSV…", onClick: () => openTransfer({ tab: "import", db: d }) }, { separator: true });
+    if (d) items.push({ label: "New table…", onClick: () => openDesigner(d, null) }, { label: "Back up this database…", onClick: () => openTransfer({ tab: "backup", db: d }) }, { label: "Import CSV…", onClick: () => openTransfer({ tab: "import", db: d }) }, { separator: true },
+      ...(["view", "procedure", "function", "trigger", "event"] as const).map((k) => ({ label: `New ${k}…`, onClick: () => addTab(TEMPLATES[k](d), d, `New ${k}`) })), { separator: true });
     items.push({ label: "Create database…", onClick: () => setPrompt({ title: "Create database", label: "Database name", confirmLabel: "Create",
       onCancel: () => setPrompt(null), onSubmit: async (name) => { setPrompt(null); try { await schemaApi.databaseOp(activeId!, { op: "create", name, charset: "utf8mb4", collation: null }); await reloadIndex(); } catch (err) { setStatus(`Error: ${err}`); } } }) });
     if (d) items.push({ label: "Drop database…", onClick: () => setTypeConfirm({ title: `Drop database ${d}`, message: `The database ${d} with all its tables and data will be permanently deleted.`, expect: d, confirmLabel: "Drop database",
@@ -420,6 +484,7 @@ export default function App() {
   // Global shortcuts: ⌘T new tab, ⌘W close tab.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (e.key === "F5" && activeId !== null) { e.preventDefault(); reloadIndex(); return; }
       if (!e.metaKey || activeId === null) return;
       if (e.shiftKey && e.key.toLowerCase() === "b") { e.preventDefault(); setSide("objects"); const focus = () => filterInput.current?.focus(); focus(); setTimeout(focus, 0); /* the second call covers the objects tab not being mounted yet */ return; }
       if (e.key === "t") { e.preventDefault(); addTab("", tab?.database ?? null); }
@@ -474,8 +539,8 @@ export default function App() {
             <div className="tree-wrap">
               {activeId === null
                 ? <div className="empty">Create or select a connection</div>
-                : <ObjectTree index={index} matches={matches} scope={matchScope} terms={terms} selectedDb={selectedDb} onSelectDb={selectDb} selectedTable={selectedTable} onSelectTable={selectTable} rootLabel={active ? `${active.user}@${active.host}` : ""} onResetRoot={resetBrowser} columnQuery={selectedTable ? query : ""} stats={meta.stats} ensureStats={meta.ensureStats} details={meta.details} ensureDetails={meta.ensureDetails}
-                    columnsLoaded={columnsLoaded} ensureColumns={ensureColumns} onOpenTable={(d, t) => openTable(d, t)} onTableMenu={tableMenu} onDatabaseMenu={databaseMenu} />}
+                : <ObjectTree key={activeId} index={index} matches={matches} scope={matchScope} terms={terms} selectedDb={selectedDb} onSelectDb={selectDb} selectedTable={selectedTable} onSelectTable={selectTable} rootLabel={active ? `${active.user}@${active.host}` : ""} onResetRoot={resetBrowser} columnQuery={selectedTable ? query : ""} stats={meta.stats} ensureStats={meta.ensureStats} details={meta.details} ensureDetails={meta.ensureDetails}
+                    columnsLoaded={columnsLoaded} ensureColumns={ensureColumns} onOpenTable={(d, t) => openTable(d, t)} onObjectMenu={objectMenu} onOpenObject={showDefinition} indexes={meta.indexes} initialOpen={browserState.open} onOpenChange={(keys) => saveBrowser({ open: keys })} onDatabaseMenu={databaseMenu} />}
             </div>
           </>
         )}

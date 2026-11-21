@@ -64,7 +64,7 @@ await page.uncheck(".tbl-sub label:has-text('customers') input");
 await page.click("button:text-is('Start backup')");
 await page.waitForSelector(".result-card");
 b = await g("__backup");
-assert.deepEqual(b.options.databases, [{ name: "shop", tables: ["orders"] }]);
+assert.deepEqual(b.options.databases, [{ name: "shop", tables: ["orders", "v_orders"] }], "views are backed up with the tables");
 assert.deepEqual([b.options.file_per_table, b.options.compress, b.options.data, b.options.structure], [true, true, false, true]);
 ok("table selection and output options are passed through");
 

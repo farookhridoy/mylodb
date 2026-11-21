@@ -41,23 +41,23 @@ ok("table sizes appear in KB and MB next to each table (one query per database)"
 // ---- table: columns with types
 await page.click(".row-item.leaf:has-text('orders')");
 assert.equal(await placeholder(), "Filter columns in orders");
-await page.waitForSelector(".row-item.col .ctype");
+await page.waitForSelector(".row-item.col:not(.idx):not(.idx-head) .ctype");
 assert.deepEqual(await g("__detailCalls"), ["shop.orders"]);
-let cols = await text(page.locator(".row-item.col"));
+let cols = await text(page.locator(".row-item.col:not(.idx):not(.idx-head)"));
 assert.deepEqual(cols, ["🔑 id bigint unsigned", "customer_id int", "total decimal(10,2)", "note text"]);
 ok("selecting a table lists its columns with type and key, and the filter now says 'Filter columns in orders'");
 
 // ---- column filter: by name or by type, entirely in the browser
 const before = (await g("__filterCalls"))?.length ?? 0;
 await filter.fill("total");
-assert.deepEqual(await text(page.locator(".row-item.col")), ["total decimal(10,2)"]);
+assert.deepEqual(await text(page.locator(".row-item.col:not(.idx):not(.idx-head)")), ["total decimal(10,2)"]);
 await filter.fill("bigint");
-assert.deepEqual(await text(page.locator(".row-item.col")), ["🔑 id bigint unsigned"], "matches the type");
+assert.deepEqual(await text(page.locator(".row-item.col:not(.idx):not(.idx-head)")), ["🔑 id bigint unsigned"], "matches the type");
 await filter.fill("zzz");
-assert.equal(await page.locator(".row-item.col").count(), 0);
+assert.equal(await page.locator(".row-item.col:not(.idx):not(.idx-head)").count(), 0);
 assert.deepEqual(await text(page.locator(".columns .empty")), ["No matching columns"]);
 await filter.fill("");
-assert.equal(await page.locator(".row-item.col .ctype").count(), 4);
+assert.equal(await page.locator(".row-item.col:not(.idx):not(.idx-head) .ctype").count(), 4);
 await page.waitForTimeout(300);
 assert.equal((await g("__filterCalls"))?.length ?? 0, before, "column filtering never calls the backend");
 ok("the column filter searches names and types without asking the server");
@@ -69,7 +69,7 @@ assert.equal(await placeholder(), "Filter columns in customers");
 assert.equal(await filter.inputValue(), "", "the box starts empty at every level");
 await page.waitForFunction(() => window.__detailCalls?.includes("shop.customers"));
 assert.deepEqual(await g("__detailCalls"), ["shop.orders", "shop.customers"]);
-assert.equal(await page.locator(".row-item.leaf:has-text('orders') + ul .col, li:has(> .row-item.leaf:has-text('orders')) .col").count(), 4, "the previous table's columns are not filtered by the new box");
+assert.equal(await page.locator("li:has(> .row-item.leaf:has-text('orders')) .col:not(.idx):not(.idx-head)").count(), 4, "the previous table's columns are not filtered by the new box");
 await page.click(".row-item.leaf:has-text('orders')");   // selecting orders again must not refetch
 assert.deepEqual(await g("__detailCalls"), ["shop.orders", "shop.customers"], "cached");
 ok("each table fetches its column details once; switching tables resets the filter box");
@@ -80,7 +80,7 @@ await root.click();
 assert.equal(await placeholder(), "Filter databases");
 assert.equal(await filter.inputValue(), "");
 assert.equal(await page.locator(".row-item.group").count(), 0, "everything is collapsed");
-assert.equal(await page.locator(".row-item.col").count(), 0);
+assert.equal(await page.locator(".row-item.col:not(.idx):not(.idx-head)").count(), 0);
 assert.equal(await page.locator(".row-item.db.selected, .row-item.db.current").count(), 0, "no database is selected");
 assert.equal(await page.locator(".row-item.root.selected").count(), 1);
 ok("clicking root@host resets the browser to the full database list");

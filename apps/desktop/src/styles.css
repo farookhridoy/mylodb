@@ -241,3 +241,7 @@ td.val { max-width: 560px; overflow: hidden; text-overflow: ellipsis; font-famil
 .row-item.col { gap: 6px; padding-left: 8px; }
 .row-item.col .key { width: 14px; font-size: 10px; text-align: center; flex: none; color: var(--warn); }
 .row-item.col .ctype { margin-left: auto; padding-left: 10px; color: var(--info); font: 11px "SF Mono", Menlo, monospace; flex: none; }
+.row-item.col.idx-head { margin-top: 4px; color: var(--dim); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+.row-item.col.idx .name { color: var(--dim); }
+.row-item.db .size { margin-left: auto; }
+.row-item.db .size + .badge { margin-left: 6px; }

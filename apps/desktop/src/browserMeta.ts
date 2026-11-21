@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from "react";
-import { api, type ColumnDetail, type TableStat } from "./api";
+import { api, type ColumnDetail, type IndexDetail, type TableStat } from "./api";
 
 /** "1.4 MB", "312 KB", "0 B". Binary units, one decimal from MB up. */
 export function formatBytes(n: number): string {
@@ -20,6 +20,7 @@ export type ColumnsOf = ColumnDetail[] | "loading" | { error: string };
 export function useBrowserMeta(connectionId: number | null) {
   const [stats, setStats] = useState<Record<string, Record<string, TableStat>>>({});
   const [details, setDetails] = useState<Record<string, ColumnsOf>>({});
+  const [indexes, setIndexes] = useState<Record<string, IndexDetail[]>>({});
   // requests in flight or done, so two renders never ask twice; cleared by reset()
   const asked = useRef(new Set<string>());
   const generation = useRef(0);
@@ -29,6 +30,7 @@ export function useBrowserMeta(connectionId: number | null) {
     asked.current.clear();
     setStats({});
     setDetails({});
+    setIndexes({});
   }, []);
 
   const ensureStats = useCallback((db: string) => {
@@ -46,12 +48,16 @@ export function useBrowserMeta(connectionId: number | null) {
     asked.current.add(`c\0${key}`);
     const gen = generation.current;
     setDetails((d) => ({ ...d, [key]: "loading" }));
+    // indexes are decoration next to the columns: a failure here must not hide the columns
+    api.indexDetails(connectionId, db, table)
+      .then((rows) => gen === generation.current && setIndexes((d) => ({ ...d, [key]: rows })))
+      .catch(() => {});
     api.columnDetails(connectionId, db, table)
       .then((cols) => gen === generation.current && setDetails((d) => ({ ...d, [key]: cols })))
       .catch((e) => { if (gen === generation.current) { asked.current.delete(`c\0${key}`); setDetails((d) => ({ ...d, [key]: { error: String(e) } })); } });
   }, [connectionId]);
 
-  return { stats, details, ensureStats, ensureDetails, reset };
+  return { stats, details, indexes, ensureStats, ensureDetails, reset };
 }
 
 /** Column filter used when a table is selected: every space-separated term must be in the name or the type; `*` and `?` are wildcards. */

@@ -137,3 +137,54 @@ pub async fn column_details(pool: &Pool, database: &str, table: &str) -> Result<
         .map(|(name, column_type, nullable, key, extra)| ColumnDetail { name, column_type, nullable: nullable == "YES", key, extra })
         .collect())
 }
+
+/// An index of a table, columns in order.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+pub struct IndexDetail {
+    pub name: String,
+    pub unique: bool,
+    /// `BTREE`, `HASH`, `FULLTEXT`, `SPATIAL`.
+    pub kind: String,
+    pub columns: Vec<String>,
+}
+
+/// Indexes of one table (the primary key is the index named `PRIMARY`).
+pub async fn index_details(pool: &Pool, database: &str, table: &str) -> Result<Vec<IndexDetail>> {
+    let mut conn = pool.get_conn().await?;
+    // expression indexes (MySQL 8 functional key parts) have a NULL column name; they are shown as `(expression)`
+    let rows: Vec<(String, i64, String, Option<String>)> = conn
+        .exec(
+            "SELECT INDEX_NAME, NON_UNIQUE, INDEX_TYPE, COLUMN_NAME FROM information_schema.STATISTICS \
+             WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? ORDER BY INDEX_NAME = 'PRIMARY' DESC, INDEX_NAME, SEQ_IN_INDEX",
+            (database, table),
+        )
+        .await?;
+    let mut out: Vec<IndexDetail> = Vec::new();
+    for (name, non_unique, kind, column) in rows {
+        let column = column.unwrap_or_else(|| "(expression)".to_string());
+        match out.last_mut() {
+            Some(last) if last.name == name => last.columns.push(column),
+            _ => out.push(IndexDetail { name, unique: non_unique == 0, kind, columns: vec![column] }),
+        }
+    }
+    Ok(out)
+}
+
+/// The `CREATE` statement of a view, routine, trigger or event, as the server reports it.
+pub async fn object_definition(pool: &Pool, kind: Kind, database: &str, name: &str) -> Result<Option<String>> {
+    use mysql_async::Row;
+    let (what, column) = match kind {
+        Kind::View => ("VIEW", "Create View"),
+        Kind::Procedure => ("PROCEDURE", "Create Procedure"),
+        Kind::Function => ("FUNCTION", "Create Function"),
+        Kind::Trigger => ("TRIGGER", "SQL Original Statement"),
+        Kind::Event => ("EVENT", "Create Event"),
+        Kind::Table => ("TABLE", "Create Table"),
+        Kind::Database | Kind::Column => return Ok(None),
+    };
+    let mut conn = pool.get_conn().await?;
+    let ident = |s: &str| format!("`{}`", s.replace('`', "``"));
+    let row: Option<Row> = conn.query_first(format!("SHOW CREATE {what} {}.{}", ident(database), ident(name))).await?;
+    // the statement can be NULL for routines the account may not read: that is "no definition", not an error
+    Ok(row.and_then(|r| r.get_opt::<Option<String>, _>(column)).and_then(|v| v.ok()).flatten())
+}

@@ -4,7 +4,7 @@ use myq_data::{Assign, Change, CellData, ColumnFilter, ExportOptions, LookupItem
 use myq_admin::{Account, AccountEdit, Grants, ScopeGrant, Sql};
 use myq_schema::ddl::TableDef;
 use myq_driver::{execute_script, introspect, introspect_columns, kill_query, pool, IntrospectOptions, Pool, StatementResult};
-use myq_schema::filter::{Filter, Node};
+use myq_schema::filter::{Filter, Kind, Node};
 use myq_store::{Favorite, HistoryEntry, Keychain, SavedConnection, Store};
 use std::{collections::HashMap, sync::Mutex};
 use tauri::{Emitter, Manager};
@@ -268,6 +268,33 @@ async fn db_table_stats(state: tauri::State<'_, AppState>, id: i64, db: String) 
 #[tauri::command]
 async fn table_column_details(state: tauri::State<'_, AppState>, id: i64, db: String, table: String) -> Result<Vec<myq_driver::ColumnDetail>, String> {
     myq_driver::column_details(&session_pool(&state, id)?, &db, &table).await.map_err(err)
+}
+
+/// Indexes of one table, for the object browser.
+#[tauri::command]
+async fn table_index_details(state: tauri::State<'_, AppState>, id: i64, db: String, table: String) -> Result<Vec<myq_driver::IndexDetail>, String> {
+    myq_driver::index_details(&session_pool(&state, id)?, &db, &table).await.map_err(err)
+}
+
+/// The CREATE statement of a view, routine, trigger or event.
+#[tauri::command]
+async fn object_definition(state: tauri::State<'_, AppState>, id: i64, kind: Kind, db: String, name: String) -> Result<String, String> {
+    myq_driver::object_definition(&session_pool(&state, id)?, kind, &db, &name)
+        .await
+        .map_err(err)?
+        .ok_or_else(|| format!("the server returned no definition for {db}.{name} (your account may not be allowed to read it)"))
+}
+
+/// Drop a view, routine, trigger or event. Tables go through `table_op`, databases through `database_op`.
+#[tauri::command]
+async fn drop_object(state: tauri::State<'_, AppState>, id: i64, kind: Kind, db: String, name: String) -> Result<String, String> {
+    let sql = myq_schema::ddl::drop_object_sql(kind, &db, &name).ok_or_else(|| format!("{kind:?} cannot be dropped here"))?;
+    let mut c = conn_for(&state, id).await?;
+    let result = myq_admin::run_statements(&mut c, std::slice::from_ref(&sql)).await;
+    let _ = state.store.lock().unwrap().add_history(id, &sql, 0, result.is_ok());
+    result.map_err(err)?;
+    reindex(&state, id).await?;
+    Ok(sql)
 }
 
 /// Execute a script on a dedicated server connection. `run_id` lets the UI cancel it.
@@ -966,6 +993,9 @@ pub fn run() {
             filter_index,
             load_columns,
             db_table_stats,
+            table_index_details,
+            object_definition,
+            drop_object,
             table_column_details,
             run_query,
             cancel_query,

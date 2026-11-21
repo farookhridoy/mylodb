@@ -102,6 +102,53 @@ async fn reports_column_types_and_table_sizes() {
         let v = stats.iter().find(|s| s.name == "v").expect("view listed");
         assert_eq!(v.bytes, None, "views have no size");
         assert!(myq_driver::table_stats(&pool, "mylodb_no_such_db").await?.is_empty());
+
+        // indexes: primary first, columns in order, prefix and uniqueness reported
+        conn.query_drop(format!("CREATE UNIQUE INDEX u_code_note ON `{db}`.t (code(20), note)")).await?;
+        let idx = myq_driver::index_details(&pool, &db, "t").await?;
+        assert_eq!(idx[0].name, "PRIMARY");
+        assert!(idx[0].unique);
+        assert_eq!(idx[0].columns, ["id"]);
+        let u = idx.iter().find(|i| i.name == "u_code_note").unwrap();
+        assert!(u.unique);
+        assert_eq!(u.columns, ["code", "note"]);
+        assert!(!idx.iter().find(|i| i.name == "code").unwrap().unique, "the plain KEY (code(20)) is not unique");
+
+        // definitions of every object kind
+        conn.query_drop(format!("CREATE PROCEDURE `{db}`.p() BEGIN SELECT 1; END")).await?;
+        conn.query_drop(format!("CREATE FUNCTION `{db}`.f() RETURNS INT DETERMINISTIC RETURN 1")).await?;
+        conn.query_drop(format!("CREATE TRIGGER `{db}`.tg BEFORE INSERT ON `{db}`.t FOR EACH ROW SET NEW.note = 'x'")).await?;
+        conn.query_drop(format!("CREATE EVENT `{db}`.ev ON SCHEDULE EVERY 1 YEAR DISABLE DO SELECT 1")).await?;
+        for (kind, name, needle) in [
+            (Kind::View, "v", "VIEW"),
+            (Kind::Procedure, "p", "PROCEDURE"),
+            (Kind::Function, "f", "FUNCTION"),
+            (Kind::Trigger, "tg", "TRIGGER"),
+            (Kind::Event, "ev", "EVENT"),
+            (Kind::Table, "t", "CREATE TABLE"),
+        ] {
+            let ddl = myq_driver::object_definition(&pool, kind, &db, name).await?.unwrap_or_default();
+            assert!(ddl.to_uppercase().contains(needle), "{kind:?}: {ddl}");
+        }
+        assert!(myq_driver::object_definition(&pool, Kind::Database, &db, &db).await?.is_none());
+
+        // the app opens these scripts in a tab whose database is the object's, because SHOW CREATE returns unqualified names
+        conn.query_drop(format!("USE `{db}`")).await?;
+        // "Show / edit definition" scripts (the same shape the app builds) must run as-is and recreate the object
+        for (kind, word, name) in [(Kind::Procedure, "PROCEDURE", "p"), (Kind::Function, "FUNCTION", "f"), (Kind::Trigger, "TRIGGER", "tg"), (Kind::Event, "EVENT", "ev")] {
+            let ddl = myq_driver::object_definition(&pool, kind, &db, name).await?.unwrap();
+            let script = format!("DELIMITER $$\nDROP {word} IF EXISTS `{db}`.`{name}`$$\n{ddl}$$\nDELIMITER ;\n");
+            let statements = myq_sql::split_statements(&script);
+            assert_eq!(statements.len(), 2, "{kind:?} splits into DROP + CREATE: {statements:?}");
+            for st in &statements {
+                conn.query_drop(st.text.as_str()).await?;
+            }
+            assert!(myq_driver::object_definition(&pool, kind, &db, name).await?.is_some(), "{kind:?} exists again");
+        }
+        // the view script uses CREATE OR REPLACE
+        let vddl = myq_driver::object_definition(&pool, Kind::View, &db, "v").await?.unwrap();
+        conn.query_drop(format!("{};", vddl.replacen("CREATE", "CREATE OR REPLACE", 1))).await?;
+        assert!(myq_driver::object_definition(&pool, Kind::View, &db, "missing").await.is_err(), "a missing object is an error, not an empty definition");
         Ok::<_, myq_driver::Error>(())
     }
     .await;

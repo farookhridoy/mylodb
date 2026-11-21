@@ -1,7 +1,7 @@
-import { memo, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import type { Kind, Node } from "./api";
 import { columnMatches, formatBytes, type ColumnsOf } from "./browserMeta";
-import type { TableStat } from "./api";
+import type { IndexDetail, TableStat } from "./api";
 
 /** Rows drawn per group before a "show more" row. Keeps a database with thousands of tables responsive. */
 const PAGE = 300;
@@ -37,6 +37,10 @@ export interface TreeProps {
   stats: Record<string, Record<string, TableStat>>;
   ensureStats(db: string): void;
   details: Record<string, ColumnsOf>;
+  indexes: Record<string, IndexDetail[]>;
+  /** Keys of the expanded nodes, restored per connection. */
+  initialOpen: string[];
+  onOpenChange(keys: string[]): void;
   ensureDetails(db: string, table: string): void;
   index: Node[];
   /** Index positions matching the filter, or null when no filter is active. */
@@ -49,13 +53,15 @@ export interface TreeProps {
   columnsLoaded: Set<string>;
   ensureColumns(db: string): Promise<unknown>;
   onOpenTable(database: string, table: string): void;
-  onTableMenu(e: React.MouseEvent, database: string, table: string): void;
+  onObjectMenu(e: React.MouseEvent, database: string, kind: Kind, name: string): void;
+  /** Double-click on a routine, trigger or event: show its definition. */
+  onOpenObject(database: string, kind: Kind, name: string): void;
   onDatabaseMenu(e: React.MouseEvent, database: string | null): void;
 }
 
 export default function ObjectTree(props: TreeProps) {
   const { index, matches, scope, selectedDb } = props;
-  const [open, setOpen] = useState<Set<string>>(new Set());
+  const [open, setOpen] = useState<Set<string>>(() => new Set(props.initialOpen));
   const [shown, setShown] = useState<Record<string, number>>({});
 
   // One pass over the index per change of the index (not per keystroke).
@@ -71,7 +77,8 @@ export default function ObjectTree(props: TreeProps) {
     return { dbs, byDb };
   }, [index]);
 
-  const toggle = (key: string) => setOpen((o) => { const n = new Set(o); n.has(key) ? n.delete(key) : n.add(key); return n; });
+  const update = (f: (o: Set<string>) => Set<string>) => setOpen((o) => { const n = f(o); props.onOpenChange([...n]); return n; });
+  const toggle = (key: string) => update((o) => { const n = new Set(o); n.has(key) ? n.delete(key) : n.add(key); return n; });
   const more = (key: string) => setShown((s) => ({ ...s, [key]: (s[key] ?? PAGE) + PAGE }));
 
   // With no scope the filter is on database names: hide the databases that do not match.
@@ -84,7 +91,7 @@ export default function ObjectTree(props: TreeProps) {
     <ul className="tree" onContextMenu={(e) => e.target === e.currentTarget && props.onDatabaseMenu(e, null)}>
       <li className="root-node">
         <div className={`row-item root ${selectedDb === null ? "selected" : ""}`} title="Show all databases (clears the selection and the filter)"
-             onClick={() => { setOpen(new Set()); props.onResetRoot(); }}
+             onClick={() => { update(() => new Set()); props.onResetRoot(); }}
              onContextMenu={(e) => props.onDatabaseMenu(e, null)}>
           <span className="chev">▾</span><span className="icon">🖥</span>
           <strong>{props.rootLabel}</strong>
@@ -103,6 +110,7 @@ export default function ObjectTree(props: TreeProps) {
               <span className="chev">{isOpen ? "▾" : "▸"}</span>
               <span className="icon">🛢</span>
               <Highlight text={name} terms={scope === null ? props.terms : []} />
+              <DbSize stats={props.stats[name]} />
               {scoped && <span className="badge" title="Matching objects">{[...matches!].filter((p) => index[p]?.database === name && index[p].kind !== "database").length}</span>}
             </div>
             {(isOpen || scoped) && (
@@ -123,6 +131,7 @@ const DbBranch = memo(function DbBranch(props: TreeProps & {
 }) {
   const { db, entries, scopedMatches, open, shown } = props;
   const dbStats = props.stats[db];
+  useEffect(() => { props.ensureStats(db); }, [db]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const { groups, columnsOf, tablesWithMatchingColumns } = useMemo(() => {
     const keep = (e: Entry) => scopedMatches === null || scopedMatches.has(e.pos);
@@ -178,8 +187,8 @@ const DbBranch = memo(function DbBranch(props: TreeProps & {
                     <li key={nk}>
                       <div className={`row-item leaf ${isTable && props.selectedTable === n.name && props.selectedDb === db ? "selected" : ""}`}
                            onClick={() => { if (!isTable) return; const already = props.selectedTable === n.name && props.selectedDb === db; props.onSelectTable(db, n.name); props.ensureDetails(db, n.name); if (already || !open.has(nk)) props.toggle(nk); }}
-                           onDoubleClick={() => isTable && props.onOpenTable(db, n.name)}
-                           onContextMenu={(e) => isTable && props.onTableMenu(e, db, n.name)}>
+                           onDoubleClick={() => (isTable ? props.onOpenTable(db, n.name) : props.onOpenObject(db, g.kind, n.name))}
+                           onContextMenu={(e) => props.onObjectMenu(e, db, g.kind, n.name)}>
                         <span className="chev">{isTable ? (expanded ? "▾" : "▸") : ""}</span>
                         <span className="name"><Highlight text={n.name} terms={props.terms} /></span>
                         {n.parent && <span className="dim"> · {n.parent}</span>}
@@ -187,7 +196,9 @@ const DbBranch = memo(function DbBranch(props: TreeProps & {
                       </div>
                       {isTable && expanded && (
                         <ColumnList
+                          ensure={() => { if (open.has(nk)) props.ensureDetails(db, n.name); /* never for tables a filter expanded: that could be thousands of queries */ }}
                           detail={props.details[`${db}\0${n.name}`]}
+                          indexes={props.indexes[`${db}\0${n.name}`]}
                           fallback={cols}
                           query={props.selectedTable === n.name && props.selectedDb === db ? props.columnQuery : ""}
                           filtering={filtering}
@@ -217,10 +228,11 @@ function TableSize({ stat }: { stat: TableStat | undefined }) {
 }
 
 /** The columns of a table with their types (`bigint unsigned`, `char(255)`), key and nullability. */
-function ColumnList({ detail, fallback, query, filtering, matched, tableHasMatch, terms }: {
-  detail: ColumnsOf | undefined; fallback: Entry[] | undefined; query: string; filtering: boolean;
+function ColumnList({ ensure, detail, indexes, fallback, query, filtering, matched, tableHasMatch, terms }: {
+  ensure(): void; detail: ColumnsOf | undefined; indexes: IndexDetail[] | undefined; fallback: Entry[] | undefined; query: string; filtering: boolean;
   matched: Set<number> | null; tableHasMatch: boolean; terms: string[];
 }) {
+  useEffect(() => { ensure(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   if (Array.isArray(detail)) {
     const shown = detail.filter((c) => columnMatches(query, c));
     return (
@@ -234,6 +246,18 @@ function ColumnList({ detail, fallback, query, filtering, matched, tableHasMatch
         ))}
         {shown.length === 0 && <li className="empty small">{query ? "No matching columns" : "No columns"}</li>}
         {shown.length > 500 && <li className="empty small">{shown.length - 500} more — type to narrow</li>}
+        {!query && indexes && indexes.length > 0 && (
+          <>
+            <li className="row-item col idx-head">Indexes<span className="badge">{indexes.length}</span></li>
+            {indexes.map((i) => (
+              <li key={i.name} className="row-item col idx" title={`${i.unique ? "Unique " : ""}${i.kind} index ${i.name} on (${i.columns.join(", ")})`}>
+                <span className="key">{i.name === "PRIMARY" ? "🔑" : i.unique ? "◆" : ""}</span>
+                <span className="name">{i.name}</span>
+                <span className="ctype">({i.columns.join(", ")})</span>
+              </li>
+            ))}
+          </>
+        )}
       </ul>
     );
   }
@@ -246,4 +270,11 @@ function ColumnList({ detail, fallback, query, filtering, matched, tableHasMatch
       {names.map((c) => <li key={c.node.name} className="row-item col"><span className="key" /><span className="name"><Highlight text={c.node.name} terms={terms} /></span></li>)}
     </ul>
   );
+}
+
+/** Total size of a database's tables, once its sizes have been loaded. */
+function DbSize({ stats }: { stats: Record<string, TableStat> | undefined }) {
+  if (!stats) return null;
+  const total = Object.values(stats).reduce((a, t) => a + (t.bytes ?? 0), 0);
+  return <span className="size" title={`${total.toLocaleString()} bytes in ${Object.keys(stats).length} tables (estimate)`}>{formatBytes(total)}</span>;
 }

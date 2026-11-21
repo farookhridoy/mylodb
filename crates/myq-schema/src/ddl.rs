@@ -602,6 +602,22 @@ pub fn drop_table_sql(db: &str, table: &str) -> String {
     format!("DROP TABLE {}", qualified(Some(db), table))
 }
 
+/// `DROP` for a non-table object. Tables have their own function; columns and databases are not droppable here.
+/// Returns None for kinds that cannot be dropped as a standalone object this way.
+pub fn drop_object_sql(kind: crate::filter::Kind, db: &str, name: &str) -> Option<String> {
+    use crate::filter::Kind;
+    let word = match kind {
+        Kind::Table => "TABLE",
+        Kind::View => "VIEW",
+        Kind::Procedure => "PROCEDURE",
+        Kind::Function => "FUNCTION",
+        Kind::Trigger => "TRIGGER",
+        Kind::Event => "EVENT",
+        Kind::Database | Kind::Column => return None,
+    };
+    Some(format!("DROP {word} {}", qualified(Some(db), name)))
+}
+
 pub fn truncate_table_sql(db: &str, table: &str) -> String {
     format!("TRUNCATE TABLE {}", qualified(Some(db), table))
 }
@@ -819,5 +835,15 @@ mod tests {
         assert_eq!(create_database_sql("x", Some("utf8mb4"), Some("utf8mb4_bin")), "CREATE DATABASE `x` CHARACTER SET utf8mb4 COLLATE utf8mb4_bin");
         assert_eq!(drop_table_sql("d", "t"), "DROP TABLE `d`.`t`");
         assert_eq!(truncate_table_sql("d", "t"), "TRUNCATE TABLE `d`.`t`");
+    }
+
+    #[test]
+    fn dropping_objects_quotes_names_and_refuses_the_rest() {
+        use crate::filter::Kind;
+        assert_eq!(drop_object_sql(Kind::View, "shop", "v`x").unwrap(), "DROP VIEW `shop`.`v``x`");
+        assert_eq!(drop_object_sql(Kind::Trigger, "shop", "t_ins").unwrap(), "DROP TRIGGER `shop`.`t_ins`");
+        assert_eq!(drop_object_sql(Kind::Event, "shop", "e").unwrap(), "DROP EVENT `shop`.`e`");
+        assert_eq!(drop_object_sql(Kind::Database, "shop", "shop"), None);
+        assert_eq!(drop_object_sql(Kind::Column, "shop", "id"), None);
     }
 }

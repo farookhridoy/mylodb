@@ -51,6 +51,9 @@ export const api = {
   filterIndex: (id: number, query: string, scope: string | null) => invoke<number[]>("filter_index", { id, query, scope }),
   tableStats: (id: number, db: string) => invoke<TableStat[]>("db_table_stats", { id, db }),
   columnDetails: (id: number, db: string, table: string) => invoke<ColumnDetail[]>("table_column_details", { id, db, table }),
+  indexDetails: (id: number, db: string, table: string) => invoke<IndexDetail[]>("table_index_details", { id, db, table }),
+  objectDefinition: (id: number, kind: Kind, db: string, name: string) => invoke<string>("object_definition", { id, kind, db, name }),
+  dropObject: (id: number, kind: Kind, db: string, name: string) => invoke<string>("drop_object", { id, kind, db, name }),
   loadColumns: (id: number, db: string) => invoke<{ start: number; nodes: Node[] }>("load_columns", { id, db }),
 };
 
@@ -199,6 +202,7 @@ export interface Hint { severity: "warning" | "info" | "good"; message: string; 
 export interface ExplainResult { plan: ResultSet; json: string | null; tree: string | null; hints: Hint[] }
 /** Size (data + index bytes) and row estimate of a table; views have none. */
 export interface TableStat { name: string; bytes: number | null; rows: number | null }
+export interface IndexDetail { name: string; unique: boolean; kind: string; columns: string[] }
 export interface ColumnDetail { name: string; column_type: string; nullable: boolean; key: string; extra: string }
 
 export interface ProfileResult {

@@ -92,12 +92,12 @@ ok("WHERE box is sent and cleared");
 // ---- context menu: filter by value / exclude ----
 const cell = (r, c) => page.locator(`table.dg tbody tr:nth-child(${r}) td:nth-child(${c + 2})`);
 await cell(1, 2).click({ button: "right" });
-await page.click(".ctx-item:text-is('Filter by this value')");
+await page.click(".ctx-label:text-is('Filter by this value')");
 await settle();
 assert.deepEqual((await last("table_page")).spec.filters, [{ column: "total", op: "eq", values: ["10.50"] }]);
 await page.click("button[title='Clear all column filters']"); await settle();
 await cell(2, 3).click({ button: "right" });                     // a NULL note
-await page.click(".ctx-item:text-is('Filter by this value')");
+await page.click(".ctx-label:text-is('Filter by this value')");
 await settle();
 assert.deepEqual((await last("table_page")).spec.filters, [{ column: "note", op: "is_null", values: [] }]);
 await page.click("button[title='Clear all column filters']"); await settle();
@@ -124,7 +124,7 @@ ok("editing back to the original value removes the pending change");
 
 // ---- Set NULL / DEFAULT via menu ----
 await cell(1, 3).click({ button: "right" });
-await page.click(".ctx-item:text-is('Set NULL')");
+await page.click(".ctx-label:text-is('Set NULL')");
 assert.equal(await cell(1, 3).innerText(), "NULL");
 await page.click("button[title='Revert pending changes']");
 assert.equal(await cell(1, 3).innerText(), "edited note");

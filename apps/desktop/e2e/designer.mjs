@@ -25,10 +25,10 @@ await page.click(".tree .db");
 
 // ---------- designer ----------
 await page.click(".row-item.leaf:has-text('orders')", { button: "right" });
-for (const label of ["Open data", "Design table…", "Select in SQL editor", "Duplicate…", "Rename…", "Truncate…", "Drop…"]) {
-  assert.equal(await page.locator(`.ctx-item:text-is('${label}')`).count(), 1, label);
+for (const label of ["View Data", "Design table…", "Read data in SQL console", "Duplicate…", "Rename…", "Truncate…", "Drop…"]) {
+  assert.equal(await page.locator(`.ctx-label:text-is('${label}')`).count(), 1, label);
 }
-await page.click(".ctx-item:text-is('Design table…')");
+await page.click(".ctx-label:text-is('Design table…')");
 await page.waitForSelector(".designer .dz-grid");
 assert.equal(await page.locator(".dz-grid tbody tr").count(), 4);
 assert.equal(await page.locator(".dz-name").inputValue(), "orders");
@@ -93,7 +93,8 @@ ok("apply sends original + desired; tree refreshes; designer resets");
 
 // ---------- new table ----------
 await page.click(".tree .db", { button: "right" });
-await page.click(".ctx-item:text-is('New table…')");
+await page.hover(".ctx-item.sub:has-text('Create')");
+await page.click(".ctx-nested .ctx-label:text-is('New table…')");
 await page.waitForSelector(".qtab.active:has-text('New table')");
 assert.equal(await page.locator("button:text-is('Create table')").isDisabled(), true, "needs a name");
 assert.match(await page.locator(".banner.bad").innerText(), /table name is empty/);
@@ -111,7 +112,7 @@ ok("new table starts with an id primary key and is created from a blank definiti
 
 // ---------- table operations ----------
 await page.click(".row-item.leaf:has-text('customers')", { button: "right" });
-await page.click(".ctx-item:text-is('Drop…')");
+await page.click(".ctx-label:text-is('Drop…')");
 assert.equal(await page.locator("button.danger:text-is('Drop table')").isDisabled(), true);
 await page.fill(".dialog input", "wrong");
 assert.equal(await page.locator("button.danger:text-is('Drop table')").isDisabled(), true);
@@ -122,14 +123,14 @@ assert.deepEqual((await g("__tableOps")).at(-1), { table: "customers", operation
 ok("drop requires typing the table name");
 
 await page.click(".row-item.leaf:has-text('orders')", { button: "right" });
-await page.click(".ctx-item:text-is('Duplicate…')");
+await page.click(".ctx-label:text-is('Duplicate…')");
 await page.fill(".dialog input:not([type=checkbox])", "orders_bak");
 await page.check(".dialog input[type=checkbox]");
 await page.click(".dialog button.primary");
 await settle();
 assert.deepEqual((await g("__tableOps")).at(-1), { table: "orders", operation: { op: "duplicate", to: "orders_bak", with_data: true } });
 await page.click(".row-item.leaf:has-text('orders')", { button: "right" });
-await page.click(".ctx-item:text-is('Rename…')");
+await page.click(".ctx-label:text-is('Rename…')");
 await page.fill(".dialog input", "orders2");
 await page.click(".dialog button.primary");
 await settle();
@@ -139,7 +140,7 @@ ok("duplicate (with data) and rename send the right operations");
 
 // create / drop database
 await page.click(".tree .db", { button: "right" });
-await page.click(".ctx-item:text-is('Create database…')");
+await page.click(".ctx-label:text-is('Create database…')");
 await page.fill(".dialog input", "newdb");
 await page.click(".dialog button.primary");
 await settle();

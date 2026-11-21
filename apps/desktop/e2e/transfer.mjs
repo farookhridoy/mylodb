@@ -112,7 +112,7 @@ ok("restore options (stop on error, target database) are sent");
 
 // ======================================================= import CSV from a table's menu
 await page.click(".row-item.leaf:has-text('orders')", { button: "right" });
-await page.click(".ctx-item:text-is('Import CSV into this table…')");
+await page.click(".ctx-label:text-is('Import Data…')");
 await page.waitForSelector(".transfer .dz-tabs button.active:text-is('Import CSV')");
 assert.equal(await page.locator(".xfer-form label:has-text('Table') select").first().inputValue(), "orders", "the table is preselected");
 await set("__nextOpen", "/Users/me/orders.csv");
@@ -209,7 +209,7 @@ ok("export query: format and path are sent; a non-SELECT error is shown; cancell
 
 // ======================================================= grid export has every format
 await page.click(".row-item.leaf:has-text('orders')", { button: "right" });
-await page.click(".ctx-item:text-is('Open data')");
+await page.click(".ctx-label:text-is('View Data')");
 await page.waitForSelector("table.dg");
 await page.click("button:text-is('Export ▾')");
 assert.deepEqual((await page.locator(".popup button.link").allInnerTexts()).map((t) => t.replace("…", "")), ["CSV", "JSON", "SQL INSERT", "XML", "HTML table", "Excel (XLSX)"]);

@@ -137,25 +137,25 @@ ok("clicking a table, column or database name pastes it into the query being wri
 
 // ---- sample queries from the table menu
 await page.click(".row-item.leaf:has-text('orders')", { button: "right" });
-await page.hover(".ctx-item.sub:has-text('Sample queries')");
-for (const k of ["SELECT", "INSERT", "UPDATE", "DELETE"]) assert.equal(await page.locator(`.ctx-nested .ctx-item:text-is('${k}')`).count(), 1, k);
-await page.click(".ctx-nested .ctx-item:text-is('INSERT')");
+await page.hover(".ctx-item.sub:has-text('Generate SQL')");
+for (const k of ["SELECT", "INSERT", "UPDATE", "DELETE"]) assert.equal(await page.locator(`.ctx-nested .ctx-label:text-is('${k}')`).count(), 1, k);
+await page.click(".ctx-nested .ctx-label:text-is('INSERT')");
 let t = await editorText();
 assert.match(t, /INSERT INTO `orders`/);
 assert.match(t, /\(`customer_id`, `total`, `note`\)/, "every column except the auto-increment id");
 assert.match(t, /VALUES\s+\('customer_id', 'total', 'note'\)/);
 await page.click(".row-item.leaf:has-text('orders')", { button: "right" });
-await page.hover(".ctx-item.sub:has-text('Sample queries')");
-await page.click(".ctx-nested .ctx-item:text-is('UPDATE')");
+await page.hover(".ctx-item.sub:has-text('Generate SQL')");
+await page.click(".ctx-nested .ctx-label:text-is('UPDATE')");
 t = await editorText();
 assert.match(t, /UPDATE `orders`\s+SET\s+`customer_id` = 'customer_id',\s+`total` = 'total',\s+`note` = 'note'\s+WHERE `id` = 'id';/);
 await page.click(".row-item.leaf:has-text('orders')", { button: "right" });
-await page.hover(".ctx-item.sub:has-text('Sample queries')");
-await page.click(".ctx-nested .ctx-item:text-is('DELETE')");
+await page.hover(".ctx-item.sub:has-text('Generate SQL')");
+await page.click(".ctx-nested .ctx-label:text-is('DELETE')");
 assert.match(await editorText(), /DELETE FROM `orders`\s+WHERE `id` = 'id';/);
 await page.click(".row-item.leaf:has-text('orders')", { button: "right" });
-await page.hover(".ctx-item.sub:has-text('Sample queries')");
-await page.click(".ctx-nested .ctx-item:text-is('SELECT')");
+await page.hover(".ctx-item.sub:has-text('Generate SQL')");
+await page.click(".ctx-nested .ctx-label:text-is('SELECT')");
 assert.match(await editorText(), /SELECT\s+`id`,\s+`customer_id`,\s+`total`,\s+`note`\s+FROM `orders`/);
 ok("the table menu offers SELECT, INSERT, UPDATE and DELETE samples with the real column names");
 

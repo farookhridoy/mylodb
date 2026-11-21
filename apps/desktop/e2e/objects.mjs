@@ -43,7 +43,7 @@ ok("a table lists its indexes with their columns");
 await page.click(".row-item.group:has-text('Views')");
 await page.click(".row-item.leaf:has-text('v_orders')", { button: "right" });
 const viewMenu = await text(page.locator("body"));
-assert.ok(viewMenu.join(" ").includes("Show / edit definition") && viewMenu.join(" ").includes("Drop…") && viewMenu.join(" ").includes("Open data"));
+assert.ok(viewMenu.join(" ").includes("Show / edit definition") && viewMenu.join(" ").includes("Drop…") && viewMenu.join(" ").includes("View Data"));
 await page.click("text=Show / edit definition");
 await page.waitForFunction(() => /CREATE OR REPLACE/.test(document.querySelector(".cm-content")?.innerText ?? ""));
 assert.match(await editorText(), /CREATE OR REPLACE ALGORITHM=UNDEFINED/);
@@ -87,8 +87,9 @@ ok("dropping a view needs its name typed, runs once, and removes it from the tre
 
 // ---- new object templates from the database menu
 await page.click(".tree .db:has-text('shop')", { button: "right" });
+await page.hover(".ctx-item.sub:has-text('Create')");
 assert.ok((await text(page.locator("body"))).join(" ").includes("New procedure…"));
-await page.click("text=New trigger…");
+await page.click(".ctx-nested .ctx-label:text-is('New trigger…')");
 await page.waitForFunction(() => /CREATE TRIGGER `shop`/.test(document.querySelector(".cm-content")?.innerText ?? ""));
 assert.match(await editorText(), /DELIMITER \$\$[\s\S]*BEFORE INSERT ON `shop`\.`table_name`/);
 ok("the database menu offers templates for new views, procedures, functions, triggers and events");

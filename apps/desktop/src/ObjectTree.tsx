@@ -85,6 +85,10 @@ export default function ObjectTree(props: TreeProps) {
   const { index, matches, scope, selectedDb } = props;
   const [open, setOpen] = useState<Set<string>>(() => new Set(props.initialOpen));
   const [shown, setShown] = useState<Record<string, number>>({});
+  // A filter opens the groups and tables that have hits. The arrows must still be able to close them, so closings are remembered
+  // until the next search.
+  const [autoClosed, setAutoClosed] = useState<Set<string>>(new Set());
+  useEffect(() => { setAutoClosed(new Set()); }, [matches]);
 
   // One pass over the index per change of the index (not per keystroke).
   const { dbs, byDb } = useMemo(() => {
@@ -106,7 +110,18 @@ export default function ObjectTree(props: TreeProps) {
   useEffect(() => {
     if (selectedDb) openKeys([selectedDb, `${selectedDb}/table`]);
   }, [selectedDb]); // eslint-disable-line react-hooks/exhaustive-deps
+  // a table locked from its menu (not only from its lock icon) is opened too
+  useEffect(() => {
+    if (!props.lockedTable || !selectedDb) return;
+    const kind = index.find((n) => n.database === selectedDb && n.name === props.lockedTable && (n.kind === "table" || n.kind === "view"))?.kind;
+    if (kind) openKeys([`${selectedDb}/${kind}`, `${selectedDb}/${kind}/${props.lockedTable}`]);
+  }, [props.lockedTable]); // eslint-disable-line react-hooks/exhaustive-deps
   const toggle = (key: string) => update((o) => { const n = new Set(o); n.has(key) ? n.delete(key) : n.add(key); return n; });
+  /** The arrow of a node that a filter may have opened: closes it (and keeps it closed) or opens it. */
+  const toggleAuto = (key: string, openNow: boolean) => {
+    if (openNow) { if (open.has(key)) toggle(key); setAutoClosed((a) => new Set(a).add(key)); }
+    else { setAutoClosed((a) => { const n = new Set(a); n.delete(key); return n; }); if (!open.has(key)) toggle(key); }
+  };
   const more = (key: string) => setShown((s) => ({ ...s, [key]: (s[key] ?? PAGE) + PAGE }));
 
   // With no scope the filter is on database names: hide the databases that do not match.
@@ -144,7 +159,7 @@ export default function ObjectTree(props: TreeProps) {
               {scoped && <span className="badge" title="Matching objects">{[...matches!].filter((p) => index[p]?.database === name && index[p].kind !== "database").length}</span>}
             </div>
             {(isOpen || scoped) && (
-              <DbBranch {...props} lockedTable={selectedDb === name ? props.lockedTable : null} db={name} entries={byDb.get(name) ?? []} scopedMatches={scoped ? matches : null} open={open} toggle={toggle} openKeys={openKeys} shown={shown} more={more} />
+              <DbBranch {...props} lockedTable={selectedDb === name ? props.lockedTable : null} db={name} entries={byDb.get(name) ?? []} scopedMatches={scoped ? matches : null} open={open} toggle={toggle} toggleAuto={toggleAuto} autoClosed={autoClosed} openKeys={openKeys} shown={shown} more={more} />
             )}
           </li>
         );
@@ -157,7 +172,7 @@ export default function ObjectTree(props: TreeProps) {
 /** One database's objects. Memoised: typing in the filter only re-renders the database that is being filtered. */
 const DbBranch = memo(function DbBranch(props: TreeProps & {
   lockedTable: string | null; db: string; entries: Entry[]; scopedMatches: Set<number> | null;
-  open: Set<string>; toggle(k: string): void; openKeys(k: string[]): void; shown: Record<string, number>; more(k: string): void;
+  open: Set<string>; toggle(k: string): void; toggleAuto(k: string, openNow: boolean): void; autoClosed: Set<string>; openKeys(k: string[]): void; shown: Record<string, number>; more(k: string): void;
 }) {
   const { db, entries, scopedMatches, open, shown, lockedTable } = props;
   const dbStats = props.stats[db];
@@ -192,7 +207,7 @@ const DbBranch = memo(function DbBranch(props: TreeProps & {
   }, [entries, scopedMatches, lockedTable]);
 
   const filtering = scopedMatches !== null;
-  const isOpen = (key: string) => filtering || open.has(key);
+  const isOpen = (key: string) => open.has(key) || (filtering && !props.autoClosed.has(key));
 
   return (
     <ul>
@@ -201,7 +216,7 @@ const DbBranch = memo(function DbBranch(props: TreeProps & {
         const limit = shown[gk] ?? PAGE;
         return (
           <li key={gk}>
-            <div className="row-item group" onClick={() => props.toggle(gk)}>
+            <div className="row-item group" onClick={() => props.toggleAuto(gk, isOpen(gk))}>
               <Chev open={isOpen(gk)} /><Icon name={GROUP_ICON[g.kind]} className="ico-group" />
               {g.label}<span className="badge">{g.items.length.toLocaleString()}</span>
             </div>
@@ -211,7 +226,7 @@ const DbBranch = memo(function DbBranch(props: TreeProps & {
                   const nk = `${gk}/${n.name}`;
                   const isTable = g.kind === "table" || g.kind === "view";
                   const cols = isTable ? columnsOf.get(n.name) : undefined;
-                  const expanded = open.has(nk) || (filtering && tablesWithMatchingColumns.has(n.name));
+                  const expanded = open.has(nk) || (filtering && tablesWithMatchingColumns.has(n.name) && !props.autoClosed.has(nk));
                   const isLocked = lockedTable === n.name;
                   return (
                     <li key={nk}>
@@ -226,7 +241,7 @@ const DbBranch = memo(function DbBranch(props: TreeProps & {
                            onDoubleClick={() => { if (isTable) props.onOpenTable(db, n.name); else props.onOpenObject(db, g.kind, n.name); }}
                            onContextMenu={(e) => props.onObjectMenu(e, db, g.kind, n.name)}>
                         {isTable
-                          ? <Chev open={expanded} onClick={(e) => { e.stopPropagation(); props.toggle(nk); if (!expanded) props.ensureDetails(db, n.name); }} />
+                          ? <Chev open={expanded} onClick={(e) => { e.stopPropagation(); props.toggleAuto(nk, expanded); if (!expanded) props.ensureDetails(db, n.name); }} />
                           : <span className="chev" />}
                         <Icon name={GROUP_ICON[g.kind]} className={`ico-${g.kind}`} />
                         <span className="name"><Highlight text={n.name} terms={props.terms} /></span>

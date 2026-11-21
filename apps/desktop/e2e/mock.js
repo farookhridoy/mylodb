@@ -238,6 +238,7 @@ Object.assign(handlers, {
   },
   filter_index: (a) => {
     window.__filterCalls = (window.__filterCalls || []).concat([{ query: a.query, scope: a.scope }]);
+    window.__filterKinds = (window.__filterKinds || []).concat([a.kinds]);
     const terms = a.query.split(/\s+/).filter((t) => t && !t.includes(":") && !/[*?/]/.test(t)).map((t) => t.toLowerCase());
     const colTerm = /(^|\s)col:(\S+)/i.exec(a.query)?.[2]?.toLowerCase();
     const hits = [];
@@ -245,7 +246,7 @@ Object.assign(handlers, {
       if (a.scope) {
         if (n.database !== a.scope || n.kind === "database") return;
         if (colTerm) { if (n.kind === "column" && n.name.toLowerCase().includes(colTerm)) hits.push(i); return; }
-        if (n.kind !== "column" && terms.every((t) => n.name.toLowerCase().includes(t))) hits.push(i);
+        if ((a.kinds ? a.kinds.includes(n.kind) : n.kind !== "column") && terms.every((t) => n.name.toLowerCase().includes(t))) hits.push(i);
       } else if (n.kind === "database" && terms.every((t) => n.name.toLowerCase().includes(t))) hits.push(i);
     });
     return hits;
@@ -301,7 +302,7 @@ Object.assign(handlers, {
   },
   object_definition: (a) => {
     window.__defCalls = (window.__defCalls || []).concat([`${a.kind}:${a.name}`]);
-    const d = DEFS[`${a.kind}:${a.name}`];
+    const d = a.kind === "table" && meta[a.name] ? `CREATE TABLE \`${a.name}\` (\n  \`id\` bigint unsigned NOT NULL AUTO_INCREMENT,\n  PRIMARY KEY (\`id\`)\n) ENGINE=InnoDB` : DEFS[`${a.kind}:${a.name}`];
     if (!d) throw "no such object";
     return d;
   },

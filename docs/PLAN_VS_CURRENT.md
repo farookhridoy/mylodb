@@ -140,6 +140,21 @@ Phases 1–8 and the filter, theme and sidebar work are done. Rough effort for o
 "defining" features and must land before the visual tools. Phase 11 removes daily friction. Phase 12 should run alongside 9–11 so the
 version matrix catches MariaDB and 5.7 differences before the power tools depend on them.
 
+## 6c. Filter options and menus
+
+* **Filter icon**: choose what a search inside a locked database looks at: Tables, Views, Procedures and functions, Triggers, Events, Columns.
+  Columns are **off** by default, so `supplier_` lists tables instead of every column named so; switch it on to search columns as well. The
+  choice is remembered; the icon is highlighted when it differs from the default. A query that names kinds itself (`col:`, `type:`) still works.
+  The restriction is applied in the backend (`filter_index` takes the kinds), so filter results stay positions in the one shared index.
+* **Fixed: the arrow could not close a table opened by a search.** Search-opened groups and tables had no way to close. Arrows now close and
+  reopen them, until the next search.
+* **Context menus** follow the DBeaver layout: icons, grouped sections, shortcuts (F4, F2, F5 work), submenus that flip to stay on screen,
+  dangerous entries in red. Table menu: Create ▸, View Table, Design table…, lock the filter, View Diagram, View Data, Export Data…, Import
+  Data…, Tools ▸ (Dump table, Analyze, Check, Optimize, Repair, Truncate, Server tools), Generate SQL ▸ (SELECT, INSERT, UPDATE, DELETE,
+  UPSERT, DDL), Read data in SQL console, Copy name, Copy Advanced Info, Duplicate, Rename, Drop, Refresh. Database, view and routine menus got
+  the same treatment. Compare/Migrate is not offered because it does not exist yet.
+* Checkboxes were text-field sized everywhere; fixed.
+
 ## 6b. Table views and the stacking bug
 
 * **Three views per table** (the DBeaver idea): **Properties**, **Data** (console on top, grid below; the default) and **Diagram**. Each table tab

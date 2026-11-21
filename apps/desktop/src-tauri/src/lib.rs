@@ -228,13 +228,24 @@ async fn disconnect(state: tauri::State<'_, AppState>, id: i64) -> Result<(), St
 ///
 /// With a `scope` (the selected database) only that database's objects are searched, like "Filter tables in
 /// sakila". Without one the query matches database names only, so typing never walks every table of the server.
+/// Drop the hits whose kind the user has switched off in the filter options. A query that names kinds itself
+/// (`col:email`, `type:view`) is explicit and is left alone.
+fn restrict_kinds(index: &[Node], mut hits: Vec<usize>, filter: &Filter, allowed: Option<&[Kind]>) -> Vec<usize> {
+    if let Some(allowed) = allowed {
+        if !filter.names_kinds() {
+            hits.retain(|&i| index.get(i).is_some_and(|n| allowed.contains(&n.kind)));
+        }
+    }
+    hits
+}
+
 #[tauri::command]
-fn filter_index(state: tauri::State<AppState>, id: i64, query: String, scope: Option<String>) -> Result<Vec<usize>, String> {
+fn filter_index(state: tauri::State<AppState>, id: i64, query: String, scope: Option<String>, kinds: Option<Vec<Kind>>) -> Result<Vec<usize>, String> {
     let filter = Filter::parse(&query).map_err(|e| format!("{e:?}"))?;
     let sessions = state.sessions.lock().unwrap();
     let s = sessions.get(&id).ok_or_else(|| "not connected".to_string())?;
     Ok(match scope {
-        Some(db) => s.by_db.get(&db).map_or_else(Vec::new, |positions| filter.apply_positions(&s.index, positions)),
+        Some(db) => s.by_db.get(&db).map_or_else(Vec::new, |positions| restrict_kinds(&s.index, filter.apply_positions(&s.index, positions), &filter, kinds.as_deref())),
         None => filter.apply_positions(&s.index, &s.db_positions),
     })
 }
@@ -1111,6 +1122,25 @@ mod session_tests {
         let sql = "SELECT o. FROM orders o";
         let c = myq_sql::complete(sql, "SELECT o.".len(), &s.catalog, Some("shop"), 100);
         c.items.iter().any(|i| i.label == col)
+    }
+
+    #[test]
+    fn switched_off_kinds_are_dropped_unless_the_query_names_kinds() {
+        let index = vec![
+            node("shop", Kind::Database, "shop", None),
+            node("shop", Kind::Table, "supplier_x", None),
+            node("shop", Kind::Column, "supplier_id", Some("orders")),
+            node("shop", Kind::View, "supplier_v", None),
+        ];
+        let f = Filter::parse("supplier_").unwrap();
+        let all = f.apply(&index);
+        assert_eq!(all, vec![1, 2, 3]);
+        assert_eq!(restrict_kinds(&index, all.clone(), &f, Some(&[Kind::Table, Kind::View])), vec![1, 3], "columns switched off");
+        assert_eq!(restrict_kinds(&index, all.clone(), &f, Some(&[Kind::Table])), vec![1]);
+        assert_eq!(restrict_kinds(&index, all.clone(), &f, None), all, "no restriction asked for");
+        let col = Filter::parse("col:supplier").unwrap();
+        let hits = col.apply(&index);
+        assert_eq!(restrict_kinds(&index, hits.clone(), &col, Some(&[Kind::Table])), hits, "col: is explicit");
     }
 
     #[test]

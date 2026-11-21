@@ -120,6 +120,11 @@ impl Filter {
         Ok(f)
     }
 
+    /// True when the query itself names kinds (`type:view`, `col:email`). Such a query is explicit about what it searches.
+    pub fn names_kinds(&self) -> bool {
+        !self.kinds.is_empty()
+    }
+
     pub fn is_empty(&self) -> bool {
         self.kinds.is_empty() && self.db.is_none() && self.names.is_empty()
     }
@@ -207,6 +212,13 @@ mod tests {
         assert_eq!(f.apply_positions(&idx, &shop), vec![1, 2, 3]);
         assert_eq!(f.apply_positions(&idx, &[5, 6]), Vec::<usize>::new(), "blog has no order*");
         assert_eq!(f.apply_positions(&idx, &[999]), Vec::<usize>::new(), "out-of-range positions are ignored");
+    }
+
+    #[test]
+    fn a_query_that_names_kinds_says_so() {
+        assert!(Filter::parse("col:mail").unwrap().names_kinds());
+        assert!(Filter::parse("type:view ord").unwrap().names_kinds());
+        assert!(!Filter::parse("ord").unwrap().names_kinds());
     }
 
     #[test]

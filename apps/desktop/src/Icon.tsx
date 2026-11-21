@@ -42,6 +42,16 @@ const PATHS: Record<string, ReactNode> = {
   stop: <rect x="4" y="4" width="8" height="8" rx="1" fill="currentColor" />,
   link: <path d="M6.500 9.500l3-3M5 8l-1.200 1.200a2.400 2.400 0 0 0 3.400 3.400L8.500 11.500M11 8l1.200-1.200a2.400 2.400 0 0 0-3.400-3.400L7.500 4.500" />,
   info: <><circle cx="8" cy="8" r="5.800" /><path d="M8 7.200v3.600M8 5h.01" /></>,
+  diagram: <><rect x="6" y="2" width="4" height="3.500" rx=".6" /><rect x="1.500" y="10.500" width="4" height="3.500" rx=".6" /><rect x="10.500" y="10.500" width="4" height="3.500" rx=".6" /><path d="M8 5.500V8M3.500 10.500V8h9v2.500" /></>,
+  export: <path d="M8 10V2.500M5 5l3-2.500L11 5M2.500 10v3h11v-3" />,
+  import: <path d="M8 2.500V10M5 7.500 8 10l3-2.500M2.500 10v3h11v-3" />,
+  tools: <path d="M10.500 2.500a3 3 0 0 0-2.800 4L2.500 11.700l1.800 1.800 5.200-5.200a3 3 0 0 0 4-2.800l-1.900 1.900-2-1-1-2z" />,
+  sql: <path d="M5.500 4 2 8l3.500 4M10.500 4 14 8l-3.500 4M9 3 7 13" />,
+  terminal: <><rect x="1.500" y="3" width="13" height="10" rx="1" /><path d="M4.500 6.500 7 8.500l-2.500 2M8.500 10.500h3" /></>,
+  compare: <path d="M3 5h9M9.500 2.500 12 5 9.500 7.500M13 11H4M6.500 8.500 4 11l2.500 2.500" />,
+  properties: <><rect x="2" y="2.500" width="12" height="11" rx="1" /><path d="M2 5.800h12M5 8.500h6M5 11h4" /></>,
+  grid: <><rect x="2" y="3" width="12" height="10" rx="1" /><path d="M2 6.400h12M2 9.700h12M6 3v10M10 3v10" /></>,
+  eraser: <path d="m9.500 3 3.500 3.500-5.500 5.500H4.500L2.500 10zM6 6.500l3.500 3.500M7 13h6.500" />,
   search: <><circle cx="7" cy="7" r="4.200" /><path d="m10.200 10.200 3.300 3.300" /></>,
 };
 

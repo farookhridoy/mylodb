@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api, describeError, editorApi, queryApi, schemaApi, type ConnectError, type Favorite, type FormatOptions, type Kind, type Node, type SavedConnection, type TableOp } from "./api";
+import { api, describeError, editorApi, queryApi, schemaApi, serverApi, type ConnectError, type Favorite, type FormatOptions, type Kind, type Maintenance, type Node, type SavedConnection, type TableOp } from "./api";
 import AnalysisPane, { type Analysis } from "./AnalysisPane";
 import ConnectionDialog from "./ConnectionDialog";
 import ContextMenu, { type MenuItem } from "./ContextMenu";
@@ -14,11 +14,13 @@ import Editor, { type EditorHandle } from "./Editor";
 import ObjectTree from "./ObjectTree";
 import { useBrowserMeta } from "./browserMeta";
 import Icon from "./Icon";
+import FilterOptions, { DEFAULT_SCOPE, isDefaultScope, type FilterScope } from "./FilterOptions";
 import TableProperties from "./TableProperties";
 import TableDiagram from "./TableDiagram";
 import Splitter, { useSize } from "./Splitter";
 import { sampleQuery, type SampleKind } from "./sqlTemplates";
 import type { Pick } from "./ObjectTree";
+import type { IconName } from "./Icon";
 import ResultsPane, { type RunState } from "./ResultsPane";
 import { ConfirmDialog, FavoritesPanel, HistoryPanel, SaveFavoriteDialog } from "./SidePanels";
 
@@ -39,6 +41,12 @@ const isTable = (t: QueryTab | undefined) => t?.kind === "table";
 const isSql = (t: QueryTab | undefined) => !t || !t.kind || t.kind === "sql" || t.kind === "table";
 type Side = "objects" | "history" | "favorites";
 
+const FILTER_SCOPE_KEY = "mylodb.filterScope";
+const loadFilterScope = (): FilterScope => { try { return { ...DEFAULT_SCOPE, ...JSON.parse(localStorage.getItem(FILTER_SCOPE_KEY) ?? "{}") }; } catch { return DEFAULT_SCOPE; } };
+const scopeKinds = (f: FilterScope): Kind[] => [
+  ...(f.tables ? ["table" as Kind] : []), ...(f.views ? ["view" as Kind] : []), ...(f.routines ? ["procedure" as Kind, "function" as Kind] : []),
+  ...(f.triggers ? ["trigger" as Kind] : []), ...(f.events ? ["event" as Kind] : []), ...(f.columns ? ["column" as Kind] : []),
+];
 const FORMAT_KEY = "mylodb.formatOptions";
 const DEFAULT_FORMAT: FormatOptions = { indent: { style: "spaces", width: 2 }, keyword_case: "upper", lines_between_statements: 1 };
 const loadFormat = (): FormatOptions => {
@@ -65,6 +73,10 @@ export default function App() {
   /// The database selected in the tree: the filter searches inside it ("Filter tables in …").
   const [selectedDb, setSelectedDb] = useState<string | null>(null);
   /// The table selected in the tree (inside `selectedDb`): the filter then searches its columns.
+  /// What the filter searches inside a locked database. Columns are off by default: a search for `supplier_` lists tables, not every column named so.
+  const [filterScope, setFilterScopeState] = useState<FilterScope>(loadFilterScope);
+  const setFilterScope = (f: FilterScope) => { setFilterScopeState(f); localStorage.setItem(FILTER_SCOPE_KEY, JSON.stringify(f)); };
+  const [filterMenu, setFilterMenu] = useState(false);
   const [selectedTable, setSelectedTable] = useState<string | null>(null);
   /// The table the filter is locked to (the box searches its columns). Selecting a table does not lock it; the lock icon does.
   const [lockedTable, setLockedTable] = useState<string | null>(null);
@@ -274,8 +286,8 @@ export default function App() {
     const t = setTimeout(async () => {
       try {
         // a column filter needs the columns of the database it searches
-        if (selectedDb && /(^|\s)(col:|type:column)/i.test(query)) await ensureColumns(selectedDb);
-        const hits = await api.filterIndex(activeId, query, selectedDb);
+        if (selectedDb && (filterScope.columns || /(^|\s)(col:|type:column)/i.test(query))) await ensureColumns(selectedDb);
+        const hits = await api.filterIndex(activeId, query, selectedDb, selectedDb ? scopeKinds(filterScope) : null);
         if (mine !== filterSeq.current) return;
         setMatches(new Set(hits));
         setMatchScope(selectedDb);
@@ -285,7 +297,7 @@ export default function App() {
       }
     }, 150);
     return () => clearTimeout(t);
-  }, [query, activeId, selectedDb, lockedTable, ensureColumns]);
+  }, [query, activeId, selectedDb, lockedTable, ensureColumns, filterScope]);
 
   const terms = useMemo(
     () => query.split(/\s+/).filter((t) => t && !/[:*?/]/.test(t)).map((t) => t.toLowerCase()),
@@ -353,12 +365,13 @@ export default function App() {
   };
 
   /** Open a table's data in a grid tab; an existing unfiltered tab for the same table is reused. */
-  const openTable = (database: string, table: string, filters?: GridView["filters"]) => {
+  /// Open (or reuse) a table's tab, optionally on a given view (Properties / Data / Diagram).
+  const openTable = (database: string, table: string, filters?: GridView["filters"], view?: QueryTab["view"]) => {
     if (!filters) {
       const existing = tabs.find((t) => isTable(t) && t.table?.db === database && t.table.name === table && Object.keys(t.grid?.filters ?? {}).length === 0);
-      if (existing) return setActiveTab(existing.id);
+      if (existing) { if (view) patchTab(existing.id, { view }); return setActiveTab(existing.id); }
     }
-    const t: QueryTab = { id: uid(), title: table, sql: `SELECT * FROM ${quote(table)} LIMIT 1000;\n`, database, kind: "table", table: { db: database, name: table }, grid: { ...defaultView(), filters: filters ?? {} } };
+    const t: QueryTab = { id: uid(), title: table, sql: `SELECT * FROM ${quote(table)} LIMIT 1000;\n`, database, kind: "table", table: { db: database, name: table }, grid: { ...defaultView(), filters: filters ?? {} }, ...(view ? { view } : {}) };
     setTabs([...tabs, t]);
     setActiveTab(t.id);
   };
@@ -429,26 +442,88 @@ export default function App() {
     } catch (e) { setStatus(`Error: ${e}`); }
   };
 
+  const renameTable = (d: string, t: string) => setPrompt({ title: `Rename ${t}`, label: "New name", initial: t, confirmLabel: "Rename",
+    onCancel: () => setPrompt(null), onSubmit: (to) => { setPrompt(null); if (to !== t) runTableOp(d, t, { op: "rename", to }); } });
+
+  const maintainTable = async (op: Maintenance, d: string, t: string) => {
+    if (activeId === null) return;
+    const word = op.op.toUpperCase();
+    setStatus(`${word} ${d}.${t}…`);
+    try {
+      const rows = await serverApi.maintain(activeId, d, [t], op);
+      setStatus(`${word} ${d}.${t}: ${rows.map((r) => r.msg_text).filter(Boolean).join("; ") || "done"}`);
+    } catch (e) { setStatus(`Error: ${describeError(e)}`); }
+  };
+
+  /// "Copy Advanced Info": the qualified name, size and every column, as text.
+  const copyAdvanced = async (d: string, t: string) => {
+    if (activeId === null) return;
+    try {
+      const o = await api.tableOverview(activeId, d, t);
+      const size = (o.info.data_length ?? 0) + (o.info.index_length ?? 0);
+      const text = [`${quote(d)}.${quote(t)}`, `Engine: ${o.info.engine ?? "-"}  Rows (est.): ${o.info.rows ?? "-"}  Size: ${size} bytes`, "Columns:",
+        ...o.columns.map((c) => `  ${c.name}  ${c.column_type}${c.nullable ? "" : " NOT NULL"}${c.key ? "  " + c.key : ""}${c.extra ? "  " + c.extra : ""}`)].join("\n");
+      await navigator.clipboard.writeText(text);
+      setStatus(`Copied details of ${t}`);
+    } catch (e) { setStatus(`Error: ${describeError(e)}`); }
+  };
+
+  /// "DDL" in Generate SQL: the table's CREATE statement, in the console.
+  const putDdl = async (d: string, t: string) => {
+    if (activeId === null) return;
+    try { putSql((await api.objectDefinition(activeId, "table", d, t)) + ";", d); setStatus(`DDL of ${t} inserted and copied`); }
+    catch (e) { setStatus(`Error: ${describeError(e)}`); }
+  };
+
+  const createItems = (d: string): MenuItem[] => [
+    { label: "New table…", icon: "table", onClick: () => openDesigner(d, null) },
+    ...(["view", "procedure", "function", "trigger", "event"] as const).map((k) => ({ label: `New ${k}…`, icon: k as IconName, onClick: () => addTab(TEMPLATES[k](d), d, `New ${k}`) })),
+  ];
+
   const tableMenu = (e: React.MouseEvent, d: string, t: string) => {
     e.preventDefault();
+    const locked = lockedTable === t && selectedDb === d;
     setTreeMenu({ x: e.clientX, y: e.clientY, items: [
-      { label: "Open data", onClick: () => openTable(d, t) },
-      { label: "Design table…", onClick: () => openDesigner(d, t) },
-      { label: "Select in SQL editor", onClick: () => selectInEditor(d, t) },
-      sampleItems(d, t),
-      { label: "Import CSV into this table…", onClick: () => openTransfer({ tab: "import", db: d, table: t }) },
+      { label: "Create", icon: "plus", children: createItems(d) },
+      { label: "View Table", icon: "properties", shortcut: "F4", onClick: () => openTable(d, t, undefined, "properties") },
+      { label: "Design table…", icon: "edit", onClick: () => openDesigner(d, t) },
+      { label: locked ? "Unlock the filter" : "Lock the filter to this table", icon: "filter", onClick: () => (locked ? unlock() : lockTable(d, t)) },
       { separator: true },
-      { label: "Duplicate…", onClick: () => setPrompt({ title: `Duplicate ${t}`, label: "New table name", initial: `${t}_copy`, confirmLabel: "Duplicate", option: { label: "Copy the rows too", initial: false },
+      { label: "View Diagram", icon: "diagram", onClick: () => openTable(d, t, undefined, "diagram") },
+      { label: "View Data", icon: "grid", onClick: () => openTable(d, t, undefined, "data") },
+      { separator: true },
+      { label: "Export Data…", icon: "export", onClick: () => openTransfer({ tab: "export", db: d, table: t }) },
+      { label: "Import Data…", icon: "import", onClick: () => openTransfer({ tab: "import", db: d, table: t }) },
+      { label: "Tools", icon: "tools", children: [
+        { label: "Dump table…", icon: "export", onClick: () => openTransfer({ tab: "backup", db: d, table: t }) },
+        { separator: true },
+        { label: "Analyze", onClick: () => maintainTable({ op: "analyze" }, d, t) },
+        { label: "Check", onClick: () => maintainTable({ op: "check", option: null }, d, t) },
+        { label: "Optimize", onClick: () => maintainTable({ op: "optimize" }, d, t) },
+        { label: "Repair", onClick: () => maintainTable({ op: "repair", quick: false, extended: false, use_frm: false }, d, t) },
+        { separator: true },
+        { label: "Truncate…", icon: "eraser", danger: true, onClick: () => setTypeConfirm({ title: `Truncate ${t}`, message: `All rows of ${d}.${t} will be deleted and cannot be restored.`, expect: t, confirmLabel: "Truncate",
+            onCancel: () => setTypeConfirm(null), onConfirm: () => { setTypeConfirm(null); runTableOp(d, t, { op: "truncate" }); } }) },
+        { separator: true },
+        { label: "Server tools", icon: "pulse", onClick: openServer },
+      ] },
+      { separator: true },
+      { label: "Generate SQL", icon: "sql", children: [
+        ...(["select", "insert", "update", "delete", "upsert"] as const).map((k) => ({ label: k === "upsert" ? "UPSERT" : k.toUpperCase(), icon: "sql" as IconName, onClick: () => sample(k, d, t) })),
+        { separator: true },
+        { label: "DDL", icon: "sql", onClick: () => putDdl(d, t) },
+      ] },
+      { label: "Read data in SQL console", icon: "terminal", onClick: () => selectInEditor(d, t) },
+      { separator: true },
+      { label: "Copy name", icon: "copy", onClick: () => navigator.clipboard.writeText(t) },
+      { label: "Copy Advanced Info", icon: "copy", onClick: () => copyAdvanced(d, t) },
+      { label: "Duplicate…", icon: "copy", onClick: () => setPrompt({ title: `Duplicate ${t}`, label: "New table name", initial: `${t}_copy`, confirmLabel: "Duplicate", option: { label: "Copy the rows too", initial: false },
           onCancel: () => setPrompt(null), onSubmit: (to, withData) => { setPrompt(null); runTableOp(d, t, { op: "duplicate", to, with_data: withData }); } }) },
-      { label: "Rename…", onClick: () => setPrompt({ title: `Rename ${t}`, label: "New name", initial: t, confirmLabel: "Rename",
-          onCancel: () => setPrompt(null), onSubmit: (to) => { setPrompt(null); if (to !== t) runTableOp(d, t, { op: "rename", to }); } }) },
-      { separator: true },
-      { label: "Truncate…", onClick: () => setTypeConfirm({ title: `Truncate ${t}`, message: `All rows of ${d}.${t} will be deleted and cannot be restored.`, expect: t, confirmLabel: "Truncate",
-          onCancel: () => setTypeConfirm(null), onConfirm: () => { setTypeConfirm(null); runTableOp(d, t, { op: "truncate" }); } }) },
-      { label: "Drop…", onClick: () => setTypeConfirm({ title: `Drop ${t}`, message: `The table ${d}.${t} and all its data will be permanently deleted.`, expect: t, confirmLabel: "Drop table",
+      { label: "Rename…", icon: "edit", shortcut: "F2", onClick: () => renameTable(d, t) },
+      { label: "Drop…", icon: "trash", danger: true, onClick: () => setTypeConfirm({ title: `Drop ${t}`, message: `The table ${d}.${t} and all its data will be permanently deleted.`, expect: t, confirmLabel: "Drop table",
           onCancel: () => setTypeConfirm(null), onConfirm: () => { setTypeConfirm(null); runTableOp(d, t, { op: "drop" }); } }) },
       { separator: true },
-      { label: "Copy name", onClick: () => navigator.clipboard.writeText(t) },
+      { label: "Refresh", icon: "refresh", shortcut: "F5", onClick: () => reloadIndex() },
     ] });
   };
 
@@ -475,15 +550,17 @@ export default function App() {
     e.preventDefault();
     if (!KIND_WORD[kind]) return;
     const items: MenuItem[] = [];
-    if (kind === "view") items.push({ label: "Open data", onClick: () => openTable(d, name) }, { label: "Select in SQL editor", onClick: () => selectInEditor(d, name) }, sampleItems(d, name, ["select"]));
+    if (kind === "view") items.push({ label: "View Data", icon: "grid", onClick: () => openTable(d, name, undefined, "data") }, { label: "View Properties", icon: "properties", onClick: () => openTable(d, name, undefined, "properties") }, { label: "Read data in SQL console", icon: "terminal", onClick: () => selectInEditor(d, name) }, { label: "Generate SELECT", icon: "sql", onClick: () => sample("select", d, name) }, { separator: true });
     items.push(
-      { label: "Show / edit definition", onClick: () => showDefinition(d, kind, name) },
+      { label: "Show / edit definition", icon: "sql", onClick: () => showDefinition(d, kind, name) },
       { separator: true },
-      { label: "Drop…", onClick: () => setTypeConfirm({ title: `Drop ${KIND_LABEL[kind]} ${name}`, message: `The ${KIND_LABEL[kind]} ${d}.${name} will be permanently deleted.`, expect: name, confirmLabel: `Drop ${KIND_LABEL[kind]}`,
+      { label: "Drop…", icon: "trash", danger: true, onClick: () => setTypeConfirm({ title: `Drop ${KIND_LABEL[kind]} ${name}`, message: `The ${KIND_LABEL[kind]} ${d}.${name} will be permanently deleted.`, expect: name, confirmLabel: `Drop ${KIND_LABEL[kind]}`,
           onCancel: () => setTypeConfirm(null),
           onConfirm: async () => { setTypeConfirm(null); try { await api.dropObject(activeId!, kind, d, name); await reloadIndex(); setStatus(`Dropped ${KIND_LABEL[kind]} ${d}.${name}`); } catch (err) { setStatus(`Error: ${describeError(err)}`); } } }) },
       { separator: true },
-      { label: "Copy name", onClick: () => navigator.clipboard.writeText(name) },
+      { label: "Copy name", icon: "copy", onClick: () => navigator.clipboard.writeText(name) },
+      { separator: true },
+      { label: "Refresh", icon: "refresh", shortcut: "F5", onClick: () => reloadIndex() },
     );
     setTreeMenu({ x: e.clientX, y: e.clientY, items });
   };
@@ -498,12 +575,19 @@ export default function App() {
   const databaseMenu = (e: React.MouseEvent, d: string | null) => {
     e.preventDefault();
     const items: MenuItem[] = [];
-    if (d) items.push({ label: "New table…", onClick: () => openDesigner(d, null) }, { label: "Back up this database…", onClick: () => openTransfer({ tab: "backup", db: d }) }, { label: "Import CSV…", onClick: () => openTransfer({ tab: "import", db: d }) }, { separator: true },
-      ...(["view", "procedure", "function", "trigger", "event"] as const).map((k) => ({ label: `New ${k}…`, onClick: () => addTab(TEMPLATES[k](d), d, `New ${k}`) })), { separator: true });
-    items.push({ label: "Create database…", onClick: () => setPrompt({ title: "Create database", label: "Database name", confirmLabel: "Create",
+    if (d) items.push(
+      { label: "Create", icon: "plus", children: createItems(d) },
+      { separator: true },
+      { label: "Back up this database…", icon: "export", onClick: () => openTransfer({ tab: "backup", db: d }) },
+      { label: "Import CSV…", icon: "import", onClick: () => openTransfer({ tab: "import", db: d }) },
+      { label: "New query console", icon: "terminal", onClick: () => addTab("", d) },
+      { separator: true },
+    );
+    items.push({ label: "Create database…", icon: "database", onClick: () => setPrompt({ title: "Create database", label: "Database name", confirmLabel: "Create",
       onCancel: () => setPrompt(null), onSubmit: async (name) => { setPrompt(null); try { await schemaApi.databaseOp(activeId!, { op: "create", name, charset: "utf8mb4", collation: null }); await reloadIndex(); } catch (err) { setStatus(`Error: ${err}`); } } }) });
-    if (d) items.push({ label: "Drop database…", onClick: () => setTypeConfirm({ title: `Drop database ${d}`, message: `The database ${d} with all its tables and data will be permanently deleted.`, expect: d, confirmLabel: "Drop database",
+    if (d) items.push({ label: "Drop database…", icon: "trash", danger: true, onClick: () => setTypeConfirm({ title: `Drop database ${d}`, message: `The database ${d} with all its tables and data will be permanently deleted.`, expect: d, confirmLabel: "Drop database",
       onCancel: () => setTypeConfirm(null), onConfirm: async () => { setTypeConfirm(null); try { await schemaApi.databaseOp(activeId!, { op: "drop", name: d }); await reloadIndex(); setTabs(tabs.filter((t) => t.table?.db !== d || t.kind === "sql")); } catch (err) { setStatus(`Error: ${err}`); } } }) });
+    items.push({ separator: true }, { label: "Refresh", icon: "refresh", shortcut: "F5", onClick: () => reloadIndex() });
     setTreeMenu({ x: e.clientX, y: e.clientY, items });
   };
 
@@ -548,6 +632,13 @@ export default function App() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "F5" && activeId !== null) { e.preventDefault(); reloadIndex(); return; }
+      const el = document.activeElement as HTMLElement | null;
+      const typing = !!el && (/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) || el.isContentEditable || !!el.closest?.(".editor"));
+      if (!typing && activeId !== null && selectedDb && selectedTable && (e.key === "F2" || e.key === "F4")) {
+        e.preventDefault();
+        if (e.key === "F4") openTable(selectedDb, selectedTable, undefined, "properties"); else renameTable(selectedDb, selectedTable);
+        return;
+      }
       if (!e.metaKey || activeId === null) return;
       if (e.shiftKey && e.key.toLowerCase() === "b") { e.preventDefault(); setSide("objects"); const focus = () => filterInput.current?.focus(); focus(); setTimeout(focus, 0); /* the second call covers the objects tab not being mounted yet */ return; }
       if (e.key === "t") { e.preventDefault(); addTab("", tab?.database ?? null); }
@@ -612,6 +703,11 @@ export default function App() {
                   }}
                 />
                 {query && <button className="clear" aria-label="Clear filter" onClick={() => setQuery("")}><Icon name="close" /></button>}
+              </div>
+              <div className="popup-host">
+                <button className={`icon-btn filter-opts ${isDefaultScope(filterScope) ? "" : "on"}`} disabled={activeId === null} aria-expanded={filterMenu}
+                        title="Choose what the filter searches (tables, views, columns…)" onClick={() => setFilterMenu((v) => !v)}><Icon name="filter" /></button>
+                {filterMenu && <FilterOptions scope={filterScope} onChange={setFilterScope} onClose={() => setFilterMenu(false)} />}
               </div>
               <button className="refresh icon-btn" disabled={activeId === null} title="Refresh objects and rebuild autocomplete (F5)" onClick={() => reloadIndex()}><Icon name="refresh" /></button>
             </div>

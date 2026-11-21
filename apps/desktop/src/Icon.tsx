@@ -52,7 +52,9 @@ const PATHS: Record<string, ReactNode> = {
   properties: <><rect x="2" y="2.500" width="12" height="11" rx="1" /><path d="M2 5.800h12M5 8.500h6M5 11h4" /></>,
   grid: <><rect x="2" y="3" width="12" height="10" rx="1" /><path d="M2 6.400h12M2 9.700h12M6 3v10M10 3v10" /></>,
   eraser: <path d="m9.500 3 3.500 3.500-5.500 5.500H4.500L2.500 10zM6 6.500l3.500 3.500M7 13h6.500" />,
-  settings: <><circle cx="8" cy="8" r="2.2" /><path d="M8 1.8v1.8M8 12.4v1.8M1.8 8h1.8M12.4 8h1.8M3.6 3.6l1.3 1.3M11.1 11.1l1.3 1.3M12.4 3.6l-1.3 1.3M4.9 11.1l-1.3 1.3" /></>,
+  settings: <><path d="M2 4h6M11.500 4H14M2 8h2.500M7.500 8H14M2 12h6.500M11.500 12H14" /><circle cx="9.500" cy="4" r="1.500" /><circle cx="6" cy="8" r="1.500" /><circle cx="10" cy="12" r="1.500" /></>,
+  home: <path d="M2 8.200 8 2.800l6 5.400M3.600 7v6.500h3.200V10h2.400v3.500h3.200V7" />,
+  preview: <><path d="M1.500 8S4 3.500 8 3.500 14.500 8 14.500 8 12 12.500 8 12.500 1.500 8 1.500 8z" /><path d="M6.600 6.200 10 8l-3.400 1.800z" fill="currentColor" /></>,
   search: <><circle cx="7" cy="7" r="4.200" /><path d="m10.200 10.200 3.300 3.300" /></>,
 };
 

@@ -1,9 +1,20 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import Select from "./Select";
 import { AREA_LABEL, DEFAULTS, FAMILIES, SCHEMES, SIZE_RANGE, applyPrefs, savePrefs, type Area, type Prefs } from "./prefs";
 import type { ThemePref } from "./theme";
 
-/** Preferences: theme, and font family, size and weight for each part of the window. Changes apply live; Cancel puts the old values back. */
+type PageId = "theme" | "font-ui" | "font-tree" | "font-grid" | "font-editor" | "colours";
+interface Page { id: PageId; group: string; label: string; words: string }
+const PAGES: Page[] = [
+  { id: "theme", group: "Appearance", label: "Theme", words: "light dark system mode colour" },
+  { id: "font-ui", group: "Fonts", label: "Interface", words: "font family size bold menus buttons dialogs" },
+  { id: "font-tree", group: "Fonts", label: "Sidebar", words: "font family size bold object tree navigator" },
+  { id: "font-grid", group: "Fonts", label: "Data grid", words: "font family size bold results table cells" },
+  { id: "font-editor", group: "Fonts", label: "Query editor", words: "font family size bold line height sql code" },
+  { id: "colours", group: "Editor", label: "Syntax colours", words: "editor colour scheme highlight solarized contrast vivid multi-colour" },
+];
+
+/** Preferences, laid out like DBeaver's: a filterable list of pages on the left, the chosen page on the right. Changes apply live; Cancel restores the old values. */
 export default function PreferencesDialog(props: {
   initial: Prefs;
   theme: ThemePref;
@@ -14,56 +25,92 @@ export default function PreferencesDialog(props: {
   onClose(): void;
 }) {
   const [p, setP] = useState<Prefs>(props.initial);
+  const [page, setPage] = useState<PageId>("theme");
+  const [filter, setFilter] = useState("");
   const update = (next: Prefs) => { setP(next); applyPrefs(next); props.onLive(next); };
   const setArea = (a: Area, patch: Partial<Prefs[Area]>) => update({ ...p, [a]: { ...p[a], ...patch } });
-  const areas: Area[] = ["ui", "tree", "grid", "editor"];
-  const cancel = () => { applyPrefs(props.initial); props.onClose(); };
+  const cancel = () => { applyPrefs(props.initial); props.onLive(props.initial); props.onClose(); };
   const save = () => { savePrefs(p); props.onChange(p); props.onClose(); };
+
+  const shown = useMemo(() => {
+    const words = filter.toLowerCase().split(/\s+/).filter(Boolean);
+    return PAGES.filter((x) => words.every((w) => `${x.group} ${x.label} ${x.words}`.toLowerCase().includes(w)));
+  }, [filter]);
+  const groups = [...new Set(shown.map((x) => x.group))];
+  const current = shown.find((x) => x.id === page) ?? shown[0];
+
+  const fontPage = (a: Area) => (
+    <div className="prefs-page" data-area={a}>
+      <label>Font
+        <Select value={p[a].family} title={`${AREA_LABEL[a]} font`} aria-label={`${AREA_LABEL[a]} font`} onChange={(e) => setArea(a, { family: e.target.value })}>
+          {a === "tree" && <option value="">Same as interface</option>}
+          {FAMILIES.map((f) => <option key={f.label} value={f.value}>{f.label}</option>)}
+        </Select>
+      </label>
+      <label>Size
+        <input type="number" style={{ width: 70 }} min={SIZE_RANGE[a][0]} max={SIZE_RANGE[a][1]} value={p[a].size} aria-label={`${AREA_LABEL[a]} size`}
+               onChange={(e) => setArea(a, { size: Math.min(SIZE_RANGE[a][1], Math.max(SIZE_RANGE[a][0], Number(e.target.value) || DEFAULTS[a].size)) })} />
+      </label>
+      <label className="check"><input type="checkbox" checked={p[a].bold} aria-label={`${AREA_LABEL[a]} bold`} onChange={(e) => setArea(a, { bold: e.target.checked })} /> Bold</label>
+      {a === "editor" && (
+        <label>Line height
+          <input type="number" step={0.1} min={1} max={2.2} style={{ width: 70 }} value={p.editorLineHeight} aria-label="Editor line height"
+                 onChange={(e) => update({ ...p, editorLineHeight: Math.min(2.2, Math.max(1, Number(e.target.value) || DEFAULTS.editorLineHeight)) })} />
+        </label>
+      )}
+      <div className="prefs-sample" aria-label="Sample">
+        {a === "grid" && <div className="sample-grid">id&nbsp;&nbsp;name&nbsp;&nbsp;&nbsp;&nbsp;total<br />1&nbsp;&nbsp;&nbsp;Ann&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;19.50</div>}
+        {a === "editor" && <div className="sample-editor">SELECT name, total FROM orders WHERE total &gt; 10;</div>}
+        {a === "tree" && <div className="sample-tree">▾ shop &nbsp; 5.31 MB<br />&nbsp;&nbsp;&nbsp;orders</div>}
+        {a === "ui" && <div>Run &nbsp; Preview &nbsp; Format &nbsp; Explain</div>}
+      </div>
+    </div>
+  );
+
   return (
     <div className="overlay">
       <div className="dialog prefs" role="dialog" aria-label="Preferences">
         <h3>Preferences</h3>
-        <section>
-          <h4>Theme</h4>
-          <Select value={props.theme} title="Theme" aria-label="Theme" onChange={(e) => props.onTheme(e.target.value as ThemePref)}>
-            <option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option>
-          </Select>
-        </section>
-        <section>
-          <h4>Fonts</h4>
-          <table className="prefs-table">
-            <thead><tr><th /><th>Family</th><th>Size</th><th>Bold</th></tr></thead>
-            <tbody>
-              {areas.map((a) => (
-                <tr key={a} data-area={a}>
-                  <td>{AREA_LABEL[a]}</td>
-                  <td>
-                    <Select value={p[a].family} title={`${AREA_LABEL[a]} font`} aria-label={`${AREA_LABEL[a]} font`} onChange={(e) => setArea(a, { family: e.target.value })}>
-                      {a === "tree" && <option value="">Same as interface</option>}
-                      {FAMILIES.map((f) => <option key={f.label} value={f.value}>{f.label}</option>)}
-                    </Select>
-                  </td>
-                  <td><input type="number" style={{ width: 60 }} min={SIZE_RANGE[a][0]} max={SIZE_RANGE[a][1]} value={p[a].size} aria-label={`${AREA_LABEL[a]} size`}
-                             onChange={(e) => setArea(a, { size: Math.min(SIZE_RANGE[a][1], Math.max(SIZE_RANGE[a][0], Number(e.target.value) || DEFAULTS[a].size)) })} /></td>
-                  <td><input type="checkbox" checked={p[a].bold} aria-label={`${AREA_LABEL[a]} bold`} onChange={(e) => setArea(a, { bold: e.target.checked })} /></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <label className="check" style={{ marginTop: 8 }}>Editor colours
-            <Select value={p.editorScheme} title="Editor colours" aria-label="Editor colours" onChange={(e) => update({ ...p, editorScheme: e.target.value as Prefs["editorScheme"] })}>
-              {SCHEMES.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}
-            </Select>
-          </label>
-          <label className="check" style={{ marginTop: 8 }}>Editor line height
-            <input type="number" step={0.1} min={1} max={2.2} style={{ width: 60 }} value={p.editorLineHeight} aria-label="Editor line height"
-                   onChange={(e) => update({ ...p, editorLineHeight: Math.min(2.2, Math.max(1, Number(e.target.value) || DEFAULTS.editorLineHeight)) })} />
-          </label>
-          <div className="prefs-sample" aria-label="Sample">
-            <div className="sample-grid">id&nbsp;&nbsp;name&nbsp;&nbsp;&nbsp;&nbsp;total<br />1&nbsp;&nbsp;&nbsp;Ann&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;19.50</div>
-            <div className="sample-editor">SELECT name, total FROM orders WHERE total &gt; 10;</div>
-          </div>
-        </section>
+        <div className="prefs-body">
+          <nav className="prefs-nav" aria-label="Preference pages">
+            <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="type filter text" aria-label="Filter preferences" autoFocus />
+            {groups.map((g) => (
+              <div key={g}>
+                <div className="prefs-group">{g}</div>
+                {shown.filter((x) => x.group === g).map((x) => (
+                  <button key={x.id} className={`prefs-item ${current?.id === x.id ? "active" : ""}`} onClick={() => setPage(x.id)}>{x.label}</button>
+                ))}
+              </div>
+            ))}
+            {shown.length === 0 && <div className="dim small" style={{ padding: 8 }}>Nothing matches</div>}
+          </nav>
+          <section className="prefs-content">
+            {current && <h4>{current.group} › {current.label}</h4>}
+            {current?.id === "theme" && (
+              <div className="prefs-page">
+                <label>Theme
+                  <Select value={props.theme} title="Theme" aria-label="Theme" onChange={(e) => props.onTheme(e.target.value as ThemePref)}>
+                    <option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option>
+                  </Select>
+                </label>
+              </div>
+            )}
+            {current?.id === "font-ui" && fontPage("ui")}
+            {current?.id === "font-tree" && fontPage("tree")}
+            {current?.id === "font-grid" && fontPage("grid")}
+            {current?.id === "font-editor" && fontPage("editor")}
+            {current?.id === "colours" && (
+              <div className="prefs-page">
+                <label>Editor colours
+                  <Select value={p.editorScheme} title="Editor colours" aria-label="Editor colours" onChange={(e) => update({ ...p, editorScheme: e.target.value as Prefs["editorScheme"] })}>
+                    {SCHEMES.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}
+                  </Select>
+                </label>
+                <div className="dim small">The editor behind this dialog shows the scheme as you choose it.</div>
+              </div>
+            )}
+          </section>
+        </div>
         <div className="actions">
           <button onClick={() => update({ ...DEFAULTS })}>Reset to defaults</button>
           <span className="grow" />

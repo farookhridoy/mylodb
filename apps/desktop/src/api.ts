@@ -338,6 +338,11 @@ export async function onJobProgress(jobId: string, cb: (p: JobProgress) => void)
   return () => { un(); };
 }
 
+export const fileApi = {
+  read: (path: string) => invoke<string>("read_text_file", { path }),
+  write: (path: string, content: string) => invoke<void>("write_text_file", { path, content }),
+};
+
 /** The native menu bar tells the window which item was chosen (the Rust side only knows the id). */
 export async function onMenuAction(cb: (id: string) => void): Promise<() => void> {
   const un = await listen<string>("menu-action", (e) => cb(e.payload));

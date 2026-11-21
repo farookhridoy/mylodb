@@ -1361,6 +1361,24 @@ fn session_set(state: tauri::State<AppState>, id: i64, session: String) -> Resul
     state.store.lock().unwrap().set_session(id, &session).map_err(err)
 }
 
+/// Read a text file the user picked (File > Open SQL File). Capped, so a wrong pick cannot freeze the editor.
+#[tauri::command]
+async fn read_text_file(path: String) -> Result<String, String> {
+    const MAX: u64 = 32 * 1024 * 1024;
+    let meta = std::fs::metadata(&path).map_err(|e| format!("{path}: {e}"))?;
+    if meta.len() > MAX {
+        return Err(format!("{path} is {} MB: too large for the editor (limit 32 MB). Use Tools > Run SQL file for big scripts.", meta.len() / 1_048_576));
+    }
+    let bytes = std::fs::read(&path).map_err(|e| format!("{path}: {e}"))?;
+    String::from_utf8(bytes).map_err(|_| format!("{path} is not UTF-8 text"))
+}
+
+/// Write the editor's text to a file the user chose (File > Save As).
+#[tauri::command]
+async fn write_text_file(path: String, content: String) -> Result<(), String> {
+    std::fs::write(&path, content).map_err(|e| format!("{path}: {e}"))
+}
+
 /// The native menu bar. Every custom item just tells the window what was chosen (`menu-action` with the item id): what it does
 /// depends on the open connection and tabs, which only the UI knows. Shortcuts are handled by the window itself (so they are not
 /// registered here twice). Standard Edit items use the system's own handlers.
@@ -1384,11 +1402,19 @@ fn build_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::
         .quit()
         .build()?;
     let file = SubmenuBuilder::new(app, "File")
-        .item(&item("new_query", "New Query Tab", None)?)
+        .item(&item("new_query", "New SQL Script", None)?)
+        .item(&item("open_file", "Open SQL File…", None)?)
+        .item(&item("save_file", "Save", None)?)
+        .item(&item("save_file_as", "Save As…", None)?)
         .item(&item("close_tab", "Close Tab", None)?)
         .separator()
-        .item(&item("new_connection", "New Connection…", None)?)
-        .item(&item("edit_connection", "Edit Connection…", None)?)
+        .item(&item("refresh_tree", "Refresh", None)?)
+        .separator()
+        .item(&item("import", "Import Data…", None)?)
+        .item(&item("export", "Export Data…", None)?)
+        .item(&item("backup", "Backup / Restore…", None)?)
+        .separator()
+        .item(&item("run_file", "Run SQL File…", None)?)
         .build()?;
     let edit = SubmenuBuilder::new(app, "Edit")
         .item(&PredefinedMenuItem::undo(app, None)?)
@@ -1398,36 +1424,50 @@ fn build_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::
         .item(&PredefinedMenuItem::copy(app, None)?)
         .item(&PredefinedMenuItem::paste(app, None)?)
         .item(&PredefinedMenuItem::select_all(app, None)?)
+        .separator()
+        .item(&item("format", "Format SQL", None)?)
+        .build()?;
+    let search = SubmenuBuilder::new(app, "Search")
+        .item(&item("focus_filter", "Search Objects (DB Metadata)", None)?)
+        .item(&item("palette", "Command Palette…", None)?)
+        .build()?;
+    let sql_editor = SubmenuBuilder::new(app, "SQL Editor")
+        .item(&item("new_query", "New SQL Script", None)?)
+        .item(&item("new_query_db", "New Script in Selected Database", None)?)
+        .item(&item("open_file", "Open SQL File…", None)?)
+        .separator()
+        .item(&item("run", "Execute", None)?)
+        .item(&item("preview", "Preview Before Running…", None)?)
+        .item(&item("explain", "Explain Plan", None)?)
+        .item(&item("format", "Format SQL", None)?)
+        .build()?;
+    let database = SubmenuBuilder::new(app, "Database")
+        .item(&item("new_connection", "New Database Connection…", None)?)
+        .item(&item("edit_connection", "Edit Connection…", None)?)
+        .separator()
+        .item(&item("disconnect", "Disconnect", None)?)
+        .separator()
+        .item(&item("home", "Server Home", None)?)
+        .item(&item("databases", "Databases…", None)?)
+        .item(&item("structure", "Tables of Selected Database", None)?)
+        .item(&item("new_table", "New Table…", None)?)
+        .separator()
+        .item(&SubmenuBuilder::new(app, "Tools")
+            .item(&item("users", "Users and Privileges", None)?)
+            .item(&item("server_tools", "Server Tools", None)?)
+            .item(&item("catalog", "Engines, Charsets, Replication", None)?)
+            .build()?)
         .build()?;
     let view = SubmenuBuilder::new(app, "View")
-        .item(&item("refresh_tree", "Refresh Object Tree", None)?)
-        .item(&item("focus_filter", "Search Objects", None)?)
-        .separator()
         .item(&item("theme_system", "Theme: System", None)?)
         .item(&item("theme_light", "Theme: Light", None)?)
         .item(&item("theme_dark", "Theme: Dark", None)?)
         .separator()
         .fullscreen()
         .build()?;
-    let database = SubmenuBuilder::new(app, "Database")
-        .item(&item("home", "Server Home", None)?)
-        .item(&item("databases", "Databases…", None)?)
-        .item(&item("structure", "Tables of Selected Database", None)?)
-        .separator()
-        .item(&item("new_table", "New Table…", None)?)
-        .build()?;
-    let tools = SubmenuBuilder::new(app, "Tools")
-        .item(&item("export", "Export Data…", None)?)
-        .item(&item("import", "Import Data…", None)?)
-        .item(&item("backup", "Backup / Restore…", None)?)
-        .separator()
-        .item(&item("users", "Users and Privileges", None)?)
-        .item(&item("server_tools", "Server Tools", None)?)
-        .item(&item("catalog", "Engines, Charsets, Replication", None)?)
-        .build()?;
     let window = SubmenuBuilder::new(app, "Window").minimize().maximize().separator().close_window().build()?;
     let help = SubmenuBuilder::new(app, "Help").item(&item("about_shortcuts", "Keyboard Shortcuts", None)?).build()?;
-    MenuBuilder::new(app).items(&[&app_menu, &file, &edit, &view, &database, &tools, &window, &help]).build()
+    MenuBuilder::new(app).items(&[&app_menu, &file, &edit, &search, &sql_editor, &database, &view, &window, &help]).build()
 }
 
 pub fn run() {
@@ -1462,6 +1502,8 @@ pub fn run() {
             run_query,
             preview_sql_source,
             server_catalog,
+            read_text_file,
+            write_text_file,
             database_list,
             database_sizes,
             database_tables,

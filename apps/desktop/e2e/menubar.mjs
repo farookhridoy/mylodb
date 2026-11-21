@@ -66,6 +66,22 @@ await page.keyboard.press("Escape");
 assert.equal(await page.locator("[aria-label='Command palette']").count(), 0);
 ok("⌘K finds actions and tables, Enter runs, Escape closes");
 
+// ---- File: open a .sql file into a tab, save it back; Database: disconnect
+await page.evaluate(() => { window.__nextOpen = "/Users/me/scripts/report.sql"; });
+await menu("open_file");
+await page.waitForSelector(".qtab:has-text('report.sql')");
+assert.ok((await page.evaluate(() => window.__calls.some((c) => c.cmd === "read_text_file" && c.args.path === "/Users/me/scripts/report.sql"))));
+await menu("save_file");
+await page.waitForFunction(() => window.__calls.some((c) => c.cmd === "write_text_file"));
+const wrote = await page.evaluate(() => window.__calls.filter((c) => c.cmd === "write_text_file").at(-1).args);
+assert.equal(wrote.path, "/Users/me/scripts/report.sql"); assert.equal(wrote.content, "SELECT 'from file';");
+ok("Open SQL File reads into a tab; Save writes back to the same path");
+
+await menu("disconnect");
+await page.waitForFunction(() => document.querySelector(".statusbar")?.innerText.includes("Disconnected"));
+assert.match(await page.locator("nav[aria-label=Location]").innerText(), /No connection/);
+ok("Disconnect leaves the app in the not-connected state");
+
 assert.deepEqual(errors, []);
 await browser.close();
 console.log("ALL MENU BAR UI CHECKS PASSED");

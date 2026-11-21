@@ -25,7 +25,7 @@
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; margin: 0; }
 body { background: var(--bg); color: var(--text); font: var(--fw-ui, 400) var(--fs-ui, 12px)/1.35 var(--font-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif); -webkit-font-smoothing: antialiased; }
-.app { display: flex; height: 100%; }
+.app { display: flex; flex-direction: column; height: 100%; } .app-body { flex: 1; display: flex; min-height: 0; }
 .icon { flex: none; vertical-align: -2px; }
 .sidebar { width: 300px; min-width: 200px; flex: none; background: var(--panel); display: flex; flex-direction: column; }
 
@@ -464,10 +464,24 @@ table.kv th { text-align: left; font-weight: 500; color: var(--dim); width: 170p
 /* preferences: per-area fonts (the variables are set from prefs.ts) */
 .sidebar { font: var(--fw-tree, 400) var(--fs-tree, 12px)/1.35 var(--font-tree, inherit); }
 .cm-scroller { font-family: var(--font-editor, "SF Mono", Menlo, monospace) !important; font-size: var(--fs-editor, 13px) !important; font-weight: var(--fw-editor, 400); line-height: var(--lh-editor, 1.5) !important; }
-.prefs { width: 600px; } .prefs h4 { margin: 8px 0 6px; font-size: 12px; } .prefs-table { border-collapse: collapse; width: 100%; } .prefs-table td, .prefs-table th { padding: 3px 6px 3px 0; text-align: left; font-weight: 400; color: var(--dim); }
+.prefs { width: 760px; max-width: 94vw; } .prefs h4 { margin: 8px 0 6px; font-size: 12px; } .prefs-table { border-collapse: collapse; width: 100%; } .prefs-table td, .prefs-table th { padding: 3px 6px 3px 0; text-align: left; font-weight: 400; color: var(--dim); }
 .prefs-table td:first-child { color: var(--text); white-space: nowrap; } .prefs-table .ss { min-width: 190px; }
 .prefs-sample { margin-top: 10px; border: 1px solid var(--line); border-radius: 4px; padding: 8px 10px; background: var(--panel); }
 .sample-grid { font: var(--fw-grid, 400) var(--fs-grid, 12px) var(--font-grid); margin-bottom: 6px; } .sample-editor { font: var(--fw-editor, 400) var(--fs-editor, 13px)/var(--lh-editor, 1.5) var(--font-editor); }
 .palette-overlay { align-items: flex-start; padding-top: 90px; } .palette { width: 560px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 10px 40px rgba(0,0,0,.3); overflow: hidden; }
 .palette input { width: 100%; box-sizing: border-box; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; padding: 10px 12px; font-size: 14px; }
 .palette ul { list-style: none; margin: 0; padding: 4px 0; max-height: 360px; overflow: auto; } .palette li { display: flex; justify-content: space-between; gap: 12px; padding: 6px 12px; cursor: default; } .palette li.sel { background: var(--accent-soft); }
+
+/* top toolbar and breadcrumb footer */
+.topbar { display: flex; align-items: center; gap: 2px; padding: 4px 8px; background: var(--panel); border-bottom: 1px solid var(--line); flex: none; }
+.topbar button { display: inline-flex; align-items: center; gap: 5px; background: transparent; border-color: transparent; color: var(--text); padding: 3px 8px; }
+.topbar button:hover:not(:disabled) { background: var(--hover); } .topbar button:disabled { color: var(--dim); opacity: .55; }
+.topbar .sep { width: 1px; height: 18px; background: var(--line); margin: 0 6px; } .topbar .grow { flex: 1; }
+.statusbar { display: flex; align-items: center; gap: 12px; } .statusbar .status-text { margin-left: auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.crumbs { display: flex; align-items: center; gap: 2px; min-width: 0; } .crumb { background: transparent; border: 0; color: var(--text); padding: 0 4px; min-height: 0; display: inline-flex; align-items: center; gap: 4px; font-size: 11px; border-radius: 3px; }
+.crumb:hover { background: var(--hover); } .crumb-sep { color: var(--dim); }
+
+.prefs-body { display: flex; gap: 12px; min-height: 320px; } .prefs-nav { width: 200px; flex: none; border: 1px solid var(--line); border-radius: 4px; overflow: auto; background: var(--panel); display: flex; flex-direction: column; padding: 4px; gap: 1px; }
+.prefs-nav input { margin-bottom: 6px; } .prefs-group { padding: 6px 6px 2px; font-size: 11px; color: var(--dim); font-weight: 600; text-transform: uppercase; }
+.prefs-item { text-align: left; border: 0; background: transparent; padding: 3px 6px 3px 14px; min-height: 22px; border-radius: 3px; width: 100%; } .prefs-item:hover { background: var(--hover); } .prefs-item.active { background: var(--accent-soft); font-weight: 600; }
+.prefs-content { flex: 1; min-width: 0; } .prefs-content h4 { margin: 2px 0 10px; } .prefs-page { display: flex; flex-direction: column; gap: 10px; align-items: flex-start; } .prefs-page label { flex-direction: row; align-items: center; gap: 10px; flex: none; color: var(--text); } .prefs-page .ss { min-width: 240px; }

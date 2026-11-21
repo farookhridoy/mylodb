@@ -32,6 +32,29 @@ await page.waitForFunction(() => window.__calls.filter((c) => c.cmd === "run_que
 assert.equal((await lastRun()).foreignKeyChecks, true);
 ok("off and on are sent with the run");
 
+// ---- Preview button: the exact script, a foreign key switch, then run
+await page.click("button:has-text('Preview')");
+await page.waitForSelector(".preview-dialog");
+assert.equal(await page.locator(".preview-sql").innerText(), "SELECT 1");
+await page.uncheck(".preview-dialog input[type=checkbox]");
+assert.match(await page.locator(".preview-sql").innerText(), /SET FOREIGN_KEY_CHECKS = 0;\nSELECT 1\nSET FOREIGN_KEY_CHECKS = 1;|SET FOREIGN_KEY_CHECKS = 0;[\s\S]*SELECT 1[\s\S]*SET FOREIGN_KEY_CHECKS = 1;/);
+const runs = (await page.evaluate(() => window.__calls.filter((c) => c.cmd === "run_query").length));
+await page.click(".preview-dialog button.primary, .preview-dialog button.danger");
+await page.waitForSelector(".plan-results li");
+assert.equal(await page.evaluate(() => window.__calls.filter((c) => c.cmd === "run_query").length), runs + 1);
+await page.click(".preview-dialog button:text-is('Done')");
+ok("Preview shows the exact SQL with the foreign key switch, then runs it");
+
+// ---- toolbar and breadcrumb
+await page.click(".topbar button:has-text('Home')");
+await page.waitForSelector("table[aria-label=Server]");
+assert.match(await page.locator("nav[aria-label=Location]").innerText(), /Local/);
+await page.click(".tree .db:has-text('shop')");
+await page.waitForFunction(() => document.querySelector("nav[aria-label=Location]")?.innerText.includes("shop"));
+await page.click(".crumb:has-text('shop')");
+await page.waitForSelector("table[aria-label=Tables]");
+ok("the toolbar has Home, and the footer breadcrumb shows connection > database and opens its pages");
+
 assert.deepEqual(errors, []);
 await browser.close();
 console.log("ALL FK CHECK UI CHECKS PASSED");

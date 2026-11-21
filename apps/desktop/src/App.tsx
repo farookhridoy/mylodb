@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Select from "./Select";
-import { onMenuAction, api, describeError, editorApi, planApi, queryApi, schemaApi, serverApi, type PlanOp, type ConnectError, type Favorite, type FormatOptions, type Kind, type Environment, type Maintenance, type Review, type Node, type SavedConnection, type TableOp } from "./api";
+import { open as pickPath, save as savePath } from "@tauri-apps/plugin-dialog";
+import { fileApi, onMenuAction, api, describeError, editorApi, planApi, queryApi, schemaApi, serverApi, type PlanOp, type ConnectError, type Favorite, type FormatOptions, type Kind, type Environment, type Maintenance, type Review, type Node, type SavedConnection, type TableOp } from "./api";
 import AnalysisPane, { type Analysis } from "./AnalysisPane";
 import ConnectionDialog from "./ConnectionDialog";
 import ContextMenu, { type MenuItem } from "./ContextMenu";
@@ -41,6 +42,8 @@ interface QueryTab {
   kind?: "sql" | "table" | "designer" | "users" | "server" | "transfer" | "databases" | "structure" | "home" | "catalog";
   /// For `transfer` tabs: which tool to show and what it is about.
   transfer?: TransferPreset;
+  /// For query tabs opened from or saved to a .sql file: its path.
+  file?: string;
   /// For a new-table `designer` tab: the name and column count asked for on the Structure page.
   initialTable?: { name: string; columns: number };
   /// For `table` tabs: the table shown. For `designer` tabs: the table edited (`name: null` = a new table).
@@ -364,6 +367,38 @@ export default function App() {
   const fkRef = useRef(fkByTab);
   fkRef.current = fkByTab;
 
+  // ---- .sql files and disconnect (File / Database menus) ----
+  const baseName = (p: string) => p.split(/[\\/]/).pop() ?? p;
+  const openSqlFile = async () => {
+    const p = await pickPath({ multiple: false, filters: [{ name: "SQL", extensions: ["sql", "txt"] }] });
+    if (typeof p !== "string") return;
+    try {
+      const text = await fileApi.read(p);
+      const t = addTab(text, selectedDb, baseName(p));
+      patchTab(t.id, { file: p });
+      setStatus(`Opened ${p}`);
+    } catch (e) { setStatus(`Error: ${describeError(e)}`); }
+  };
+  const saveSqlFile = async (asNew: boolean) => {
+    if (!editorTab) return setStatus("Open a query tab first");
+    let path = asNew ? undefined : editorTab.file;
+    if (!path) {
+      const chosen = await savePath({ defaultPath: `${editorTab.title.replace(/[^\w.-]+/g, "_")}.sql`, filters: [{ name: "SQL", extensions: ["sql"] }] });
+      if (typeof chosen !== "string") return;
+      path = chosen;
+    }
+    try {
+      await fileApi.write(path, editorTab.sql);
+      patchTab(editorTab.id, { file: path, title: baseName(path) });
+      setStatus(`Saved ${path}`);
+    } catch (e) { setStatus(`Error: ${describeError(e)}`); }
+  };
+  const disconnectActive = async () => {
+    if (activeId === null) return setStatus("Not connected");
+    try { await api.disconnect(activeId); } catch { /* the session is gone either way */ }
+    setActiveId(null); setIndex([]); setTabs([newTab(1)]); setSelectedDb(null); setSelectedTable(null); setStatus("Disconnected");
+  };
+
   // ---- native menu bar: the Rust side reports the item id, this decides what it means right now ----
   const menuHandler = useRef<(id: string) => void>(() => {});
   menuHandler.current = (id) => {
@@ -372,6 +407,17 @@ export default function App() {
     switch (id) {
       case "preferences": return setPrefsOpen(true);
       case "new_query": return need(() => addTab("", tab?.database ?? null));
+      case "open_file": return need(() => { openSqlFile(); });
+      case "save_file": return saveSqlFile(false);
+      case "save_file_as": return saveSqlFile(true);
+      case "run_file": return need(() => openTransfer({ tab: "restore" }));
+      case "run": return need(run);
+      case "preview": return need(previewRun);
+      case "explain": return need(() => { analyse("explain"); });
+      case "format": return need(() => { formatSql(); });
+      case "palette": return setPaletteOpen(true);
+      case "new_query_db": return need(() => addTab("", selectedDb));
+      case "disconnect": return disconnectActive();
       case "close_tab": return tab ? closeTab(tab.id) : undefined;
       case "new_connection": return setDialog("new");
       case "edit_connection": return active ? setDialog(active) : setStatus("Pick a connection first");
@@ -438,6 +484,15 @@ export default function App() {
     if (!editorTab || !editor.current) return;
     runReviewed(editorTab.id, editor.current.runnableText(), editorTab.database);
   }, [editorTab, runReviewed]);
+
+  // Preview: the exact script (selection or all) in the Preview SQL dialog, with the foreign key switch, before it runs.
+  const [scriptPreview, setScriptPreview] = useState<{ sql: string; database: string | null } | null>(null);
+  const previewRun = () => {
+    if (!editorTab || !editor.current) return;
+    const sql = editor.current.runnableText();
+    if (!sql.trim()) return setStatus("Nothing to preview: the editor is empty");
+    setScriptPreview({ sql, database: editorTab.database });
+  };
 
   const cancel = () => {
     const id = editorTab && runIds.current[editorTab.id];
@@ -783,6 +838,22 @@ export default function App() {
 
   return (
     <div className="app">
+      <header className="topbar" role="toolbar" aria-label="Main toolbar">
+        <button title="Server home" disabled={activeId === null} onClick={openHome}><Icon name="home" /> Home</button>
+        <button title="New query tab (⌘T)" disabled={activeId === null} onClick={() => addTab("", selectedDb)}><Icon name="terminal" /> New query</button>
+        <button title="List, create and drop databases" disabled={activeId === null} onClick={openDatabases}><Icon name="database" /> Databases</button>
+        <span className="sep" />
+        <button title="Backup, restore, import and export" disabled={activeId === null} onClick={() => openTransfer()}><Icon name="transfer" /> Transfer</button>
+        <button title="Users and privileges" disabled={activeId === null} onClick={openUsers}><Icon name="user" /> Users</button>
+        <button title="Server: processes, variables, status, maintenance, logs" disabled={activeId === null} onClick={openServer}><Icon name="pulse" /> Server</button>
+        <span className="grow" />
+        <button className="theme-toggle" title={`Theme: ${theme.pref} (click to change)`}
+          onClick={() => { const order: ThemePref[] = ["system", "light", "dark"]; theme.setPref(order[(order.indexOf(theme.pref) + 1) % 3]); }}>
+          <Icon name={theme.pref === "system" ? "auto" : theme.pref === "light" ? "sun" : "moon"} />
+        </button>
+        <button title="Preferences (⌘,)" aria-label="Preferences" onClick={() => setPrefsOpen(true)}><Icon name="settings" /></button>
+      </header>
+      <div className="app-body">
       <aside className="sidebar" style={{ width: sidebar.size }} onMouseDownCapture={() => { fromEditor.current = !!(document.activeElement as HTMLElement | null)?.closest?.(".editor"); }}>
         <div className="conn-bar">
           <Select value={activeId ?? ""} onChange={(e) => e.target.value && open(Number(e.target.value))}>
@@ -792,14 +863,6 @@ export default function App() {
           <button title="New connection" onClick={() => setDialog("new")}><Icon name="plus" /></button>
           <button title="Edit connection" disabled={!active} onClick={() => active && setDialog(active)}><Icon name="edit" /></button>
           <button title="Delete connection" disabled={!active} onClick={() => setConfirmDelete(true)}><Icon name="trash" /></button>
-          <button title="Users and privileges" disabled={activeId === null} onClick={openUsers}><Icon name="user" /></button>
- <button title="Backup, restore, import and export" disabled={activeId === null} onClick={() => openTransfer()}><Icon name="transfer" /></button>
-          <button className="theme-toggle" title={`Theme: ${theme.pref} (click to change)`}
-            onClick={() => { const order: ThemePref[] = ["system", "light", "dark"]; theme.setPref(order[(order.indexOf(theme.pref) + 1) % 3]); }}>
-            <Icon name={theme.pref === "system" ? "auto" : theme.pref === "light" ? "sun" : "moon"} />
-          </button>
-          <button title="Preferences (⌘,)" aria-label="Preferences" onClick={() => setPrefsOpen(true)}><Icon name="settings" /></button>
-          <button title="Server: processes, variables, status, maintenance, logs" disabled={activeId === null} onClick={openServer}><Icon name="pulse" /></button>
         </div>
         {activeId !== null && (
           <div className={`env-bar env-${env}`} title={`${ENV_LABEL[env]} connection${readOnly ? ", read-only on the server" : ""}${active?.query_timeout_secs ? `, queries stop after ${active.query_timeout_secs} s` : ""}`}>
@@ -908,6 +971,7 @@ export default function App() {
               <div className="sql-pane" style={{ display: isSql(tab) && (!isTable(tab) || (tab.view ?? "data") === "data") ? "flex" : "none" }}>
                 <div className="toolbar">
                   <button className="primary" disabled={running} onClick={run} title="Run selection or all (⌘↵)">▶ Run</button>
+                  <button disabled={running} onClick={previewRun} title="Show exactly what will run, choose foreign key checks, then run"><Icon name="preview" /> Preview</button>
                   <button disabled={!running} onClick={cancel} title="Cancel running query">■ Cancel</button>
                   <Select aria-label="Foreign key checks" title="Foreign key checks while this tab runs" value={fkByTab[tab.id] === undefined || fkByTab[tab.id] === null ? "default" : fkByTab[tab.id] ? "on" : "off"}
                           onChange={(e) => setFkByTab({ ...fkByTab, [tab.id]: e.target.value === "default" ? null : e.target.value === "on" })}>
@@ -1011,8 +1075,21 @@ export default function App() {
             {tab.kind === "users" && <UsersManager key={`${activeId}:${tab.id}`} connectionId={activeId} nodes={index} ensureColumns={ensureColumns} />}
           </>
         )}
-        <div className={`statusbar env-${env}`} style={{ borderTopColor: bandColor }}><span>{status}</span>{activeId !== null && env !== "development" && <span className={`env-chip env-${env}`}>{ENV_LABEL[env]}{readOnly ? " · read-only" : ""}</span>}</div>
       </main>
+      </div>
+      <footer className={`statusbar env-${env}`} style={{ borderTopColor: bandColor }}>
+        <nav className="crumbs" aria-label="Location">
+          {active ? (
+            <>
+              <button className="crumb" title="Server home" onClick={openHome}><Icon name="server" size={12} /> {active.name}</button>
+              {selectedDb && <><span className="crumb-sep">›</span><button className="crumb" title="Tables of this database" onClick={() => openStructure(selectedDb)}><Icon name="database" size={12} /> {selectedDb}</button></>}
+              {selectedDb && selectedTable && <><span className="crumb-sep">›</span><button className="crumb" title="Open this table" onClick={() => openTable(selectedDb, selectedTable)}><Icon name="table" size={12} /> {selectedTable}</button></>}
+            </>
+          ) : <span className="dim">No connection</span>}
+        </nav>
+        <span className="status-text">{status}</span>
+        {activeId !== null && env !== "development" && <span className={`env-chip env-${env}`}>{ENV_LABEL[env]}{readOnly ? " · read-only" : ""}</span>}
+      </footer>
 
       {hostPrompt && (
         <div className="overlay">
@@ -1056,6 +1133,11 @@ export default function App() {
       )}
       {prefsOpen && <PreferencesDialog initial={prefs} theme={theme.pref} onTheme={theme.setPref} onChange={(p) => { setPrefs(p); setLivePrefs(p); }} onLive={setLivePrefs} onClose={() => { setLivePrefs(prefs); setPrefsOpen(false); }} />}
       {typeConfirm && <TypeConfirmDialog {...typeConfirm} />}
+      {scriptPreview && activeId !== null && (
+        <PreviewDialog title="Preview SQL" summary={scriptPreview.database ? `Runs in database ${scriptPreview.database}.` : undefined} statements={[scriptPreview.sql]} environment={env} confirmLabel="Run"
+          onCancel={() => setScriptPreview(null)} onRun={(st) => queryApi.run(activeId, uid(), scriptPreview.database, st.join("\n"), null)}
+          onDone={() => { reloadIndex(); setStatus("Preview run: done"); }} />
+      )}
       {planDlg && activeId !== null && (
         <PreviewDialog title={planDlg.title} summary={planDlg.summary} statements={planDlg.statements} environment={env} confirmLabel={planDlg.confirmLabel}
           onCancel={() => setPlanDlg(null)} onRun={(st) => planApi.run(activeId, st)}

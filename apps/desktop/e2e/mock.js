@@ -481,3 +481,5 @@ handlers.server_catalog = () => ({
   charsets: { columns: ["Charset", "Description", "Default collation", "Maxlen"], rows: [["utf8mb4", "UTF-8 Unicode", "utf8mb4_0900_ai_ci", "4"], ["latin1", "cp1252 West European", "latin1_swedish_ci", "1"]] },
   replication: { columns: [], rows: [] }, replication_note: null,
 });
+handlers.read_text_file = () => "SELECT 'from file';";
+handlers.write_text_file = () => null;

@@ -17,10 +17,12 @@ await page.waitForSelector(".tree .db");
 assert.equal(await css(".sidebar", "fontSize"), "12px");
 await page.keyboard.press("Meta+,");
 await page.waitForSelector("[role=dialog][aria-label=Preferences]");
+await page.click(".prefs-item:text-is('Sidebar')");
 await page.fill("input[aria-label='Sidebar (object tree) size']", "15");
 assert.equal(await css(".sidebar", "fontSize"), "15px", "applies while editing");
 await page.check("input[aria-label='Sidebar (object tree) bold']");
 assert.equal(await css(".sidebar", "fontWeight"), "600");
+await page.click(".prefs-item:text-is('Query editor')");
 await page.fill("input[aria-label='Query editor size']", "17");
 assert.equal(await css(".cm-scroller", "fontSize"), "17px");
 await page.click("[role=dialog] button:text-is('Cancel')");
@@ -29,7 +31,9 @@ assert.equal(await css(".cm-scroller", "fontSize"), "13px");
 ok("fonts apply live and Cancel restores them");
 
 await page.click("button[aria-label=Preferences]");
+await page.click(".prefs-item:text-is('Data grid')");
 await page.fill("input[aria-label='Data grid size']", "14");
+await page.click(".prefs-item:text-is('Query editor')");
 await page.fill("input[aria-label='Editor line height']", "1.8");
 await page.click("[role=dialog] button:text-is('Save')");
 const saved = JSON.parse(await page.evaluate(() => localStorage.getItem("mylodb.prefs")));
@@ -53,15 +57,26 @@ await page.click(".cm-content"); await page.keyboard.type("SELECT 1");
 const kw = () => page.evaluate(() => { const el = [...document.querySelectorAll(".cm-line span")].find((s) => /SELECT/i.test(s.textContent)); return el ? getComputedStyle(el).color : null; });
 const before = await kw();
 await page.click("button[aria-label=Preferences]");
+await page.click(".prefs-item:text-is('Syntax colours')");
 await page.selectOption("[role=dialog] select[title='Editor colours']", "contrast");
 await page.waitForFunction((b) => { const el = [...document.querySelectorAll(".cm-line span")].find((s) => /SELECT/i.test(s.textContent)); return el && getComputedStyle(el).color !== b; }, before);
 await page.click("[role=dialog] button:text-is('Cancel')");
 await page.waitForFunction((b) => { const el = [...document.querySelectorAll(".cm-line span")].find((s) => /SELECT/i.test(s.textContent)); return el && getComputedStyle(el).color === b; }, before);
 await page.click("button[aria-label=Preferences]");
+await page.click(".prefs-item:text-is('Syntax colours')");
 await page.selectOption("[role=dialog] select[title='Editor colours']", "vivid");
 await page.click("[role=dialog] button:text-is('Save')");
 assert.equal(JSON.parse(await page.evaluate(() => localStorage.getItem("mylodb.prefs"))).editorScheme, "vivid");
 ok("the editor colour scheme previews live, cancels cleanly and is saved");
+
+// ---- the left list filters the pages
+await page.click("button[aria-label=Preferences]");
+await page.fill("input[aria-label='Filter preferences']", "solarized");
+assert.deepEqual(await page.locator(".prefs-item").allInnerTexts(), ["Syntax colours"]);
+await page.fill("input[aria-label='Filter preferences']", "bold");
+assert.deepEqual(await page.locator(".prefs-item").allInnerTexts(), ["Interface", "Sidebar", "Data grid", "Query editor"]);
+await page.click("[role=dialog] button:text-is('Cancel')");
+ok("the page list filters by name and keyword");
 
 // damaged storage falls back to defaults
 await page.evaluate(() => localStorage.setItem("mylodb.prefs", '{"grid":{"size":999},"ui":"x"}'));

@@ -313,6 +313,8 @@ export type ImportMode = "insert" | "ignore" | "replace" | "update";
 export interface ImportPlan {
   database: string; table: string; mapping: (string | null)[]; mode: ImportMode; batch_rows: number;
   stop_on_error: boolean; truncate_first: boolean; empty_as_null: boolean;
+  /** Load with foreign_key_checks = 0 (restored afterwards). */
+  disable_fk_checks?: boolean;
 }
 export interface ImportResult {
   rows_read: number; affected_rows: number; errors: { line: number; message: string }[]; ragged_rows: number; aborted: boolean;
@@ -341,6 +343,8 @@ export const transferApi = {
   preview: (path: string, format: CsvFormat, limit = 20) => invoke<CsvPreview>("csv_preview", { path, format, limit }),
   infer: (path: string, format: CsvFormat) => invoke<InferredColumn[]>("csv_infer", { path, format }),
   createTable: (id: number, db: string, table: string, columns: InferredColumn[]) => invoke<Node[]>("csv_create_table", { id, db, table, columns }),
+  /** Counts and samples the statements of a script without running it. */
+  previewSource: (path: string) => invoke<SourcePreview>("preview_sql_source", { path }),
   importCsv: (id: number, jobId: string, path: string, format: CsvFormat, plan: ImportPlan) => invoke<ImportResult>("import_csv_job", { id, jobId, path, format, plan }),
   runSource: (id: number, jobId: string, path: string, options: RunOptions) => invoke<RunResult>("run_sql_source_job", { id, jobId, path, options }),
   backup: (id: number, jobId: string, options: BackupOptions, dir: string, name: string) => invoke<BackupResult>("backup_job", { id, jobId, options, dir, name }),
@@ -387,3 +391,8 @@ export const adminApi = {
   tables: (id: number, db: string) => invoke<TableRow[]>("database_tables", { id, db }),
   home: (id: number) => invoke<ServerHome>("server_home", { id }),
 };
+
+export interface SourcePreview {
+  files: number; statements: number; bytes: number; kinds: [string, number][]; destructive: number;
+  first: { file: string; line: number; text: string }[]; errors: string[];
+}

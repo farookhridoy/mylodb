@@ -869,6 +869,15 @@ async fn import_csv_job(
     result.map_err(err)
 }
 
+/// Count and sample the statements of a script without running anything (the preview before "Run script").
+#[tauri::command]
+async fn preview_sql_source(path: String) -> Result<myq_transfer::SourcePreview, String> {
+    tokio::task::spawn_blocking(move || myq_transfer::preview_source(std::path::Path::new(&path), 50))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(err)
+}
+
 /// Run a `.sql` file, a `.zip` of them, or a folder of them. The schema may change, so the index is rebuilt after.
 #[tauri::command]
 async fn run_sql_source_job(
@@ -1334,6 +1343,7 @@ pub fn run() {
             drop_object,
             table_column_details,
             run_query,
+            preview_sql_source,
             database_list,
             database_sizes,
             database_tables,

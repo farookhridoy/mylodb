@@ -35,12 +35,12 @@ MySQL 5.7 / 8.0 / 8.4 / MariaDB runs, network-drop tests, measuring the real Tau
 
 | You asked for | Today | Plan |
 |---|---|---|
-| A **dashboard after connecting** (server info, collation, theme, like phpMyAdmin's home) | 🟡 Server tools has an Overview tab (version, host, charset, uptime, SSL cipher); nothing opens by itself after connect, no server connection collation setting | Phase 11a |
+| A **dashboard after connecting** (server info, collation, theme, like phpMyAdmin's home) | ✅ Home page opens on a fresh connect (version, account, uptime, SSL, collation, links); connection collation is a connection setting | done (11a) |
 | **List all databases**, select all, **drop** the selected | ✅ Databases page (database menu > Databases) | done (11b) |
 | **Go inside a database and see all tables**, choose some and drop them (the "Structure" tab: rows, engine, collation, size, overhead, Browse / Structure / Search / Insert / Empty / Drop, "With selected": copy, show create, export, empty, drop, analyze, check, checksum, optimize, repair, add / replace prefix, copy with prefix, "containing the word" filter, create table) | ✅ Structure page (database menu > Structure). Print / Data dictionary still to do | 11c done, print in 11f |
 | After clicking Drop, **show the descriptive SQL** before it runs (`DROP TABLE a, b`) | ✅ one shared Preview SQL dialog for drops, empties, renames, copies, prefix operations | done (11d) |
-| **Foreign key checks on / off** when importing and when running SQL | 🟡 console Run has an FK checks selector (default / on / off) per tab; Restore and Run SQL file already had one. **Still missing**: CSV import switch, preview before running a SQL file | 11e (rest) |
-| **Preview the SQL** before the final run (phpMyAdmin style), run with and without FK checks | 🟡 grid changes have "View queries" and the designer previews DDL; the console reviews only risky statements; imports and SQL files cannot be previewed | Phase 11d / 11e |
+| **Foreign key checks on / off** when importing and when running SQL | ✅ FK checks selector on the console's Run (per tab), CSV import switch, Restore and Run SQL file switch; Preview script shows counts and the first statements before a SQL file runs | done (11e) |
+| **Preview the SQL** before the final run (phpMyAdmin style), run with and without FK checks | ✅ drops, renames, copies and bulk operations preview their SQL; SQL files can be previewed | done (11d / 11e) |
 | **Change the theme** | 🟡 Light / Dark / System. No gallery of named themes | Light and Dark done; named themes are nice to have (Phase 12) |
 | **Preferences**: font size, family, bold, per area (sidebar, data grid, query), multi-colour query highlighting | 🟡 the editor is multi-colour (syntax highlighting), but there is no Preferences dialog and no per-area fonts | Phase 12 |
 | A **navbar on top** like DBeaver or SQLyog (menus and a toolbar) | ❌ the sidebar has an icon strip; there is no menu bar (File, Edit, View, Connection, Database, Table, Tools, Window, Help) | Phase 12 |

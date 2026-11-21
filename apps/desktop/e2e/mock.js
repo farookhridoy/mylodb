@@ -471,3 +471,8 @@ handlers.server_home = () => ({
   info: { version: "9.7.2", version_comment: "MySQL Community Server", hostname: "mac", port: 3306, datadir: "/data", charset: "utf8mb4", collation: "utf8mb4_0900_ai_ci", sql_mode: "", time_zone: "SYSTEM", max_connections: 151, uptime_seconds: 93784, ssl_cipher: "TLS_AES_256_GCM_SHA384" },
   account: "root@localhost", protocol: 10, connections: 4, connection_collation: "utf8mb4_0900_ai_ci", databases: 3,
 });
+handlers.preview_sql_source = (a) => {
+  window.__previewed = a.path;
+  return { files: 1, statements: 12, bytes: 4096, kinds: [["INSERT", 8], ["CREATE TABLE", 2], ["DROP TABLE", 2]], destructive: 2, errors: [],
+    first: [{ file: "dump.sql", line: 1, text: "DROP TABLE IF EXISTS `a`" }, { file: "dump.sql", line: 2, text: "CREATE TABLE `a` (id INT)" }] };
+};

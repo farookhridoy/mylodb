@@ -3,10 +3,11 @@ import Select from "./Select";
 import Icon from "./Icon";
 import { open as pickPath, save as savePath } from "@tauri-apps/plugin-dialog";
 import {
-  EXPORT_FORMATS, onJobProgress, transferApi, type BackupOptions, type BackupResult, type CsvFormat, type CsvPreview, type ExportFormat, type ImportMode,
+  EXPORT_FORMATS, describeError, onJobProgress, transferApi, type SourcePreview, type BackupOptions, type BackupResult, type CsvFormat, type CsvPreview, type ExportFormat, type ImportMode,
   type ImportResult, type InferredColumn, type JobProgress, type Node, type RunResult,
 } from "./api";
 import { ConfirmDialog } from "./SidePanels";
+import { formatBytes } from "./browserMeta";
 import { newJobId, ProgressBar, useJob } from "./Jobs";
 
 export type TransferTab = "backup" | "restore" | "import" | "export";
@@ -133,9 +134,17 @@ function Restore({ connectionId, nodes, onSchemaChanged }: { connectionId: numbe
   const [fk, setFk] = useState(true);
   const [confirm, setConfirm] = useState(false);
   const job = useJob<RunResult>();
+  const [preview, setPreview] = useState<SourcePreview | null>(null);
+  const [previewing, setPreviewing] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
   const choose = async (directory: boolean) => {
     const p = await pickPath(directory ? { directory: true, multiple: false } : { multiple: false, filters: [{ name: "SQL or zip", extensions: ["sql", "zip"] }] });
-    if (typeof p === "string") setPath(p);
+    if (typeof p === "string") { setPath(p); setPreview(null); }
+  };
+  const showPreview = async () => {
+    setPreviewing(true); setPreviewError(null);
+    try { setPreview(await transferApi.previewSource(path)); } catch (e) { setPreview(null); setPreviewError(describeError(e)); }
+    finally { setPreviewing(false); }
   };
   const go = () => {
     setConfirm(false);
@@ -154,7 +163,21 @@ function Restore({ connectionId, nodes, onSchemaChanged }: { connectionId: numbe
             <Select value={db} onChange={(e) => setDb(e.target.value)}><option value="">(as written in the script)</option>{dbs.map((d) => <option key={d}>{d}</option>)}</Select></label>
           <label className="check"><input type="checkbox" checked={stop} onChange={(e) => setStop(e.target.checked)} /> Stop at the first error</label>
           <label className="check"><input type="checkbox" checked={fk} onChange={(e) => setFk(e.target.checked)} /> Disable foreign key checks while running</label>
-          <button className="danger" disabled={!path || job.running} onClick={() => setConfirm(true)}>Run script…</button>
+          <div className="row-gap">
+            <button disabled={!path || previewing} onClick={showPreview} title="Count and read the statements without running anything">Preview script</button>
+            <button className="danger" disabled={!path || job.running} onClick={() => setConfirm(true)}>Run script…</button>
+          </div>
+          {previewError && <div className="banner bad">{previewError}</div>}
+          {preview && (
+            <div className="src-preview" aria-label="Script preview">
+              <div><b>{preview.statements.toLocaleString()}</b> statements in {preview.files} file{preview.files === 1 ? "" : "s"} ({formatBytes(preview.bytes)})
+                {preview.destructive > 0 && <span className="bad-text"> · {preview.destructive.toLocaleString()} drop, truncate or delete</span>}</div>
+              <div className="dim small">{preview.kinds.map(([k, n]) => `${k} ${n.toLocaleString()}`).join(" · ")}</div>
+              {preview.errors.map((e, i) => <div key={i} className="error small">{e}</div>)}
+              <pre className="preview-sql">{preview.first.map((f) => `-- ${f.file}:${f.line}\n${f.text}`).join("\n\n")}</pre>
+              <div className="dim small">{preview.statements > preview.first.length ? `The first ${preview.first.length} statements are shown. ` : ""}Foreign key checks will be {fk ? "off" : "on"} while it runs.</div>
+            </div>
+          )}
           <div className="dim small">The script is run statement by statement and may drop and recreate tables. It is streamed from disk, so very large files are fine.</div>
         </section>
       </div>
@@ -199,6 +222,7 @@ function ImportCsv({ connectionId, nodes, preset, onSchemaChanged, ensureColumns
   const [stop, setStop] = useState(true);
   const [truncate, setTruncate] = useState(false);
   const [emptyNull, setEmptyNull] = useState(true);
+  const [csvFk, setCsvFk] = useState(false); // true = load with foreign key checks off
   const [confirmTruncate, setConfirmTruncate] = useState(false);
   const job = useJob<ImportResult>();
   useEffect(() => { if (db) ensureColumns(db); }, [db]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -256,7 +280,7 @@ function ImportCsv({ connectionId, nodes, preset, onSchemaChanged, ensureColumns
       }
       try {
         return await transferApi.importCsv(connectionId, id, path, fmt, {
-          database: db, table: target, mapping, mode, batch_rows: 500, stop_on_error: stop, truncate_first: truncate && !newTable, empty_as_null: emptyNull,
+          database: db, table: target, mapping, mode, batch_rows: 500, stop_on_error: stop, truncate_first: truncate && !newTable, empty_as_null: emptyNull, disable_fk_checks: csvFk,
         });
       } finally { onSchemaChanged(); }
     });
@@ -298,6 +322,8 @@ function ImportCsv({ connectionId, nodes, preset, onSchemaChanged, ensureColumns
           )}
           <label className="check"><input type="checkbox" checked={stop} onChange={(e) => setStop(e.target.checked)} /> Stop at the first bad row and undo everything</label>
           <label className="check"><input type="checkbox" checked={emptyNull} onChange={(e) => setEmptyNull(e.target.checked)} /> Empty values are NULL in number and date columns</label>
+          <label className="check"><input type="checkbox" checked={csvFk} onChange={(e) => setCsvFk(e.target.checked)} /> Disable foreign key checks while importing</label>
+          {csvFk && <div className="dim small">Rows that point at missing parents will be loaded. The setting is switched back on when the import ends.</div>}
           <button className="primary" disabled={!ready} onClick={() => (truncate && !newTable ? setConfirmTruncate(true) : start())}>Import {preview ? `(${mapped} column${mapped === 1 ? "" : "s"})` : ""}</button>
         </section>
       </div>

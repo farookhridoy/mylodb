@@ -272,6 +272,9 @@ pub struct ImportPlan {
     /// An empty cell is NULL for number, date and other non-text columns.
     #[serde(default = "yes")]
     pub empty_as_null: bool,
+    /// Load with `foreign_key_checks = 0` (rows that point at parents loaded later, or not at all). Restored to 1 afterwards.
+    #[serde(default)]
+    pub disable_fk_checks: bool,
 }
 
 fn default_batch() -> usize {
@@ -411,6 +414,17 @@ async fn flush(conn: &mut Conn, plan: &ImportPlan, cols: &[ColInfo], b: &mut Bat
 }
 
 pub async fn import_csv(conn: &mut Conn, path: &Path, fmt: &CsvFormat, plan: &ImportPlan, progress: ProgressFn<'_>, cancel: &AtomicBool) -> Result<ImportResult> {
+    if !plan.disable_fk_checks {
+        return import_rows(conn, path, fmt, plan, progress, cancel).await;
+    }
+    conn.query_drop("SET SESSION foreign_key_checks = 0").await?;
+    let result = import_rows(conn, path, fmt, plan, progress, cancel).await;
+    // the connection goes back to the pool: leave the session as the next caller expects it
+    let _ = conn.query_drop("SET SESSION foreign_key_checks = 1").await;
+    result
+}
+
+async fn import_rows(conn: &mut Conn, path: &Path, fmt: &CsvFormat, plan: &ImportPlan, progress: ProgressFn<'_>, cancel: &AtomicBool) -> Result<ImportResult> {
     let started = Instant::now();
     let mapped: Vec<(usize, String)> = plan.mapping.iter().enumerate().filter_map(|(i, m)| m.clone().map(|m| (i, m))).collect();
     if mapped.is_empty() {
@@ -585,7 +599,7 @@ mod tests {
     #[test]
     fn insert_statements_for_each_mode() {
         let cols = vec![ColInfo { name: "a".into(), text_like: false, binary: false, bit: false }, ColInfo { name: "b`x".into(), text_like: true, binary: false, bit: false }];
-        let plan = |mode| ImportPlan { database: "d".into(), table: "t".into(), mapping: vec![], mode, batch_rows: 1, stop_on_error: true, truncate_first: false, empty_as_null: true };
+        let plan = |mode| ImportPlan { database: "d".into(), table: "t".into(), mapping: vec![], mode, batch_rows: 1, stop_on_error: true, truncate_first: false, empty_as_null: true, disable_fk_checks: false };
         assert_eq!(insert_sql(&plan(ImportMode::Insert), &cols, 2), "INSERT INTO `d`.`t` (`a`, `b``x`) VALUES (?,?),(?,?)");
         assert!(insert_sql(&plan(ImportMode::Ignore), &cols, 1).starts_with("INSERT IGNORE INTO"));
         assert!(insert_sql(&plan(ImportMode::Replace), &cols, 1).starts_with("REPLACE INTO"));
@@ -598,7 +612,7 @@ mod tests {
         let txt = ColInfo { name: "t".into(), text_like: true, binary: false, bit: false };
         let bin = ColInfo { name: "b".into(), text_like: true, binary: true, bit: false };
         let bit = ColInfo { name: "x".into(), text_like: false, binary: false, bit: true };
-        let plan = ImportPlan { database: "d".into(), table: "t".into(), mapping: vec![], mode: ImportMode::Insert, batch_rows: 1, stop_on_error: true, truncate_first: false, empty_as_null: true };
+        let plan = ImportPlan { database: "d".into(), table: "t".into(), mapping: vec![], mode: ImportMode::Insert, batch_rows: 1, stop_on_error: true, truncate_first: false, empty_as_null: true, disable_fk_checks: false };
         let fmt = CsvFormat { null_text: Some("\\N".into()), trim: true, ..Default::default() };
         assert_eq!(to_value(Some(""), &num, &plan, &fmt), Value::NULL, "an empty number is NULL");
         assert_eq!(to_value(Some(""), &txt, &plan, &fmt), Value::Bytes(vec![]), "an empty string stays empty text");

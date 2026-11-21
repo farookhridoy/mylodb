@@ -452,3 +452,5 @@ button.danger { background: var(--bad); border-color: var(--bad); color: #fff; }
 .home-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 12px; max-width: 980px; }
 table.kv th { text-align: left; font-weight: 500; color: var(--dim); width: 170px; padding-right: 12px; } table.kv td { word-break: break-word; }
 .home-actions { display: flex; flex-wrap: wrap; gap: 8px; } .home-action { display: inline-flex; align-items: center; gap: 6px; }
+.row-gap { display: flex; gap: 8px; } .src-preview { margin-top: 8px; border: 1px solid var(--line); border-radius: 4px; padding: 8px 10px; background: var(--panel); }
+.src-preview .preview-sql { max-height: 220px; overflow: auto; } .bad-text { color: var(--danger, #d14343); }

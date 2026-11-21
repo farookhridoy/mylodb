@@ -8,7 +8,7 @@ mod sql_run;
 
 pub use backup::{backup, strip_definer, BackupOptions, BackupResult, BackupTarget, DbSelection};
 pub use csv_import::{import_csv, infer_schema, preview_csv, sniff_delimiter, CsvFormat, CsvPreview, ImportMode, ImportPlan, ImportResult, InferredColumn, RowError};
-pub use sql_run::{run_source, RunOptions, RunResult, ScriptError};
+pub use sql_run::{preview_source, run_source, PreviewStatement, RunOptions, RunResult, ScriptError, SourcePreview};
 
 use std::sync::atomic::{AtomicBool, Ordering};
 

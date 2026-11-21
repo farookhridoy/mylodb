@@ -199,6 +199,87 @@ enum Item {
     ReadError(String),
 }
 
+/// What a script contains, found without running anything: how many statements of each kind, the first few, and how many can destroy data.
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct SourcePreview {
+    pub files: u64,
+    pub statements: u64,
+    pub bytes: u64,
+    /// `INSERT`, `CREATE TABLE`, `DROP TABLE`… with their counts, most frequent first.
+    pub kinds: Vec<(String, u64)>,
+    /// Statements that delete data or objects (DROP, TRUNCATE, DELETE, ALTER ... DROP).
+    pub destructive: u64,
+    pub first: Vec<PreviewStatement>,
+    /// Read errors found while scanning (the run would hit them too).
+    pub errors: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct PreviewStatement {
+    pub file: String,
+    pub line: u64,
+    /// Cut at 400 characters.
+    pub text: String,
+}
+
+/// `INSERT`, `DROP TABLE`, `CREATE TABLE`… the first one or two words of a statement, upper-cased.
+fn statement_kind(text: &str) -> String {
+    let mut words = text.split_whitespace().map(|w| w.trim_matches(|c: char| !c.is_ascii_alphanumeric() && c != '_').to_uppercase()).filter(|w| !w.is_empty());
+    let first = words.next().unwrap_or_default();
+    match first.as_str() {
+        "CREATE" | "DROP" | "ALTER" | "TRUNCATE" => {
+            let mut second = words.next().unwrap_or_default();
+            // CREATE OR REPLACE VIEW, CREATE TEMPORARY TABLE, CREATE UNIQUE INDEX: look past the modifier
+            while matches!(second.as_str(), "OR" | "REPLACE" | "TEMPORARY" | "UNIQUE" | "DEFINER" | "ALGORITHM") {
+                second = words.next().unwrap_or_default();
+            }
+            format!("{first} {second}").trim().to_string()
+        }
+        _ => first,
+    }
+}
+
+/// Scan a `.sql` file, `.zip` or folder without a database: the statements are counted by kind and the first `sample` are kept.
+pub fn preview_source(source: &Path, sample: usize) -> Result<SourcePreview> {
+    let list = entries(source)?;
+    let mut out = SourcePreview { files: list.len() as u64, bytes: list.iter().map(|e| e.size).sum(), ..Default::default() };
+    let mut kinds: std::collections::HashMap<String, u64> = std::collections::HashMap::new();
+    for entry in list {
+        let name = entry.name.clone();
+        let stream = match (entry.open)() {
+            Ok(s) => s,
+            Err(e) => {
+                out.errors.push(format!("{name}: {e}"));
+                continue;
+            }
+        };
+        for st in ScriptReader::new(BufReader::with_capacity(256 * 1024, stream)) {
+            match st {
+                Ok(st) => {
+                    out.statements += 1;
+                    let kind = statement_kind(&st.text);
+                    if kind.starts_with("DROP") || kind.starts_with("TRUNCATE") || kind == "DELETE" {
+                        out.destructive += 1;
+                    }
+                    *kinds.entry(kind).or_default() += 1;
+                    if out.first.len() < sample {
+                        let text: String = st.text.chars().take(400).collect();
+                        out.first.push(PreviewStatement { file: name.clone(), line: st.line as u64, text });
+                    }
+                }
+                Err(e) => {
+                    out.errors.push(format!("{name}: {e}"));
+                    break;
+                }
+            }
+        }
+    }
+    let mut kinds: Vec<(String, u64)> = kinds.into_iter().collect();
+    kinds.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+    out.kinds = kinds;
+    Ok(out)
+}
+
 /// Run every statement of `source` on `conn`.
 pub async fn run_source(conn: &mut Conn, source: &Path, opts: &RunOptions, progress: ProgressFn<'_>, cancel: &AtomicBool) -> Result<RunResult> {
     let started = Instant::now();
@@ -303,4 +384,31 @@ pub async fn run_source(conn: &mut Conn, source: &Path, opts: &RunOptions, progr
     progress(Progress { phase: "Running script".into(), done: total, total: Some(total), message: format!("{} statements", result.statements) });
     result.elapsed_ms = started.elapsed().as_millis() as u64;
     Ok(result)
+}
+
+#[cfg(test)]
+mod preview_tests {
+    use super::*;
+
+    #[test]
+    fn kinds_look_past_modifiers() {
+        assert_eq!(statement_kind("insert into t values (1)"), "INSERT");
+        assert_eq!(statement_kind("CREATE OR REPLACE VIEW v AS SELECT 1"), "CREATE VIEW");
+        assert_eq!(statement_kind("create temporary table x (a int)"), "CREATE TABLE");
+        assert_eq!(statement_kind("DROP TABLE IF EXISTS a"), "DROP TABLE");
+        assert_eq!(statement_kind("/*!40101 SET x */"), "40101");
+    }
+
+    #[test]
+    fn a_script_is_summarised_without_a_database() {
+        let p = std::env::temp_dir().join(format!("mylodb_preview_{}.sql", std::process::id()));
+        std::fs::write(&p, "DROP TABLE IF EXISTS a;\nCREATE TABLE a (id INT);\nINSERT INTO a VALUES (1);\nINSERT INTO a VALUES (2);\nDELETE FROM a;\n").unwrap();
+        let pv = preview_source(&p, 3).unwrap();
+        std::fs::remove_file(&p).unwrap();
+        assert_eq!((pv.files, pv.statements, pv.destructive), (1, 5, 2));
+        assert_eq!(pv.kinds[0], ("INSERT".to_string(), 2));
+        assert_eq!(pv.first.len(), 3);
+        assert_eq!(pv.first[0].line, 1);
+        assert!(pv.errors.is_empty());
+    }
 }

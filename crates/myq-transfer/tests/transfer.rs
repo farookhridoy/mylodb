@@ -439,6 +439,7 @@ fn plan(db: &str, table: &str, mapping: &[Option<&str>], mode: ImportMode) -> Im
         stop_on_error: true,
         truncate_first: false,
         empty_as_null: true,
+        disable_fk_checks: false,
     }
 }
 
@@ -550,6 +551,36 @@ async fn csv_files_load_with_mapping_modes_errors_and_rollback() {
         assert_eq!(rows(&mut c, db).await.len(), n_before, "a cancelled import leaves nothing behind");
         let one: Option<i64> = c.query_first("SELECT 1").await.unwrap();
         assert_eq!(one, Some(1), "…and the connection is usable");
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn csv_import_can_switch_foreign_key_checks_off_and_restores_them() {
+    with_env("csvfk", &["a"], |pool, names, dir| async move {
+        let db = names[0].as_str();
+        let mut c = pool.get_conn().await.unwrap();
+        c.query_drop(format!("CREATE DATABASE `{db}`")).await.unwrap();
+        c.query_drop(format!("CREATE TABLE `{db}`.parent (id INT PRIMARY KEY) ENGINE=InnoDB")).await.unwrap();
+        c.query_drop(format!("CREATE TABLE `{db}`.child (id INT PRIMARY KEY, pid INT, FOREIGN KEY (pid) REFERENCES `{db}`.parent(id)) ENGINE=InnoDB")).await.unwrap();
+        let f = dir.join("child.csv");
+        std::fs::write(&f, "id,pid\n1,99\n").unwrap();
+        let cancel = AtomicBool::new(false);
+        let mut log = noop();
+        let cols = [Some("id"), Some("pid")];
+        let fmt = CsvFormat::default();
+
+        // checks on (the default): the orphan row is refused and nothing is loaded
+        let on = import_csv(&mut c, &f, &fmt, &plan(db, "child", &cols, ImportMode::Insert), &mut log, &cancel).await.unwrap();
+        assert!(on.aborted && on.rolled_back, "{on:?}");
+
+        // checks off: the same file loads, and the session flag is back to 1 afterwards
+        let mut p = plan(db, "child", &cols, ImportMode::Insert);
+        p.disable_fk_checks = true;
+        let off = import_csv(&mut c, &f, &fmt, &p, &mut log, &cancel).await.unwrap();
+        assert!(!off.aborted && off.affected_rows == 1, "{off:?}");
+        let flag: Option<u8> = c.query_first("SELECT @@foreign_key_checks").await.unwrap();
+        assert_eq!(flag, Some(1), "the switch must not leak into the pooled connection");
     })
     .await;
 }

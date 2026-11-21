@@ -6,6 +6,7 @@ import AnalysisPane, { type Analysis } from "./AnalysisPane";
 import ConnectionDialog from "./ConnectionDialog";
 import ContextMenu, { type MenuItem } from "./ContextMenu";
 import DataGrid, { defaultView, type GridView } from "./DataGrid";
+import ObjectInfo from "./ObjectInfo";
 import { AlterDatabaseDialog, PromptDialog, TypeConfirmDialog } from "./Dialogs";
 import PreviewDialog from "./PreviewDialog";
 import DatabasesPage from "./DatabasesPage";
@@ -979,6 +980,7 @@ export default function App() {
                 : <ObjectTree key={activeId} sortBy={treeSort} index={index} matches={matches} scope={matchScope} terms={terms} selectedDb={selectedDb} onSelectDb={selectDb} selectedTable={selectedTable} onSelectTable={selectTable} lockedTable={lockedTable} onLockTable={lockTable} onUnlockTable={unlock} onPick={pickName} rootLabel={active ? `${active.user}@${active.host}` : ""} onResetRoot={resetBrowser} columnQuery={lockedTable ? query : ""} stats={meta.stats} ensureStats={meta.ensureStats} details={meta.details} ensureDetails={meta.ensureDetails}
                     columnsLoaded={columnsLoaded} ensureColumns={ensureColumns} onOpenTable={(d, t) => openTable(d, t)} onObjectMenu={objectMenu} onOpenObject={showDefinition} indexes={meta.indexes} initialOpen={browserState.open} onOpenChange={(keys) => saveBrowser({ open: keys })} onDatabaseMenu={databaseMenu} />}
             </div>
+            {activeId !== null && <ObjectInfo connectionId={activeId} db={selectedDb} table={selectedTable} index={index} stats={meta.stats} />}
           </>
         )}
         {side === "history" && activeId !== null && (

@@ -39,19 +39,19 @@ assert.equal(await v("Charset"), "utf8mb4");
 assert.equal(await v("Auto increment"), "4");
 assert.equal(await v("Description"), "customer orders");
 assert.deepEqual(await text(page.locator(".props-nav button")), ["Columns 4", "Constraints 2", "Foreign Keys 1", "References 0", "Triggers 1", "Indexes 2", "Partitions 0", "Statistics", "DDL"]);
-const rows = await text(page.locator("table.info tbody tr"));
+const rows = await text(page.locator(".main table.info tbody tr"));
 assert.match(rows[0], /^id 1 bigint unsigned .*PRI auto_increment/);
 assert.match(rows[2], /^total 3 decimal\(10,2\)/);
 ok("Properties shows the settings and the columns with type, key and extras, and counts for every section");
 
 await page.click(".props-nav button:has-text('Foreign Keys')");
-assert.match((await text(page.locator("table.info tbody tr")))[0], /fk1 customer_id customers id CASCADE RESTRICT/);
+assert.match((await text(page.locator(".main table.info tbody tr")))[0], /fk1 customer_id customers id CASCADE RESTRICT/);
 await page.click(".props-nav button:has-text('Indexes')");
-assert.deepEqual((await text(page.locator("table.info tbody tr"))).map((r) => r.replace(/\s+/g, " ")), ["PRIMARY BTREE id", "idx_customer_total BTREE customer_id, total"].map((x) => x));
+assert.deepEqual((await text(page.locator(".main table.info tbody tr"))).map((r) => r.replace(/\s+/g, " ")), ["PRIMARY BTREE id", "idx_customer_total BTREE customer_id, total"].map((x) => x));
 await page.click(".props-nav button:has-text('Triggers')");
-assert.match((await text(page.locator("table.info tbody tr")))[0], /trg_orders_bi BEFORE INSERT/);
+assert.match((await text(page.locator(".main table.info tbody tr")))[0], /trg_orders_bi BEFORE INSERT/);
 await page.click(".props-nav button:has-text('Statistics')");
-assert.ok((await text(page.locator("table.info.kv tr"))).some((r) => /^Data size 16 KB/.test(r)));
+assert.ok((await text(page.locator(".main table.info.kv tr"))).some((r) => /^Data size 16 KB/.test(r)));
 ok("foreign keys (with rules), indexes, triggers and statistics are listed");
 
 // a foreign key's table opens from the list
@@ -61,7 +61,7 @@ await page.waitForSelector(".qtab:has-text('customers')");
 assert.equal(await page.locator(".subtabs .crumb").innerText(), "shop › customers");
 await page.click(".subtabs button:has-text('Properties')");
 await page.click(".props-nav button:has-text('References')");
-assert.match((await text(page.locator("table.info tbody tr")))[0], /fk1 orders customer_id id CASCADE RESTRICT/);
+assert.match((await text(page.locator(".main table.info tbody tr")))[0], /fk1 orders customer_id id CASCADE RESTRICT/);
 ok("References lists the tables that point at this one, and a table name opens it");
 
 // DDL

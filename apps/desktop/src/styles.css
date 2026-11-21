@@ -487,3 +487,12 @@ table.kv th { text-align: left; font-weight: 500; color: var(--dim); width: 170p
 .prefs-content { flex: 1; min-width: 0; } .prefs-content h4 { margin: 2px 0 10px; } .prefs-page { display: flex; flex-direction: column; gap: 10px; align-items: flex-start; } .prefs-page label { flex-direction: row; align-items: center; gap: 10px; flex: none; color: var(--text); } .prefs-page .ss { min-width: 240px; }
 .prefs-nav .prefs-item { display: flex; justify-content: flex-start; align-items: center; text-align: left; }
 .prefs-nav input { width: 100%; box-sizing: border-box; }
+.grid-tools { display: flex; align-items: center; gap: 8px; padding: 3px 8px; border-bottom: 1px solid var(--line); background: var(--panel); flex: none; }
+.seg { display: inline-flex; } .seg button { border-radius: 0; min-height: 22px; padding: 1px 10px; } .seg button:first-child { border-radius: 3px 0 0 3px; } .seg button:last-child { border-radius: 0 3px 3px 0; margin-left: -1px; }
+.seg button.active { background: var(--accent-soft); border-color: var(--accent); font-weight: 600; } .grid-tools .ss { min-width: 150px; }
+.text-result { margin: 0; padding: 8px 12px; font: var(--fw-grid, 400) var(--fs-grid, 12px)/1.4 var(--font-grid, "SF Mono", Menlo, monospace); white-space: pre; }
+.icon-btn.on { background: var(--accent-soft); color: var(--accent); }
+.conn-tabs { display: flex; gap: 1px; padding: 3px 8px 0; background: var(--panel); border-bottom: 1px solid var(--line); flex: none; overflow-x: auto; }
+.conn-tab { display: inline-flex; align-items: center; border: 1px solid var(--line); border-bottom: 0; border-radius: 4px 4px 0 0; background: var(--bg); border-top: 2px solid transparent; }
+.conn-tab.active { background: var(--control); border-top-color: var(--accent); font-weight: 600; } .conn-tab.env-production { border-top-color: #e5484d; } .conn-tab.env-staging { border-top-color: #c98a1b; }
+.conn-tab button { background: transparent; border: 0; min-height: 22px; padding: 1px 8px; display: inline-flex; align-items: center; gap: 4px; } .conn-tab-close { padding: 1px 5px !important; color: var(--dim); } .conn-tab-close:hover { color: var(--text); }

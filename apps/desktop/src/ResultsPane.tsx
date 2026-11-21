@@ -3,6 +3,8 @@ import Icon, { type IconName } from "./Icon";
 import InfoPane, { type InfoContext } from "./InfoPane";
 import AnalysisPane, { type Analysis } from "./AnalysisPane";
 import type { StatementResult } from "./api";
+import Select from "./Select";
+import { COPY_FORMATS, formatResult, textTable, type CopyFormat } from "./resultFormats";
 
 export interface RunState {
   running: boolean;
@@ -100,8 +102,30 @@ export default function ResultsPane({ run, analysis, data, dataLabel = "Table Da
 }
 
 export function Grid({ set }: { set: StatementResult["sets"][number] }) {
+  const [mode, setMode] = useState<"grid" | "text">(() => (localStorage.getItem("mylodb.resultMode") === "text" ? "text" : "grid"));
+  const [copied, setCopied] = useState<string | null>(null);
+  const choose = (m: "grid" | "text") => { localStorage.setItem("mylodb.resultMode", m); setMode(m); };
+  const copy = async (f: CopyFormat) => {
+    try { await navigator.clipboard.writeText(formatResult(set, f)); setCopied(`Copied ${set.rows.length} row(s) as ${COPY_FORMATS.find((x) => x.id === f)!.label}`); }
+    catch { setCopied("Copy failed: the clipboard is not available"); }
+    setTimeout(() => setCopied(null), 2500);
+  };
   return (
     <>
+      <div className="grid-tools">
+        <div className="seg" role="group" aria-label="Result view">
+          <button className={mode === "grid" ? "active" : ""} onClick={() => choose("grid")}>Grid</button>
+          <button className={mode === "text" ? "active" : ""} onClick={() => choose("text")}>Text</button>
+        </div>
+        <Select value="" title="Copy the result as…" aria-label="Copy as" onChange={(e) => e.target.value && copy(e.target.value as CopyFormat)}>
+          <option value="">Copy as…</option>
+          {COPY_FORMATS.map((f) => <option key={f.id} value={f.id}>{f.label}</option>)}
+        </Select>
+        {copied && <span className="dim small">{copied}</span>}
+      </div>
+      {mode === "text" ? (
+        <div className="grid-scroll"><pre className="text-result" aria-label="Text result">{textTable(set)}</pre></div>
+      ) : (
       <div className="grid-scroll">
         <table className="grid">
           <thead>
@@ -117,6 +141,7 @@ export function Grid({ set }: { set: StatementResult["sets"][number] }) {
           </tbody>
         </table>
       </div>
+      )}
       <div className="grid-foot">
         {set.total_rows.toLocaleString()} row{set.total_rows === 1 ? "" : "s"}
         {set.truncated && ` · showing first ${set.rows.length.toLocaleString()}`}

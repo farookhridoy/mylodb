@@ -1,0 +1,35 @@
+// Tree: sort tables by size; command palette snippets.
+import { chromium } from "playwright-core";
+import fs from "node:fs";
+import assert from "node:assert/strict";
+const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || undefined, headless: true });
+const page = await (await browser.newContext({ viewport: { width: 1400, height: 900 } })).newPage();
+const errors = [];
+page.on("pageerror", (e) => errors.push("pageerror: " + e.message));
+await page.addInitScript({ content: fs.readFileSync(new URL("./mock.js", import.meta.url), "utf8") + "\nSIZES.orders = 900 * 1024 * 1024; // orders is the biggest table here" });
+await page.goto(process.env.APP_URL || "http://localhost:1420/");
+let step = 0;
+const ok = (m) => console.log(`ok ${++step} ${m}`);
+await page.selectOption(".conn-bar select", "1");
+await page.waitForSelector(".tree .db");
+await page.click(".tree .db:has-text('shop')");
+const tables = () => page.locator(".row-item.leaf").evaluateAll((els) => els.map((e) => e.innerText.split("\n")[0].trim()));
+await page.waitForSelector(".row-item.leaf .size");
+const byName = await tables();
+await page.click("button[title='Sort tables by size']");
+const bySize = await tables();
+assert.deepEqual(byName, ["customers", "orders"]);
+assert.deepEqual(bySize, ["orders", "customers"], "largest first");
+assert.equal(await page.evaluate(() => localStorage.getItem("mylodb.treeSort")), "size");
+await page.click("button[aria-pressed=true]");
+assert.deepEqual(await tables(), byName, "name order comes back");
+ok("tables can be sorted by size (largest first) and back to name order");
+
+await page.keyboard.press("Meta+k");
+await page.fill("input[aria-label=Command]", "snippet join");
+await page.keyboard.press("Enter");
+await page.waitForFunction(() => document.querySelector(".cm-content")?.innerText.includes("INNER JOIN") || document.querySelector(".cm-content")?.innerText.includes("JOIN table_b"));
+ok("⌘K inserts a SQL snippet into the editor");
+assert.deepEqual(errors, []);
+await browser.close();
+console.log("ALL BROWSER 2 UI CHECKS PASSED");

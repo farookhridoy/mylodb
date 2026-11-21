@@ -14,6 +14,7 @@ import HomePage from "./HomePage";
 import CatalogPage from "./CatalogPage";
 import PreferencesDialog from "./PreferencesDialog";
 import CommandPalette, { type Command } from "./CommandPalette";
+import { SNIPPETS } from "./snippets";
 import { loadPrefs, type Prefs } from "./prefs";
 import TableDesigner from "./TableDesigner";
 import ServerTools from "./ServerTools";
@@ -135,6 +136,9 @@ export default function App() {
   const theme = useTheme();
   const [prefsOpen, setPrefsOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  /// Connections that are open on the server side. Switching between them keeps each one's session (and its saved tabs).
+  const [openIds, setOpenIds] = useState<number[]>([]);
+  const [treeSort, setTreeSort] = useState<"name" | "size">(() => (localStorage.getItem("mylodb.treeSort") === "size" ? "size" : "name"));
   const [prefs, setPrefs] = useState<Prefs>(loadPrefs);
   const [livePrefs, setLivePrefs] = useState<Prefs>(prefs); // what the open Preferences dialog shows, so the editor previews it
   const editor = useRef<EditorHandle>(null);
@@ -157,7 +161,6 @@ export default function App() {
   const open = async (id: number, trust?: string) => {
     setStatus("Connecting…");
     try {
-      if (activeId !== null && activeId !== id) await api.disconnect(activeId);
       const idx = await api.connect(id, trust);
       // what was expanded and selected last time on this connection (only what still exists on the server)
       let savedBrowser: { open: string[]; db: string | null; table: string | null } = { open: [], db: null, table: null };
@@ -188,6 +191,7 @@ export default function App() {
         restoredActive = home.id;
       }
       setActiveId(id);
+      setOpenIds((ids) => (ids.includes(id) ? ids : [...ids, id]));
       setIndex(idx);
       setQuery("");
       setRuns({});
@@ -393,10 +397,17 @@ export default function App() {
       setStatus(`Saved ${path}`);
     } catch (e) { setStatus(`Error: ${describeError(e)}`); }
   };
+  const closeConnection = async (id: number) => {
+    try { await api.disconnect(id); } catch { /* the session is gone either way */ }
+    const rest = openIds.filter((x) => x !== id);
+    setOpenIds(rest);
+    if (id !== activeId) return;
+    if (rest.length) return void open(rest[rest.length - 1]);
+    setActiveId(null); setIndex([]); setTabs([newTab(1)]); setSelectedDb(null); setSelectedTable(null); setStatus("Disconnected");
+  };
   const disconnectActive = async () => {
     if (activeId === null) return setStatus("Not connected");
-    try { await api.disconnect(activeId); } catch { /* the session is gone either way */ }
-    setActiveId(null); setIndex([]); setTabs([newTab(1)]); setSelectedDb(null); setSelectedTable(null); setStatus("Disconnected");
+    await closeConnection(activeId);
   };
 
   // ---- native menu bar: the Rust side reports the item id, this decides what it means right now ----
@@ -853,6 +864,20 @@ export default function App() {
         </button>
         <button title="Preferences (⌘,)" aria-label="Preferences" onClick={() => setPrefsOpen(true)}><Icon name="settings" /></button>
       </header>
+      {openIds.length > 0 && (
+        <div className="conn-tabs" role="tablist" aria-label="Open connections">
+          {openIds.map((id) => {
+            const c = connections.find((x) => x.id === id);
+            if (!c) return null;
+            return (
+              <div key={id} role="tab" aria-selected={id === activeId} className={`conn-tab env-${c.environment ?? "development"} ${id === activeId ? "active" : ""}`}>
+                <button className="conn-tab-name" title={`${c.name}: switch to this connection`} onClick={() => id !== activeId && open(id)}><Icon name="server" size={12} /> {c.name}</button>
+                <button className="conn-tab-close" title={`Disconnect ${c.name}`} aria-label={`Disconnect ${c.name}`} onClick={() => closeConnection(id)}><Icon name="close" size={10} /></button>
+              </div>
+            );
+          })}
+        </div>
+      )}
       <div className="app-body">
       <aside className="sidebar" style={{ width: sidebar.size }} onMouseDownCapture={() => { fromEditor.current = !!(document.activeElement as HTMLElement | null)?.closest?.(".editor"); }}>
         <div className="conn-bar">
@@ -913,13 +938,15 @@ export default function App() {
                         title="Choose what the filter searches (tables, views, columns…)" onClick={() => setFilterMenu((v) => !v)}><Icon name="filter" /></button>
                 {filterMenu && <FilterOptions scope={filterScope} onChange={setFilterScope} onClose={() => setFilterMenu(false)} />}
               </div>
+              <button className={`icon-btn ${treeSort === "size" ? "on" : ""}`} disabled={activeId === null} aria-pressed={treeSort === "size"} title={treeSort === "size" ? "Tables sorted by size, largest first (click for name order)" : "Sort tables by size"}
+                onClick={() => { const n = treeSort === "size" ? "name" : "size"; localStorage.setItem("mylodb.treeSort", n); setTreeSort(n); }}><Icon name="sort" /></button>
               <button className="refresh icon-btn" disabled={activeId === null} title="Refresh objects and rebuild autocomplete (F5)" onClick={() => reloadIndex()}><Icon name="refresh" /></button>
             </div>
             {filterError && <div className="error small">{filterError}</div>}
             <div className="tree-wrap">
               {activeId === null
                 ? <div className="empty">Create or select a connection</div>
-                : <ObjectTree key={activeId} index={index} matches={matches} scope={matchScope} terms={terms} selectedDb={selectedDb} onSelectDb={selectDb} selectedTable={selectedTable} onSelectTable={selectTable} lockedTable={lockedTable} onLockTable={lockTable} onUnlockTable={unlock} onPick={pickName} rootLabel={active ? `${active.user}@${active.host}` : ""} onResetRoot={resetBrowser} columnQuery={lockedTable ? query : ""} stats={meta.stats} ensureStats={meta.ensureStats} details={meta.details} ensureDetails={meta.ensureDetails}
+                : <ObjectTree key={activeId} sortBy={treeSort} index={index} matches={matches} scope={matchScope} terms={terms} selectedDb={selectedDb} onSelectDb={selectDb} selectedTable={selectedTable} onSelectTable={selectTable} lockedTable={lockedTable} onLockTable={lockTable} onUnlockTable={unlock} onPick={pickName} rootLabel={active ? `${active.user}@${active.host}` : ""} onResetRoot={resetBrowser} columnQuery={lockedTable ? query : ""} stats={meta.stats} ensureStats={meta.ensureStats} details={meta.details} ensureDetails={meta.ensureDetails}
                     columnsLoaded={columnsLoaded} ensureColumns={ensureColumns} onOpenTable={(d, t) => openTable(d, t)} onObjectMenu={objectMenu} onOpenObject={showDefinition} indexes={meta.indexes} initialOpen={browserState.open} onOpenChange={(keys) => saveBrowser({ open: keys })} onDatabaseMenu={databaseMenu} />}
             </div>
           </>
@@ -1127,6 +1154,11 @@ export default function App() {
               ["backup", "Backup / restore"], ["users", "Users and privileges"], ["server_tools", "Server tools"], ["catalog", "Engines, charsets, replication"], ["refresh_tree", "Refresh object tree"],
               ["theme_dark", "Theme: dark"], ["theme_light", "Theme: light"], ["theme_system", "Theme: system"], ["preferences", "Preferences"], ["new_connection", "New connection"], ["edit_connection", "Edit connection"]] as const)
             .map(([id, label]): Command => ({ id, label, hint: "action", run: () => menuHandler.current(id) })),
+          ...SNIPPETS.map((sn): Command => ({ id: `s:${sn.label}`, label: `Snippet: ${sn.label}`, hint: "insert into the editor", run: () => {
+            if (activeId === null) return setStatus("Connect first");
+            const t = editorTab; if (!t) return;
+            setActiveTab(t.id); setTimeout(() => editor.current?.insert(sn.sql), 0);
+          } })),
           ...index.filter((n) => n.kind === "table" || n.kind === "view").slice(0, 5000)
             .map((n): Command => ({ id: `t:${n.database}.${n.name}`, label: n.name, hint: `${n.kind} in ${n.database}`, run: () => openTable(n.database, n.name) })),
         ]} />

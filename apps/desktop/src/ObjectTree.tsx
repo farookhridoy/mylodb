@@ -57,6 +57,8 @@ export interface TreeProps {
   /** Filter text for the locked table's columns. */
   columnQuery: string;
   stats: Record<string, Record<string, TableStat>>;
+  /** Order of tables and views inside a database: by name (the server's order) or largest first. */
+  sortBy?: "name" | "size";
   ensureStats(db: string): void;
   details: Record<string, ColumnsOf>;
   indexes: Record<string, IndexDetail[]>;
@@ -203,8 +205,12 @@ const DbBranch = memo(function DbBranch(props: TreeProps & {
       }
       groups[0].items.sort((a, b) => a.pos - b.pos);
     }
+    if (props.sortBy === "size" && dbStats) {
+      const size = (e: Entry) => dbStats[e.node.name]?.bytes ?? -1;
+      for (const g of groups) if (g.kind === "table" || g.kind === "view") g.items.sort((a, b) => size(b) - size(a) || a.pos - b.pos);
+    }
     return { groups, columnsOf, tablesWithMatchingColumns };
-  }, [entries, scopedMatches, lockedTable]);
+  }, [entries, scopedMatches, lockedTable, props.sortBy, dbStats]);
 
   const filtering = scopedMatches !== null;
   const isOpen = (key: string) => open.has(key) || (filtering && !props.autoClosed.has(key));

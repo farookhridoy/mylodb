@@ -1,0 +1,88 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # The Rust crates, tested against real servers: the integration tests create their own uniquely named databases and drop them again.
+  rust:
+    name: Rust · ${{ matrix.server.name }}
+    runs-on: ubuntu-latest
+    continue-on-error: ${{ matrix.server.experimental == true }}
+    strategy:
+      fail-fast: false
+      matrix:
+        server:
+          - { name: "MySQL 8.0", image: "mysql:8.0", env: "MYSQL_ALLOW_EMPTY_PASSWORD=yes" }
+          - { name: "MySQL 8.4", image: "mysql:8.4", env: "MYSQL_ALLOW_EMPTY_PASSWORD=yes" }
+          - { name: "MySQL 9", image: "mysql:9", env: "MYSQL_ALLOW_EMPTY_PASSWORD=yes" }
+          - { name: "MariaDB 10.11", image: "mariadb:10.11", env: "MARIADB_ALLOW_EMPTY_ROOT_PASSWORD=1" }
+          - { name: "MariaDB 11.4", image: "mariadb:11.4", env: "MARIADB_ALLOW_EMPTY_ROOT_PASSWORD=1" }
+          # 5.7 is end of life and lacks features the app uses (window functions, EXPLAIN ANALYZE, roles): reported, not blocking
+          - { name: "MySQL 5.7", image: "mysql:5.7", env: "MYSQL_ALLOW_EMPTY_PASSWORD=yes", experimental: true }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Start ${{ matrix.server.name }}
+        run: |
+          docker run -d --name db -p 3306:3306 -e ${{ matrix.server.env }} ${{ matrix.server.image }}
+          for i in $(seq 1 60); do
+            docker exec db sh -c 'mysqladmin ping -h127.0.0.1 --silent' >/dev/null 2>&1 && break
+            sleep 2
+          done
+          docker exec db sh -c 'mysql -uroot -h127.0.0.1 -e "SELECT VERSION()"'
+      - name: Test the workspace
+        run: cargo test --workspace --no-fail-fast
+        env:
+          MYLODB_TEST_HOST: 127.0.0.1
+          MYLODB_TEST_PORT: "3306"
+
+  # The React app: type check and every UI suite against the fake Tauri bridge in e2e/mock.js.
+  ui:
+    name: UI suites
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: npx playwright-core install --with-deps chromium
+      - name: Run the UI suites
+        run: |
+          npx vite --port 1420 --strictPort &
+          for i in $(seq 1 60); do curl -sf http://localhost:1420 >/dev/null && break; sleep 1; done
+          npm run e2e
+
+  # The desktop shell compiles (menu bar, commands) on macOS.
+  desktop:
+    name: Desktop build check
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+        working-directory: apps/desktop
+      - run: npm run build
+        working-directory: apps/desktop
+      - run: cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml

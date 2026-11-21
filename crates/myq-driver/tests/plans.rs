@@ -73,8 +73,14 @@ async fn checks(cfg: ConnConfig, db: String, copy: String, moved: String) {
     let drop_both = plan::drop_tables(&db, &[("parent".into(), false), ("child".into(), false)]).unwrap();
     assert_eq!(drop_both, [format!("DROP TABLE `{db}`.`parent`, `{db}`.`child`;")]);
     let errors = run(&mut conn, &plan::with_fk_checks(&drop_both, true)).await;
-    // one statement drops both in one go, so MySQL resolves the dependency itself
-    assert_eq!(errors, [None], "dropping both together is allowed by MySQL");
+    // one statement drops both in one go, so MySQL resolves the dependency itself; MariaDB refuses (error 1451) and needs the FK switch the dialog offers
+    if errors[0].is_some() {
+        assert!(errors[0].as_deref().unwrap().contains("1451"), "{errors:?}");
+        // MariaDB may already have dropped one of them before refusing: finish with the switch off
+        let rest = vec![format!("DROP TABLE IF EXISTS `{db}`.`parent`, `{db}`.`child`;")];
+        let off = run(&mut conn, &plan::with_fk_checks(&rest, false)).await;
+        assert!(off.iter().all(|e| e.is_none()), "with the foreign key switch off it works on every server: {off:?}");
+    }
     assert_eq!(tables(&mut conn, &db).await, ["tmp_x", "tmp_y"]);
 
     // ---- dropping only the referenced table needs the checks switched off

@@ -427,7 +427,7 @@ export default function DataGrid(props: {
     const path = await saveDialog({ defaultPath: `${table}.${ext}${zip ? ".gz" : ""}` });
     if (!path) return;
     // a job: progress while it runs, and Cancel stops it (the partial file is removed)
-    exportJob.run(async (jobId) => ({ ...(await dataApi.exportTable(cid, jobId, db, table, buildSpec(0), format, "NULL", zip, path)), path }));
+    exportJob.run(async (jobId) => ({ ...(await dataApi.exportTable(cid, jobId, db, table, buildSpec(0), format, "NULL", zip, path)), path }), `Export ${db}.${table}`);
   };
 
   // ---------- foreign keys ----------

@@ -164,6 +164,7 @@ pub async fn table_overview(pool: &Pool, database: &str, table: &str) -> Result<
     }
 
     // ---- columns
+    let mariadb = crate::is_mariadb(&mut conn).await?;
     let rows: Vec<Row> = conn
         .exec(
             "SELECT COLUMN_NAME, ORDINAL_POSITION, COLUMN_TYPE, IS_NULLABLE, COLUMN_KEY, COLUMN_DEFAULT, EXTRA, COLUMN_COMMENT \
@@ -179,7 +180,7 @@ pub async fn table_overview(pool: &Pool, database: &str, table: &str) -> Result<
                 column_type,
                 nullable: cell::<String>(&r, 3).is_some_and(|n| n == "YES"),
                 key: cell(&r, 4).unwrap_or_default(),
-                default: cell(&r, 5),
+                default: crate::parse_column_default(mariadb, cell::<String>(&r, 5).as_deref(), &cell::<String>(&r, 6).unwrap_or_default()).display(),
                 extra: cell(&r, 6).unwrap_or_default(),
                 comment: cell(&r, 7).unwrap_or_default(),
             });

@@ -70,6 +70,7 @@ pub async fn table_meta(conn: &mut Conn, database: &str, table: &str) -> Result<
             (database, table),
         )
         .await?;
+    let mariadb = myq_driver::is_mariadb(conn).await?;
     let columns: Vec<ColumnMeta> = rows
         .into_iter()
         .map(|(name, data_type, column_type, nullable, key, default, extra, comment)| ColumnMeta {
@@ -80,7 +81,7 @@ pub async fn table_meta(conn: &mut Conn, database: &str, table: &str) -> Result<
             data_type,
             column_type,
             key,
-            default,
+            default: myq_driver::parse_column_default(mariadb, default.as_deref(), &extra).display(),
             extra,
             comment,
             name,

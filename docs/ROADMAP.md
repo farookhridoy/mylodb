@@ -22,6 +22,7 @@ Priority words used below:
 | 9 | **Production safety**: environment badge and colour, server-enforced read-only, review of destructive SQL with row estimates, query timeout, confirm on commit | ✅ |
 | 10 | **Large data engine**: windowed grid, keyset paging, estimated counts with cancellable exact count, exports as cancellable jobs with progress, JSON Lines, gzip. Measured at 1M and 10M rows (`BENCHMARKS.md`) | ✅ |
 | 11b to 11e (part) | **Admin console, first half**: Preview SQL then run dialog for every drop, empty, rename, duplicate (FK-check switch inside, typed word on production); **Databases page** (sizes, table counts, sort, search, check all, bulk drop, create with collation); database **Structure page** (rows, engine, collation, size, overhead, filter, row actions, With selected: copy, show create, export, empty, drop, analyze, check, checksum, optimize, repair, add / replace prefix, copy with prefix, create new table); **FK checks on / off for the console's Run**; connection collation setting. Real-MySQL tests for the plan SQL and queries, UI suites for each page | ✅ |
+| 14 (part) | **Quality gates**: the whole Rust suite now passes on **MySQL 9.7 and MariaDB 13.0 (166 tests each)**; running it on MariaDB found and fixed 8 real bugs (`docs/SERVER_COMPATIBILITY.md`); **GitHub Actions CI** (Rust on MySQL 8.0 / 8.4 / 9 and MariaDB 10.11 / 11.4, 5.7 non-blocking; UI suites; macOS desktop build check); **Tasks panel** in the footer (progress, Cancel, outcome); connection-loss test | ✅ (CI not yet seen running on GitHub) |
 | 13 (part) | **Workspace**: several connections open at once (tabs above the workspace, switching keeps sessions, closing disconnects one); **text result mode** (mysql-client style) and **Copy as** TSV / CSV / JSON / Markdown / INSERT; **SQL snippets** in ⌘K; tables **sorted by size** in the tree; open / save `.sql` files | ✅ |
 | 12b | **Shell redesign (DBeaver style)**: top toolbar (Home, New query, Databases, Transfer, Users, Server, theme, preferences), breadcrumb footer (connection › database › table, clickable), **Preview** button beside Run, distinct icons; DBeaver-style native menus (File with Open / Save SQL file, Import, Export; Edit with Format; Search; SQL Editor; Database with Disconnect); Preferences as a filterable page tree | ✅ |
 | 12 (all) | **Phase 12 complete**: editor colour schemes (Default, Multi-colour, Solarized, High contrast, previewed live) and a **command palette** (⌘K: every action and table). Plus the **native menu bar** (MyLoDB, File, Edit, View, Database, Tools, Window, Help) and **Preferences** (⌘,): theme, font family / size / bold per area (interface, sidebar, data grid, editor), editor line height, live preview, saved and clamped | ✅ |
@@ -67,8 +68,8 @@ The analysis, screen mapping and design of these items are in `PHPMYADMIN_AND_EN
 | 5 | FK-check switch for the **console's Run**, **CSV import** and a **preview before running a SQL file** | 11e | 3 d |
 | 6 | **Top menu bar** (native macOS menu and in-window), toolbar | 12 | 1 wk |
 | 7 | **Preferences**: fonts per area (sidebar, data grid, editor, results), size, family, weight, line height; editor colour theme; saved | 12 | 1 wk |
-| 8 | **MariaDB and MySQL version matrix** (5.7, 8.0, 8.4, 9.x, MariaDB 10.11 and 11.x): find and fix what differs | 14 | 1 wk |
-| 9 | **CI** (build and tests on every push), **Tasks panel** for long jobs | 14 | 1 wk |
+| 8 | ~~MariaDB and MySQL matrix~~ MariaDB 13 and MySQL 9.7 done by hand; 5.7, 8.0, 8.4, MariaDB 10.11 / 11.4 are in CI and still need a first green run | 14 | 2 d |
+| 9 | ~~CI and Tasks panel~~ written and tested locally; CI has not run on GitHub yet | 14 | done |
 | 10 | ~~Open / save `.sql` files, text results, copy options, snippets, several connections~~ done. Left: saved snippet library of your own, connection groups / folders, per-connection tab memory when two share a database, drag a name into the editor | 13 | 1 wk |
 | 11 | **Signing and notarisation** (needs an Apple Developer account), Intel build, Homebrew cask, user documentation | 18 | 1 to 2 wk |
 
@@ -110,7 +111,7 @@ The analysis, screen mapping and design of these items are in `PHPMYADMIN_AND_EN
 | 11 ✅ | **Admin console** (phpMyAdmin parity), finished | 11a dashboard · 11b Databases page and bulk drop · 11c Structure page and With selected · 11d Preview SQL then run · 11e FK-check switches and previews · 11f Operations, Charsets, Engines, Replication | 3 to 4 wk |
 | 12 ✅ | **Shell and preferences** (done) | top menu bar and toolbar, Preferences (fonts per area, themes), command palette | 2 to 3 wk |
 | 13 | **Workspace parity** | `.sql` files, templates, text results, connection tabs and groups, browser leftovers | 2 to 3 wk |
-| 14 | **Quality gates** | CI, Tasks panel, MySQL 5.7 / 8.0 / 8.4 / 9 and MariaDB matrix, network-drop tests | 1 to 2 wk |
+| 14 ✅ | **Quality gates** (done, see above) | CI, Tasks panel, MySQL 5.7 / 8.0 / 8.4 / 9 and MariaDB matrix, network-drop tests | 1 to 2 wk |
 | 15 | **Database engines** | driver abstraction; PostgreSQL, SQLite, SQL Server; Oracle only on demand | 8 to 12 wk |
 | 16 | **Power tools** | compare and sync, Data Search, import formats, charts, inspections | 4 to 5 wk |
 | 17 | **Visual tools** | query builder, whole-database ER designer | 4 to 5 wk |

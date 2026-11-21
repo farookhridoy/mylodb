@@ -495,8 +495,27 @@ impl Ctx<'_, '_> {
             .exec("SELECT VIEW_NAME, TABLE_NAME FROM information_schema.VIEW_TABLE_USAGE WHERE VIEW_SCHEMA=? AND TABLE_SCHEMA=?", (db, db))
             .await;
         let mut deps: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
-        for (v, t) in usage.unwrap_or_default() {
-            deps.entry(v).or_default().insert(t);
+        match usage {
+            Ok(rows) => {
+                for (v, t) in rows {
+                    deps.entry(v).or_default().insert(t);
+                }
+            }
+            Err(_) => {
+                // MariaDB has no VIEW_TABLE_USAGE: read the other views' names out of each definition (MariaDB writes them back-quoted).
+                let defs: Vec<(String, String)> = self
+                    .conn
+                    .exec("SELECT TABLE_NAME, VIEW_DEFINITION FROM information_schema.VIEWS WHERE TABLE_SCHEMA=?", (db,))
+                    .await
+                    .unwrap_or_default();
+                for (view, definition) in defs {
+                    for other in views.iter().filter(|o| **o != view) {
+                        if definition.contains(&format!("`{}`", other.replace('`', "``"))) {
+                            deps.entry(view.clone()).or_default().insert(other.clone());
+                        }
+                    }
+                }
+            }
         }
         self.sink.put("--\n-- Views\n--\n\n")?;
         for v in order_views(views, &deps) {

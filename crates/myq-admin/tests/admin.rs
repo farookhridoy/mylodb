@@ -109,8 +109,12 @@ async fn body(pool: Pool, db: String, user: String) {
     assert_eq!(by(&r0, "name").collation, None, "an inheriting column carries none");
     assert_eq!(by(&r0, "price").default, ColumnDefault::Literal("0.00".into()));
     assert_eq!(by(&r0, "status").params.as_deref(), Some("'a','b','it''s'"));
-    assert_eq!(by(&r0, "created").default, ColumnDefault::Expression("CURRENT_TIMESTAMP(3)".into()));
-    assert_eq!(by(&r0, "created").on_update.as_deref(), Some("CURRENT_TIMESTAMP(3)"));
+    // MariaDB spells the function in lower case (`current_timestamp(3)`); it is the same expression
+    match &by(&r0, "created").default {
+        ColumnDefault::Expression(e) => assert!(e.eq_ignore_ascii_case("CURRENT_TIMESTAMP(3)"), "{e}"),
+        other => panic!("{other:?}"),
+    }
+    assert!(by(&r0, "created").on_update.as_deref().is_some_and(|u| u.eq_ignore_ascii_case("CURRENT_TIMESTAMP(3)")));
     assert!(by(&r0, "double_id").generated.is_some() && !by(&r0, "double_id").generated.unwrap().stored);
     assert_eq!(r0.comment, "demo");
     let ix = |t: &TableDef, n: &str| t.indexes.iter().find(|i| i.name == n).unwrap().clone();

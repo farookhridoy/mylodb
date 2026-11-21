@@ -100,9 +100,13 @@ async fn body(pool: Pool, db: String) {
     assert!(set_variable(&mut c, VarScope::Session, "no_such_variable_xyz", "1").await.is_err());
     assert!(set_variable(&mut c, VarScope::Session, "version", "1").await.is_err(), "read-only variables are refused by the server");
     // the server adjusts a nonsense value and only warns: those warnings must reach the caller
-    let warned = set_variable(&mut c, VarScope::Session, "sort_buffer_size", "not-a-number").await.unwrap();
-    assert!(warned.iter().any(|w| w.to_lowercase().contains("incorrect") || w.to_lowercase().contains("truncated")), "{warned:?}");
-    assert!(set_variable(&mut c, VarScope::Session, "sort_buffer_size", "262144").await.unwrap().is_empty(), "a good value has no warnings");
+    // MySQL adjusts it and warns; MariaDB refuses it with error 1232. Either way the caller hears about it.
+    match set_variable(&mut c, VarScope::Session, "sort_buffer_size", "not-a-number").await {
+        Ok(warned) => assert!(warned.iter().any(|w| w.to_lowercase().contains("incorrect") || w.to_lowercase().contains("truncated")), "{warned:?}"),
+        Err(e) => assert!(e.to_string().to_lowercase().contains("incorrect argument type"), "{e}"),
+    }
+    let good = set_variable(&mut c, VarScope::Session, "sort_buffer_size", "262144").await.unwrap();
+    assert!(good.is_empty(), "a good value has no warnings: {good:?}");
     let after_error: Option<i64> = c.query_first("SELECT 1").await.unwrap();
     assert_eq!(after_error, Some(1), "failed SETs leave the connection usable");
 
@@ -129,9 +133,12 @@ async fn body(pool: Pool, db: String) {
         assert!(rows.iter().all(|r| r.op == expect_op), "{rows:?}");
         assert!(rows.iter().any(|r| r.msg_type == "status" && r.msg_text == "OK"), "{rows:?}");
     }
-    // InnoDB cannot be repaired: the server says so, and it is reported, not hidden
+    // MySQL cannot repair InnoDB: the server says so, and it is reported, not hidden. MariaDB rebuilds the table and answers OK.
     let rows = maintain(&mut c, db, &["m".into()], Maintenance::Repair { quick: false, extended: false, use_frm: false }).await.unwrap();
-    assert!(rows.iter().any(|r| r.msg_text.to_lowercase().contains("doesn't support repair") || r.msg_text.to_lowercase().contains("does not support")), "{rows:?}");
+    assert!(
+        rows.iter().any(|r| r.msg_text.to_lowercase().contains("doesn't support repair") || r.msg_text.to_lowercase().contains("does not support") || (r.msg_type == "status" && r.msg_text == "OK")),
+        "{rows:?}"
+    );
     // a missing table is one failed row, and the other tables are still processed
     let rows = maintain(&mut c, db, &["nope".into(), "m".into()], Maintenance::Analyze).await.unwrap();
     assert!(rows.iter().any(|r| r.table.ends_with(".nope") && (r.msg_type == "Error" || r.msg_text.contains("doesn't exist"))), "{rows:?}");

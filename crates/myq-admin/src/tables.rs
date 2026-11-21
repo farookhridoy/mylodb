@@ -8,8 +8,9 @@ fn charset_of(collation: &str) -> String {
     collation.split('_').next().unwrap_or(collation).to_string()
 }
 
-fn unquote(v: &str) -> String {
-    v.strip_prefix('\'').and_then(|s| s.strip_suffix('\'')).map_or_else(|| v.to_string(), |s| s.replace("''", "'").replace("\\'", "'"))
+/// The display width MariaDB prints for an integer column when none was asked for.
+fn is_default_display_width(data_type: &str, width: &str) -> bool {
+    matches!((data_type, width), ("tinyint", "3" | "4") | ("smallint", "5" | "6") | ("mediumint", "8" | "9") | ("int" | "integer", "10" | "11") | ("bigint", "20"))
 }
 
 /// Read a base table's full definition from `information_schema`. Every object is marked as existing
@@ -26,8 +27,7 @@ pub async fn read_table_def(conn: &mut Conn, db: &str, table: &str) -> Result<(T
     if kind != "BASE TABLE" {
         return Err(Error::NotATable(format!("{db}.{table}")));
     }
-    let version: Option<String> = conn.query_first("SELECT VERSION()").await?;
-    let mariadb = version.unwrap_or_default().to_lowercase().contains("mariadb");
+    let mariadb = myq_driver::is_mariadb(conn).await?;
     let table_cs = collation.as_deref().map(charset_of);
 
     let cols: Vec<(String, String, String, Option<String>, String, Option<String>, Option<String>, String, Option<String>)> = conn
@@ -40,20 +40,26 @@ pub async fn read_table_def(conn: &mut Conn, db: &str, table: &str) -> Result<(T
     let columns: Vec<ColumnDef> = cols
         .into_iter()
         .map(|(name, column_type, nullable, default, extra, cs, co, comment, gen_expr)| {
-            let (data_type, params, unsigned, zerofill) = parse_column_type(&column_type);
+            let (data_type, mut params, unsigned, zerofill) = parse_column_type(&column_type);
+            // MariaDB still reports the legacy display width (`int(10) unsigned`); the default width says nothing, so it is not shown as a parameter.
+            if mariadb && !zerofill && params.as_deref().is_some_and(|p| is_default_display_width(&data_type, p)) {
+                params = None;
+            }
             let extra_l = extra.to_lowercase();
             let generated = if extra_l.contains("virtual generated") || extra_l.contains("stored generated") || extra_l.contains("persistent") {
                 Some(Generated { expression: gen_expr.unwrap_or_default(), stored: !extra_l.contains("virtual") })
             } else {
                 None
             };
-            let default = match (&default, generated.is_some()) {
-                (_, true) | (None, _) => ColumnDefault::None,
-                (Some(v), _) if extra_l.contains("default_generated") => ColumnDefault::Expression(v.clone()),
-                (Some(v), _) if mariadb && v.eq_ignore_ascii_case("NULL") => ColumnDefault::Null,
-                (Some(v), _) if mariadb && v.starts_with('\'') => ColumnDefault::Literal(unquote(v)),
-                (Some(v), _) if mariadb && v.contains('(') => ColumnDefault::Expression(v.clone()),
-                (Some(v), _) => ColumnDefault::Literal(v.clone()),
+            let default = if generated.is_some() {
+                ColumnDefault::None
+            } else {
+                match myq_driver::parse_column_default(mariadb, default.as_deref(), &extra) {
+                    myq_driver::ParsedDefault::None => ColumnDefault::None,
+                    myq_driver::ParsedDefault::Null => ColumnDefault::Null,
+                    myq_driver::ParsedDefault::Literal(v) => ColumnDefault::Literal(v),
+                    myq_driver::ParsedDefault::Expression(v) => ColumnDefault::Expression(v),
+                }
             };
             let on_update = extra_l.find("on update ").map(|i| extra[i + "on update ".len()..].trim().to_string());
             // A column that merely inherits the table's collation carries no charset of its own.

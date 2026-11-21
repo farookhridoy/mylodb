@@ -120,7 +120,10 @@ async fn build_source(c: &mut Conn, db: &str) {
     c.query_drop("INSERT INTO parent VALUES (1,'one'),(2,'two')").await.unwrap();
     c.query_drop("INSERT INTO child (parent_id, note) VALUES (1,'a'),(1,'b'),(2,'c')").await.unwrap();
     c.query_drop("INSERT INTO `odd name; DROP` VALUES (1,'x'),(2,'y')").await.unwrap();
-    c.query_drop("SET SESSION cte_max_recursion_depth = 30000").await.unwrap();
+    // recursive CTE depth: MySQL calls the limit cte_max_recursion_depth, MariaDB max_recursive_iterations
+    if c.query_drop("SET SESSION cte_max_recursion_depth = 30000").await.is_err() {
+        c.query_drop("SET SESSION max_recursive_iterations = 30000").await.unwrap();
+    }
     c.query_drop("INSERT INTO big SELECT n, n % 7, IF(n % 1000 = 0, REPEAT('é', 120000), CONCAT('row ', n, ' it''s')) FROM (WITH RECURSIVE s(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM s WHERE n < 20000) SELECT n FROM s) q").await.unwrap_or_else(|e| panic!("big insert: {e}"));
     for stmt in [
         "CREATE VIEW z_base AS SELECT id, v FROM kitchen",

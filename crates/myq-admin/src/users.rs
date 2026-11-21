@@ -53,6 +53,19 @@ pub async fn list_accounts(conn: &mut Conn) -> Result<Vec<Account>> {
             .map(|(user, host, plugin, locked, expired)| Account { user, host, plugin, locked: locked == "Y", password_expired: expired == "Y" })
             .collect()),
         Err(_) => {
+            // MariaDB 10.4+ keeps the lock flag inside the JSON of `mysql.global_priv`, not in a column of `mysql.user`.
+            let maria: std::result::Result<Vec<(String, String, String, String, Option<String>)>, _> = conn
+                .query(
+                    "SELECT u.User, u.Host, u.plugin, u.password_expired, JSON_VALUE(g.Priv, '$.account_locked') \
+                     FROM mysql.user u LEFT JOIN mysql.global_priv g ON g.User = u.User AND g.Host = u.Host ORDER BY u.User, u.Host",
+                )
+                .await;
+            if let Ok(rows) = maria {
+                return Ok(rows
+                    .into_iter()
+                    .map(|(user, host, plugin, expired, locked)| Account { user, host, plugin, locked: matches!(locked.as_deref(), Some("1" | "true")), password_expired: expired == "Y" })
+                    .collect());
+            }
             let rows: Vec<(String, String, String)> = conn.query("SELECT User, Host, plugin FROM mysql.user ORDER BY User, Host").await?;
             Ok(rows.into_iter().map(|(user, host, plugin)| Account { user, host, plugin, locked: false, password_expired: false }).collect())
         }

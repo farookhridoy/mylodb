@@ -13,6 +13,7 @@ import StructurePage from "./StructurePage";
 import HomePage from "./HomePage";
 import CatalogPage from "./CatalogPage";
 import PreferencesDialog from "./PreferencesDialog";
+import TasksPanel from "./TasksPanel";
 import CommandPalette, { type Command } from "./CommandPalette";
 import { SNIPPETS } from "./snippets";
 import { loadPrefs, type Prefs } from "./prefs";
@@ -1115,6 +1116,7 @@ export default function App() {
           ) : <span className="dim">No connection</span>}
         </nav>
         <span className="status-text">{status}</span>
+        <TasksPanel />
         {activeId !== null && env !== "development" && <span className={`env-chip env-${env}`}>{ENV_LABEL[env]}{readOnly ? " · read-only" : ""}</span>}
       </footer>
 

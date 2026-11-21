@@ -1,5 +1,22 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useRef, useState, useSyncExternalStore } from "react";
 import { onJobProgress, transferApi, type JobProgress } from "./api";
+
+// ---- the Tasks list: every long operation of the window (export, import, backup, run script), running or finished ----
+export interface Task {
+  id: string; label: string; state: "running" | "done" | "failed" | "cancelled";
+  progress: JobProgress | null; startedAt: number; endedAt: number | null; detail: string | null;
+}
+let tasks: Task[] = [];
+const listeners = new Set<() => void>();
+const emit = () => { tasks = [...tasks]; listeners.forEach((l) => l()); };
+const patchTask = (id: string, patch: Partial<Task>) => { const t = tasks.find((x) => x.id === id); if (t) { Object.assign(t, patch); emit(); } };
+export const taskStore = {
+  subscribe: (l: () => void) => { listeners.add(l); return () => { listeners.delete(l); }; },
+  snapshot: () => tasks,
+  add: (t: Task) => { tasks = [t, ...tasks].slice(0, 50); listeners.forEach((l) => l()); },
+  clearFinished: () => { tasks = tasks.filter((t) => t.state === "running"); listeners.forEach((l) => l()); },
+};
+export const useTasks = () => useSyncExternalStore(taskStore.subscribe, taskStore.snapshot);
 
 let jobSeq = 0;
 export const newJobId = () => `job-${Date.now().toString(36)}-${jobSeq++}`;
@@ -13,16 +30,20 @@ export function useJob<T>() {
   const [cancelled, setCancelled] = useState(false);
   const jobId = useRef<string | null>(null);
 
-  const run = useCallback(async (fn: (jobId: string) => Promise<T>) => {
+  const run = useCallback(async (fn: (jobId: string) => Promise<T>, label = "Task") => {
     const id = newJobId();
+    taskStore.add({ id, label, state: "running", progress: null, startedAt: Date.now(), endedAt: null, detail: null });
     jobId.current = id;
     setRunning(true); setProgress(null); setResult(null); setError(null); setCancelled(false);
-    const stop = await onJobProgress(id, setProgress);
+    const stop = await onJobProgress(id, (p) => { setProgress(p); patchTask(id, { progress: p }); });
     try {
-      setResult(await fn(id));
+      const r = await fn(id);
+      setResult(r);
+      patchTask(id, { state: "done", endedAt: Date.now() });
     } catch (e) {
       const msg = String(e);
-      if (msg === "cancelled") setCancelled(true); else setError(msg);
+      if (msg === "cancelled") { setCancelled(true); patchTask(id, { state: "cancelled", endedAt: Date.now() }); }
+      else { setError(msg); patchTask(id, { state: "failed", endedAt: Date.now(), detail: msg }); }
     } finally {
       stop();
       setRunning(false);

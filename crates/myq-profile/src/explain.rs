@@ -113,7 +113,12 @@ pub async fn explain(conn: &mut Conn, database: Option<&str>, sql: &str, analyze
     // The JSON form and the analyzed tree are extras: a server that lacks one still gives the plan.
     let json = run_one(conn, database, &format!("EXPLAIN FORMAT=JSON {stmt}")).await.ok().and_then(|s| s.rows.into_iter().next()).and_then(|r| r.into_iter().next().flatten());
     let tree = if analyze {
-        Some(run_one(conn, database, &format!("EXPLAIN ANALYZE {stmt}")).await?.rows.into_iter().next().and_then(|r| r.into_iter().next().flatten()).unwrap_or_default())
+        // MySQL: EXPLAIN ANALYZE (an iterator tree). MariaDB spells it ANALYZE, and FORMAT=JSON carries the measured times (r_total_time_ms, r_rows).
+        let first_cell = |s: ResultSet| s.rows.into_iter().next().and_then(|r| r.into_iter().next().flatten()).unwrap_or_default();
+        Some(match run_one(conn, database, &format!("EXPLAIN ANALYZE {stmt}")).await {
+            Ok(s) => first_cell(s),
+            Err(_) => first_cell(run_one(conn, database, &format!("ANALYZE FORMAT=JSON {stmt}")).await?),
+        })
     } else {
         None
     };

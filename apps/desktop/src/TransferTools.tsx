@@ -58,7 +58,7 @@ function Backup({ connectionId, nodes, preset }: { connectionId: number; nodes: 
       ...o,
       databases: [...picked].map((n) => ({ name: n, tables: only[n] ? [...only[n]] : null })),
     };
-    job.run((id) => transferApi.backup(connectionId, id, options, dir, name || "backup"));
+    job.run((id) => transferApi.backup(connectionId, id, options, dir, name || "backup"), `Backup ${name || "backup"}`);
   };
   const chooseDir = async () => { const p = await pickPath({ directory: true, multiple: false }); if (typeof p === "string") setDir(p); };
   const r = job.result;
@@ -148,7 +148,7 @@ function Restore({ connectionId, nodes, onSchemaChanged }: { connectionId: numbe
   };
   const go = () => {
     setConfirm(false);
-    job.run(async (id) => { try { return await transferApi.runSource(connectionId, id, path, { stop_on_error: stop, disable_fk_checks: fk, database: db || null }); } finally { onSchemaChanged(); } });
+    job.run(async (id) => { try { return await transferApi.runSource(connectionId, id, path, { stop_on_error: stop, disable_fk_checks: fk, database: db || null }); } finally { onSchemaChanged(); } }, `Run script ${path.split(/[\\/]/).pop()}`);
   };
   const r = job.result;
   return (
@@ -283,7 +283,7 @@ function ImportCsv({ connectionId, nodes, preset, onSchemaChanged, ensureColumns
           database: db, table: target, mapping, mode, batch_rows: 500, stop_on_error: stop, truncate_first: truncate && !newTable, empty_as_null: emptyNull, disable_fk_checks: csvFk,
         });
       } finally { onSchemaChanged(); }
-    });
+    }, `Import ${path.split(/[\\/]/).pop()} into ${newTable ? newName : table}`);
   };
   const r = job.result;
   const set = (p: Partial<CsvFormat>) => setFmt({ ...fmt, ...p });
@@ -384,7 +384,7 @@ function ExportQuery({ connectionId, nodes }: { connectionId: number; nodes: Nod
     const zip = gzip && format !== "xlsx";
     const path = await savePath({ defaultPath: `query.${f.ext}${zip ? ".gz" : ""}` });
     if (!path) return;
-    job.run(async (jobId) => ({ ...(await transferApi.exportQuery(connectionId, jobId, db || null, sql, format, nullText, zip, path)), path }));
+    job.run(async (jobId) => ({ ...(await transferApi.exportQuery(connectionId, jobId, db || null, sql, format, nullText, zip, path)), path }), `Export query to ${path.split(/[\\/]/).pop()}`);
   };
   const r = job.result;
   return (

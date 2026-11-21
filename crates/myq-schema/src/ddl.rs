@@ -222,7 +222,10 @@ impl ColumnDef {
         if let Some(g) = &self.generated {
             s.push_str(&format!(" GENERATED ALWAYS AS ({}) {}", g.expression, if g.stored { "STORED" } else { "VIRTUAL" }));
         }
-        s.push_str(if self.nullable { " NULL" } else { " NOT NULL" });
+        // MariaDB rejects NULL after a generated column's expression (generated columns are nullable unless NOT NULL is said).
+        if self.generated.is_none() || !self.nullable {
+            s.push_str(if self.nullable { " NULL" } else { " NOT NULL" });
+        }
         if self.generated.is_none() {
             match &self.default {
                 ColumnDefault::None | ColumnDefault::Null => {}
@@ -713,7 +716,7 @@ mod tests {
   `note` text NULL,
   `created` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   `uid` char(36) NULL DEFAULT (uuid()),
-  `double_id` int GENERATED ALWAYS AS (`id` * 2) STORED NULL,
+  `double_id` int GENERATED ALWAYS AS (`id` * 2) STORED,
   PRIMARY KEY (`id`),
   UNIQUE KEY `n` (`name`(10) DESC),
   CONSTRAINT `fk` FOREIGN KEY (`id`) REFERENCES `other`.`p` (`id`) ON DELETE CASCADE ON UPDATE SET NULL

@@ -40,11 +40,26 @@ pub struct ProcessList {
 }
 
 pub async fn processlist(conn: &mut Conn) -> Result<ProcessList> {
-    let rows: Vec<(u64, String, String, Option<String>, String, i64, Option<String>, Option<String>)> = conn.query("SHOW FULL PROCESSLIST").await?;
-    Ok(ProcessList {
-        self_id: conn.id() as u64,
-        processes: rows.into_iter().map(|(id, user, host, db, command, time, state, info)| Process { id, user, host, db, command, time, state, info }).collect(),
-    })
+    // The first eight columns are the same everywhere; MariaDB adds `Progress` at the end, so rows are read by position, not as a fixed tuple.
+    use myq_driver::mysql_async::{from_value_opt, Row, Value};
+    let rows: Vec<Row> = conn.query("SHOW FULL PROCESSLIST").await?;
+    let cell = |r: &Row, i: usize| -> Option<String> { match r.as_ref(i)? { Value::NULL => None, v => from_value_opt::<String>(v.clone()).ok() } };
+    let processes = rows
+        .iter()
+        .filter_map(|r| {
+            Some(Process {
+                id: cell(r, 0)?.parse().ok()?,
+                user: cell(r, 1).unwrap_or_default(),
+                host: cell(r, 2).unwrap_or_default(),
+                db: cell(r, 3),
+                command: cell(r, 4).unwrap_or_default(),
+                time: cell(r, 5).and_then(|t| t.parse().ok()).unwrap_or(0),
+                state: cell(r, 6),
+                info: cell(r, 7),
+            })
+        })
+        .collect();
+    Ok(ProcessList { self_id: conn.id() as u64, processes })
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
@@ -127,7 +142,13 @@ pub(crate) fn set_variable_sql(scope: Scope, name: &str, value: &str) -> Result<
 /// reports it as a warning, so the caller must show them.
 pub async fn set_variable(conn: &mut Conn, scope: Scope, name: &str, value: &str) -> Result<Vec<String>> {
     let (sql, params) = set_variable_sql(scope, name, value)?;
-    conn.exec_drop(sql, params).await?;
+    let result = conn.exec_iter(sql, params).await?;
+    let count = result.warnings();
+    result.drop_result().await?;
+    // The OK packet carries the warning count. Without it, MariaDB's SHOW WARNINGS still shows the diagnostics of an earlier failed statement.
+    if count == 0 {
+        return Ok(vec![]);
+    }
     let warnings: Vec<(String, u32, String)> = conn.query("SHOW WARNINGS").await?;
     Ok(warnings.into_iter().map(|(level, code, message)| format!("{level} {code}: {message}")).collect())
 }

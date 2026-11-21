@@ -36,7 +36,10 @@ async fn body(pool: Pool, db: String) {
     c.query_drop(format!("USE `{db}`")).await.unwrap();
     c.query_drop("CREATE TABLE t (id INT PRIMARY KEY, grp INT, note VARCHAR(40), INDEX by_grp (grp))").await.unwrap();
     // 20 000 rows without needing a helper table (the recursion limit must allow them)
-    c.query_drop("SET SESSION cte_max_recursion_depth = 30000").await.unwrap();
+    // recursive CTE depth: MySQL calls the limit cte_max_recursion_depth, MariaDB max_recursive_iterations
+    if c.query_drop("SET SESSION cte_max_recursion_depth = 30000").await.is_err() {
+        c.query_drop("SET SESSION max_recursive_iterations = 30000").await.unwrap();
+    }
     c.query_drop("INSERT INTO t SELECT n, n % 50, CONCAT('note-', n) FROM (WITH RECURSIVE s(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM s WHERE n < 20000) SELECT n FROM s) q").await.unwrap_or_else(|e| panic!("{e}"));
     c.query_drop("ANALYZE TABLE t").await.unwrap();
 
@@ -65,7 +68,8 @@ async fn body(pool: Pool, db: String) {
 
     // ANALYZE executes, so it is read-only; it returns the timed iterator tree
     let an = explain(&mut c, Some(db), "SELECT COUNT(*) FROM t WHERE grp = 3", true).await.unwrap();
-    assert!(an.tree.as_deref().unwrap().contains("actual time"), "{:?}", an.tree);
+    // MySQL prints "actual time" in the iterator tree; MariaDB's ANALYZE FORMAT=JSON has r_total_time_ms
+    assert!(an.tree.as_deref().is_some_and(|t| t.contains("actual time") || t.contains("r_total_time_ms")), "{:?}", an.tree);
     assert!(matches!(explain(&mut c, Some(db), "DELETE FROM t", true).await, Err(Error::Rejected(_))));
     let n: Option<i64> = c.query_first("SELECT COUNT(*) FROM t").await.unwrap();
     assert_eq!(n, Some(20000), "the rejected ANALYZE did not run the delete");
@@ -79,7 +83,8 @@ async fn body(pool: Pool, db: String) {
     let full = profile(&mut c, Some(db), "SELECT COUNT(*) FROM t WHERE note LIKE '%99%'").await.unwrap();
     let get = |p: &ProfileResult, n: &str| p.counters.iter().find(|c| c.name == n).map(|c| c.value).unwrap_or(0);
     assert_eq!(full.rows_returned, 1);
-    assert!(get(&full, "Innodb_rows_read") >= 15000, "a full scan reads every row: {:?}", full.counters);
+    // MariaDB has no per-session Innodb_rows_read; its handler counter shows the same scan
+    assert!(get(&full, "Innodb_rows_read").max(get(&full, "Handler_read_rnd_next")) >= 15000, "a full scan reads every row: {:?}", full.counters);
     assert!(!full.stages.is_empty(), "stages: {:?} note: {:?}", full.stages, full.stages_note);
     assert!(full.stages.iter().all(|s| s.ms >= 0.0));
 

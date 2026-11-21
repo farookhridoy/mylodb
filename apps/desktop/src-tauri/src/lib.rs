@@ -218,7 +218,6 @@ struct TestResult {
 /// passphrase falls back to the saved one when editing an existing connection.
 #[tauri::command]
 async fn test_connection(state: tauri::State<'_, AppState>, connection: SavedConnection, trust_fingerprint: Option<String>) -> Result<TestResult, ConnectError> {
-    use myq_driver::mysql_async::prelude::Queryable;
     let mut cfg = connection.config.clone();
     let mut ssh = None;
     {
@@ -235,11 +234,8 @@ async fn test_connection(state: tauri::State<'_, AppState>, connection: SavedCon
     }
     let via_ssh = ssh.is_some();
     let (cfg, _tunnel) = establish(&state.store, cfg, ssh, trust_fingerprint).await?;
-    let mut conn = myq_driver::Conn::new(cfg.to_opts()).await.map_err(err)?;
-    let version: Option<String> = conn.query_first("SELECT VERSION()").await.map_err(err)?;
-    let cipher: Option<(String, String)> = conn.query_first("SHOW SESSION STATUS LIKE 'Ssl_cipher'").await.map_err(err)?;
-    let _ = conn.disconnect().await;
-    Ok(TestResult { version: version.unwrap_or_default(), ssl_cipher: cipher.map(|c| c.1).filter(|c| !c.is_empty()), via_ssh })
+    let probe = myq_driver::probe(&cfg).await.map_err(err)?;
+    Ok(TestResult { version: probe.version, ssl_cipher: probe.ssl_cipher, via_ssh })
 }
 
 /// Forget the saved host key of a connection's SSH server (after the server was legitimately re-keyed).
@@ -391,8 +387,7 @@ async fn run_query(
     }
     let mut conn = pool.get_conn().await.map_err(err)?;
     if let Some(on) = foreign_key_checks {
-        use myq_driver::mysql_async::prelude::Queryable;
-        conn.query_drop(format!("SET SESSION foreign_key_checks = {}", on as u8)).await.map_err(err)?;
+        myq_driver::set_foreign_key_checks(&mut conn, on).await.map_err(err)?;
     }
     state.running.lock().unwrap().insert(run_id.clone(), (id, conn.id()));
     // The query timeout: the whole run may take this long, then the running statement is killed (like the Cancel button).
@@ -401,8 +396,7 @@ async fn run_query(
     state.running.lock().unwrap().remove(&run_id);
     if foreign_key_checks.is_some() {
         // the connection goes back to the pool: leave it as the next caller expects
-        use myq_driver::mysql_async::prelude::Queryable;
-        let _ = conn.query_drop("SET SESSION foreign_key_checks = 1").await;
+        myq_driver::restore_foreign_key_checks(&mut conn).await;
     }
     let ok = results.iter().all(|r| r.error.is_none());
     // History is best-effort: a logging failure must not hide the query result.
@@ -654,65 +648,43 @@ struct ServerHome {
 
 #[tauri::command]
 async fn server_home(state: tauri::State<'_, AppState>, id: i64) -> Result<ServerHome, String> {
-    use myq_driver::mysql_async::prelude::Queryable;
     let databases = {
         let sessions = state.sessions.lock().unwrap();
         sessions.get(&id).ok_or("not connected")?.db_positions.len()
     };
     let mut c = conn_for(&state, id).await?;
     let info = myq_admin::server_info(&mut c).await.map_err(err)?;
-    let account: Option<String> = c.query_first("SELECT CURRENT_USER()").await.map_err(err)?;
-    let protocol: Option<u32> = c.query_first("SELECT @@protocol_version").await.ok().flatten();
-    let connections: Option<(String, String)> = c.query_first("SHOW GLOBAL STATUS LIKE 'Threads_connected'").await.ok().flatten();
-    let collation: Option<String> = c.query_first("SELECT @@collation_connection").await.map_err(err)?;
+    let facts = myq_driver::session_facts(&mut c).await.map_err(err)?;
     Ok(ServerHome {
         info,
-        account: account.unwrap_or_default(),
-        protocol,
-        connections: connections.and_then(|(_, v)| v.parse().ok()),
-        connection_collation: collation.unwrap_or_default(),
+        account: facts.account,
+        protocol: facts.protocol,
+        connections: facts.threads_connected,
+        connection_collation: facts.connection_collation,
         databases,
     })
 }
 
-/// A result table as plain text: SHOW ENGINES, SHOW CHARACTER SET, SHOW REPLICA STATUS.
-#[derive(serde::Serialize, Default)]
-struct Grid {
-    columns: Vec<String>,
-    rows: Vec<Vec<Option<String>>>,
-}
-
-async fn grid(c: &mut myq_driver::Conn, sql: &str) -> Result<Grid, myq_driver::mysql_async::Error> {
-    use myq_driver::mysql_async::{from_value_opt, prelude::Queryable, Row, Value};
-    let rows: Vec<Row> = c.query(sql).await?;
-    let columns = rows.first().map(|r| r.columns_ref().iter().map(|c| c.name_str().to_string()).collect()).unwrap_or_default();
-    let rows = rows
-        .iter()
-        .map(|r| (0..r.len()).map(|i| match r.as_ref(i) { Some(Value::NULL) | None => None, Some(v) => from_value_opt::<String>(v.clone()).ok() }).collect())
-        .collect();
-    Ok(Grid { columns, rows })
-}
-
 #[derive(serde::Serialize)]
 struct ServerCatalog {
-    engines: Grid,
-    charsets: Grid,
+    engines: myq_driver::Grid,
+    charsets: myq_driver::Grid,
     /// Empty when this server is not a replica (or the account may not look).
-    replication: Grid,
+    replication: myq_driver::Grid,
     replication_note: Option<String>,
 }
 
 #[tauri::command]
 async fn server_catalog(state: tauri::State<'_, AppState>, id: i64) -> Result<ServerCatalog, String> {
     let mut c = conn_for(&state, id).await?;
-    let engines = grid(&mut c, "SHOW ENGINES").await.map_err(err)?;
-    let charsets = grid(&mut c, "SHOW CHARACTER SET").await.map_err(err)?;
+    let engines = myq_driver::query_grid(&mut c, "SHOW ENGINES").await.map_err(err)?;
+    let charsets = myq_driver::query_grid(&mut c, "SHOW CHARACTER SET").await.map_err(err)?;
     // MySQL 8.0.22+ and MariaDB 10.5.1+ know REPLICA; older servers only SLAVE.
-    let (replication, replication_note) = match grid(&mut c, "SHOW REPLICA STATUS").await {
+    let (replication, replication_note) = match myq_driver::query_grid(&mut c, "SHOW REPLICA STATUS").await {
         Ok(g) => (g, None),
-        Err(_) => match grid(&mut c, "SHOW SLAVE STATUS").await {
+        Err(_) => match myq_driver::query_grid(&mut c, "SHOW SLAVE STATUS").await {
             Ok(g) => (g, None),
-            Err(e) => (Grid::default(), Some(format!("not available: {e}"))),
+            Err(e) => (myq_driver::Grid::default(), Some(format!("not available: {e}"))),
         },
     };
     Ok(ServerCatalog { engines, charsets, replication, replication_note })
@@ -798,10 +770,7 @@ async fn run_plan(state: tauri::State<'_, AppState>, id: i64, statements: Vec<St
     let sql = statements.join("\n");
     let started = std::time::Instant::now();
     let (results, _) = myq_driver::execute_script_with_timeout(&pool, &mut conn, None, &sql, safety.timeout_secs).await;
-    {
-        use myq_driver::mysql_async::prelude::Queryable;
-        let _ = conn.query_drop("SET SESSION foreign_key_checks = 1").await;
-    }
+    myq_driver::restore_foreign_key_checks(&mut conn).await;
     let ok = results.iter().all(|r| r.error.is_none());
     let _ = state.store.lock().unwrap().add_history(id, sql.trim(), started.elapsed().as_millis() as u64, ok);
     let _ = reindex(&state, id).await;
@@ -1259,23 +1228,9 @@ struct Collations {
 /// Engines, character sets and collations the server supports, for the designer's dropdowns.
 #[tauri::command]
 async fn server_options(state: tauri::State<'_, AppState>, id: i64) -> Result<Collations, String> {
-    use myq_driver::mysql_async::prelude::Queryable;
     let mut c = conn_for(&state, id).await?;
-    let engines: Vec<String> = c.query("SELECT ENGINE FROM information_schema.ENGINES WHERE SUPPORT IN ('YES','DEFAULT') ORDER BY ENGINE").await.map_err(err)?;
-    let rows: Vec<(String, String, String)> = c
-        .query("SELECT COLLATION_NAME, CHARACTER_SET_NAME, IS_DEFAULT FROM information_schema.COLLATIONS ORDER BY CHARACTER_SET_NAME, COLLATION_NAME")
-        .await
-        .map_err(err)?;
-    let mut charsets: Vec<(String, Vec<String>, String)> = Vec::new();
-    for (collation, charset, is_default) in rows {
-        let entry = match charsets.iter().position(|c| c.0 == charset) {
-            Some(i) => i,
-            None => { charsets.push((charset.clone(), vec![], String::new())); charsets.len() - 1 }
-        };
-        if is_default == "Yes" { charsets[entry].2 = collation.clone(); }
-        charsets[entry].1.push(collation);
-    }
-    Ok(Collations { engines, charsets })
+    let o = myq_driver::server_options(&mut c).await.map_err(err)?;
+    Ok(Collations { engines: o.engines, charsets: o.charsets })
 }
 
 // ---- users and privileges ----

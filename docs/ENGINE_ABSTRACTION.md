@@ -1,6 +1,6 @@
 # Phase 15 design: the engine abstraction
 
-Status of 2026-11-21. Design only; no code changed. It narrows section 3.2 of `PHPMYADMIN_AND_ENGINES.md` into steps that can each ship and be tested.
+Status of 2026-11-21. Step 1 (section 5) is done; the rest is design only. It narrows section 3.2 of `PHPMYADMIN_AND_ENGINES.md` into steps that can each ship and be tested.
 
 ## 1. What is coupled to MySQL today (measured by grep, not guessed)
 
@@ -53,9 +53,13 @@ Do not move MySQL behind a trait in one change (the roadmap's "riskiest step"). 
 2. **Scope of the first SQLite release.** Recommended: read-only browsing and querying first; editing and the table designer in a second step.
 3. **Where `Dialect` lives.** Recommended: a new `myq-core` crate that `myq-schema`, `myq-data` and the engines depend on, so `myq-schema` stays pure.
 
-## 5. Step 1 checklist (next work)
+## 5. Step 1: close the leak (done)
 
-- [ ] List every `mysql_async` use in `src-tauri/src/lib.rs` (41) and group by feature (grid helper, user admin, server tools, restore, …).
-- [ ] Move each group behind a function in the crate that owns the feature; no behaviour change.
-- [ ] Add a CI/grep guard: `mysql_async` must not appear in `apps/desktop/src-tauri`.
-- [ ] Run the full Rust suite on MySQL 9.7 and MariaDB 13 and the full UI suite.
+`apps/desktop/src-tauri/src` no longer mentions `mysql_async`. The six places that did (connection test, foreign-key-check switch,
+server home facts, SHOW grids, server options, restore of the FK switch) moved into `myq-driver::session`
+(`probe`, `set_foreign_key_checks`, `restore_foreign_key_checks`, `session_facts`, `query_grid`, `server_options`).
+Guard: `apps/desktop/src-tauri/tests/engine_seam.rs` fails if the app imports the driver again.
+Real-MySQL test: `crates/myq-driver/tests/session.rs`. Full Rust workspace suite passes on MySQL 9.7. Not rerun: MariaDB 13 and the UI suites.
+`myq_driver::Conn` is still a MySQL type that the app passes around (`conn_for`); step 3 replaces it with the `Backend` handle.
+
+Next: step 2 (`myq-core` with `Dialect` and `Capabilities`), after the three decisions in section 4.

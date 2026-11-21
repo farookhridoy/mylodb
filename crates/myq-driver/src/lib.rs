@@ -6,6 +6,7 @@ mod introspect;
 mod estimate;
 mod overview;
 mod script;
+mod session;
 mod values;
 
 pub use config::{ConnConfig, SslMode};
@@ -16,6 +17,7 @@ pub use introspect::{database_list, database_sizes, database_tables, DatabaseRow
 pub use mysql_async::{self, Conn, Pool};
 pub use values::{cell_text, hex, is_binary, is_numeric, row_cells};
 pub use myq_sql::{split_statements, Statement};
+pub use session::{probe, query_grid, restore_foreign_key_checks, server_options, session_facts, set_foreign_key_checks, Grid, Probe, ServerOptions, SessionFacts};
 pub use script::{execute_script, kill_query, ColumnInfo, ResultSet, StatementResult, MAX_ROWS, execute_script_with_timeout};
 
 #[derive(Debug, thiserror::Error)]

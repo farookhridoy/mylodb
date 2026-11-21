@@ -1,7 +1,7 @@
 //! `myq_core::Backend` for MySQL and MariaDB: delegates to the functions that already exist in this crate.
 
-use crate::{column_details, database_list, database_tables, execute_script, index_details, pool, ConnConfig, Error, Pool};
-use myq_core::{Backend, BackendError, BackendResult, Capabilities, ColumnDetail, DatabaseRow, Dialect, IndexDetail, MySql, StatementResult, TableRow};
+use crate::{column_details, database_list, database_tables, execute_script, index_details, introspect, introspect_columns, pool, ConnConfig, Error, IntrospectOptions, Pool};
+use myq_core::{Backend, Node, BackendError, BackendResult, Capabilities, ColumnDetail, DatabaseRow, Dialect, IndexDetail, MySql, StatementResult, TableRow};
 
 fn failed(e: Error) -> BackendError {
     BackendError(e.to_string())
@@ -33,6 +33,14 @@ impl Backend for MySqlBackend {
     async fn capabilities(&self) -> BackendResult<Capabilities> {
         let mut conn = self.pool.get_conn().await.map_err(|e| failed(e.into()))?;
         crate::capabilities(&mut conn).await.map_err(failed)
+    }
+
+    async fn index(&self, include_system: bool) -> BackendResult<Vec<Node>> {
+        introspect(&self.pool, &IntrospectOptions { include_system, include_columns: false }).await.map_err(failed)
+    }
+
+    async fn column_nodes(&self, database: &str) -> BackendResult<Vec<Node>> {
+        introspect_columns(&self.pool, database).await.map_err(failed)
     }
 
     async fn databases(&self) -> BackendResult<Vec<DatabaseRow>> {

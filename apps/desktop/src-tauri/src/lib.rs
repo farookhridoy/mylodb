@@ -1,9 +1,12 @@
 //! Thin Tauri bridge. All logic lives in the `myq-*` crates; this only exposes it as commands.
 
+mod engine;
+use engine::Engine;
 use myq_data::{Assign, Change, CellData, ColumnFilter, ExportOptions, LookupItem, Page, PageSpec, TableMeta, ApplyOutcome};
 use myq_admin::{Account, AccountEdit, Grants, ScopeGrant, Sql};
 use myq_schema::ddl::TableDef;
-use myq_driver::{introspect, introspect_columns, kill_query, pool, IntrospectOptions, Pool, StatementResult};
+use myq_core::Backend;
+use myq_driver::{kill_query, pool, Pool, StatementResult};
 use myq_schema::filter::{Filter, Kind, Node};
 use myq_store::{Favorite, HistoryEntry, Keychain, SavedConnection, Store};
 use std::{collections::HashMap, sync::Mutex};
@@ -30,6 +33,8 @@ fn restrict_databases(index: Vec<Node>, only: Option<&str>) -> Vec<Node> {
 struct Session {
     #[allow(dead_code)]
     pool: Pool,
+    /// The engine behind this session; the read commands go through it.
+    engine: Engine,
     index: Vec<Node>,
     /// Index positions per database, so a filter scoped to one database never walks the whole server.
     by_db: HashMap<String, Vec<usize>>,
@@ -52,8 +57,8 @@ struct Session {
 }
 
 impl Session {
-    fn new(pool: Pool, index: Vec<Node>, tunnel: Option<myq_tunnel::Tunnel>, safety: Safety, only_database: Option<String>) -> Session {
-        let mut s = Session { pool, index: Vec::new(), by_db: HashMap::new(), db_positions: Vec::new(), columns_loaded: Default::default(), catalog: myq_sql::Catalog::default(), completion_nodes: Vec::new(), completion_loaded: Default::default(), safety, only_database, tunnel };
+    fn new(pool: Pool, engine: Engine, index: Vec<Node>, tunnel: Option<myq_tunnel::Tunnel>, safety: Safety, only_database: Option<String>) -> Session {
+        let mut s = Session { pool, engine, index: Vec::new(), by_db: HashMap::new(), db_positions: Vec::new(), columns_loaded: Default::default(), catalog: myq_sql::Catalog::default(), completion_nodes: Vec::new(), completion_loaded: Default::default(), safety, only_database, tunnel };
         s.set_index(index);
         s
     }
@@ -202,8 +207,9 @@ async fn connect(state: tauri::State<'_, AppState>, id: i64, trust_fingerprint: 
         (safety, only)
     };
     // names only: columns are loaded per database when needed, so connecting to a huge server stays fast
-    let index = restrict_databases(introspect(&p, &IntrospectOptions::default()).await.map_err(err)?, only_database.as_deref());
-    state.sessions.lock().unwrap().insert(id, Session::new(p, index.clone(), tunnel, safety, only_database));
+    let engine = Engine::mysql(p.clone());
+    let index = restrict_databases(engine.index(false).await.map_err(err)?, only_database.as_deref());
+    state.sessions.lock().unwrap().insert(id, Session::new(p, engine, index.clone(), tunnel, safety, only_database));
     Ok(index)
 }
 
@@ -242,8 +248,7 @@ async fn test_connection(state: tauri::State<'_, AppState>, connection: SavedCon
 /// What the connected server can do; the UI hides or disables what it cannot, with the reason.
 #[tauri::command]
 async fn capabilities(state: tauri::State<'_, AppState>, id: i64) -> Result<myq_core::Capabilities, String> {
-    let mut c = conn_for(&state, id).await?;
-    myq_driver::capabilities(&mut c).await.map_err(err)
+    session_engine(&state, id)?.capabilities().await.map_err(err)
 }
 
 /// Links the About and Manual pages may open in the browser. Anything else is refused, so a page can never launch an arbitrary URL.
@@ -320,15 +325,15 @@ async fn load_columns(state: tauri::State<'_, AppState>, id: i64, db: String) ->
 
 /// Load a database's columns unless they are already there. Returns (start, new nodes); empty when nothing was added.
 async fn ensure_columns(state: &tauri::State<'_, AppState>, id: i64, db: &str) -> Result<(usize, Vec<Node>), String> {
-    let pool = {
+    let engine = {
         let sessions = state.sessions.lock().unwrap();
         let s = sessions.get(&id).ok_or("not connected")?;
         if s.columns_loaded.contains(db) || !s.by_db.contains_key(db) {
             return Ok((s.index.len(), vec![]));
         }
-        s.pool.clone()
+        s.engine.clone()
     };
-    let cols = introspect_columns(&pool, db).await.map_err(err)?;
+    let cols = engine.column_nodes(db).await.map_err(err)?;
     let mut sessions = state.sessions.lock().unwrap();
     let s = sessions.get_mut(&id).ok_or("not connected")?;
     if s.columns_loaded.contains(db) {
@@ -336,6 +341,10 @@ async fn ensure_columns(state: &tauri::State<'_, AppState>, id: i64, db: &str) -
     }
     let start = s.add_columns(db, cols.clone());
     Ok((start, cols))
+}
+
+fn session_engine(state: &tauri::State<'_, AppState>, id: i64) -> Result<Engine, String> {
+    state.sessions.lock().unwrap().get(&id).map(|s| s.engine.clone()).ok_or_else(|| "not connected".to_string())
 }
 
 fn session_pool(state: &tauri::State<'_, AppState>, id: i64) -> Result<Pool, String> {
@@ -351,13 +360,13 @@ async fn db_table_stats(state: tauri::State<'_, AppState>, id: i64, db: String) 
 /// Declared types, keys and nullability of one table's columns, for the object browser.
 #[tauri::command]
 async fn table_column_details(state: tauri::State<'_, AppState>, id: i64, db: String, table: String) -> Result<Vec<myq_driver::ColumnDetail>, String> {
-    myq_driver::column_details(&session_pool(&state, id)?, &db, &table).await.map_err(err)
+    session_engine(&state, id)?.columns(&db, &table).await.map_err(err)
 }
 
 /// Indexes of one table, for the object browser.
 #[tauri::command]
 async fn table_index_details(state: tauri::State<'_, AppState>, id: i64, db: String, table: String) -> Result<Vec<myq_driver::IndexDetail>, String> {
-    myq_driver::index_details(&session_pool(&state, id)?, &db, &table).await.map_err(err)
+    session_engine(&state, id)?.indexes(&db, &table).await.map_err(err)
 }
 
 /// Everything the table Properties and Diagram views show.
@@ -632,8 +641,8 @@ async fn export_query(app: tauri::AppHandle, state: tauri::State<'_, AppState>, 
 /// Databases the account may see, honouring "show all databases = off" (a hosted account sees only its own).
 #[tauri::command]
 async fn database_list(state: tauri::State<'_, AppState>, id: i64) -> Result<Vec<myq_driver::DatabaseRow>, String> {
-    let (pool, only) = state.sessions.lock().unwrap().get(&id).map(|s| (s.pool.clone(), s.only_database.clone())).ok_or("not connected")?;
-    let mut rows = myq_driver::database_list(&pool).await.map_err(err)?;
+    let (engine, only) = state.sessions.lock().unwrap().get(&id).map(|s| (s.engine.clone(), s.only_database.clone())).ok_or("not connected")?;
+    let mut rows = engine.databases().await.map_err(err)?;
     if let Some(db) = only {
         rows.retain(|r| r.name == db);
     }
@@ -653,7 +662,7 @@ async fn database_sizes(state: tauri::State<'_, AppState>, id: i64) -> Result<Ve
 
 #[tauri::command]
 async fn database_tables(state: tauri::State<'_, AppState>, id: i64, db: String) -> Result<Vec<myq_driver::TableRow>, String> {
-    myq_driver::database_tables(&session_pool(&state, id)?, &db).await.map_err(err)
+    session_engine(&state, id)?.tables(&db).await.map_err(err)
 }
 
 #[derive(serde::Serialize)]
@@ -1043,7 +1052,7 @@ async fn binlog_events(state: tauri::State<'_, AppState>, id: i64, file: String,
 /// keystroke. The columns of the current database, and of any database the statement names, are loaded the first time.
 #[tauri::command]
 async fn complete_sql(state: tauri::State<'_, AppState>, id: i64, sql: String, cursor: usize, database: Option<String>) -> Result<myq_sql::Completions, String> {
-    let (pool, wanted): (Pool, Vec<String>) = {
+    let (engine, wanted): (Engine, Vec<String>) = {
         let sessions = state.sessions.lock().unwrap();
         let s = sessions.get(&id).ok_or("not connected")?;
         let mut w: Vec<String> = database.iter().cloned().collect();
@@ -1054,10 +1063,10 @@ async fn complete_sql(state: tauri::State<'_, AppState>, id: i64, sql: String, c
                 }
             }
         }
-        (s.pool.clone(), w.into_iter().filter(|d| s.by_db.contains_key(d) && !s.columns_loaded.contains(d) && !s.completion_loaded.contains(d)).collect())
+        (s.engine.clone(), w.into_iter().filter(|d| s.by_db.contains_key(d) && !s.columns_loaded.contains(d) && !s.completion_loaded.contains(d)).collect())
     };
     for db in wanted {
-        if let Ok(cols) = introspect_columns(&pool, &db).await {
+        if let Ok(cols) = engine.column_nodes(&db).await {
             if let Some(s) = state.sessions.lock().unwrap().get_mut(&id) {
                 s.add_completion_columns(&db, cols);
             }
@@ -1132,18 +1141,18 @@ fn ddl_preview(db: String, original: Option<TableDef>, desired: TableDef) -> Ddl
 /// Re-read the object index after the schema changed, so the tree and the filter see it. Databases whose columns
 /// were loaded get them again, so what the UI already shows stays in step.
 async fn reindex(state: &tauri::State<'_, AppState>, id: i64) -> Result<Vec<Node>, String> {
-    let (pool, loaded, only) = {
+    let (engine, loaded, only) = {
         let sessions = state.sessions.lock().unwrap();
         let s = sessions.get(&id).ok_or("not connected")?;
         let mut loaded: Vec<String> = s.columns_loaded.iter().cloned().collect();
         loaded.sort();
-        (s.pool.clone(), loaded, s.only_database.clone())
+        (s.engine.clone(), loaded, s.only_database.clone())
     };
-    let mut index = restrict_databases(introspect(&pool, &IntrospectOptions::default()).await.map_err(err)?, only.as_deref());
+    let mut index = restrict_databases(engine.index(false).await.map_err(err)?, only.as_deref());
     let mut still = std::collections::HashSet::new();
     for db in loaded {
         if index.iter().any(|n| n.database == db) {
-            index.extend(introspect_columns(&pool, &db).await.map_err(err)?);
+            index.extend(engine.column_nodes(&db).await.map_err(err)?);
             still.insert(db);
         }
     }
@@ -1593,7 +1602,7 @@ mod session_tests {
     fn session() -> Session {
         // a pool opens no connection until it is used
         let pool = Pool::new("mysql://root@127.0.0.1:1/");
-        Session::new(pool, vec![node("shop", Kind::Database, "shop", None), node("shop", Kind::Table, "orders", None)], None, Safety::default(), None)
+        Session::new(pool.clone(), Engine::mysql(pool), vec![node("shop", Kind::Database, "shop", None), node("shop", Kind::Table, "orders", None)], None, Safety::default(), None)
     }
 
     fn column_suggested(s: &Session, col: &str) -> bool {

@@ -35,6 +35,4 @@ pub enum Error {
 pub type Result<T> = std::result::Result<T, Error>;
 
 /// Quote an identifier for MySQL.
-pub(crate) fn q(ident: &str) -> String {
-    format!("`{}`", ident.replace('`', "``"))
-}
+pub(crate) use myq_core::q;

@@ -173,9 +173,7 @@ impl std::error::Error for Invalid {}
 
 // ---------- rendering ----------
 
-pub fn q(ident: &str) -> String {
-    format!("`{}`", ident.replace('`', "``"))
-}
+pub use myq_core::q;
 
 /// The character set a collation belongs to: collation names start with it (`utf8mb4_unicode_ci`, `latin1_swedish_ci`, `binary`).
 /// `information_schema.COLLATIONS` cannot be trusted for this: MariaDB 10.10+ lists its `uca1400_*` collations with a NULL character set.
@@ -184,10 +182,7 @@ pub fn charset_of_collation(collation: &str) -> Option<&str> {
     Some(cs)
 }
 
-/// A quoted string literal. Backslashes and quotes are escaped.
-pub fn lit(s: &str) -> String {
-    format!("'{}'", s.replace('\\', "\\\\").replace('\'', "''"))
-}
+pub use myq_core::lit;
 
 fn qualified(db: Option<&str>, table: &str) -> String {
     match db {

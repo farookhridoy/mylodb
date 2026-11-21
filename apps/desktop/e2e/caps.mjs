@@ -1,0 +1,26 @@
+// Capabilities: Analyze is disabled with the server's reason when the server cannot EXPLAIN ANALYZE.
+import { chromium } from "playwright-core";
+import fs from "node:fs";
+import assert from "node:assert/strict";
+const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || undefined, headless: true });
+const page = await (await browser.newContext({ viewport: { width: 1400, height: 900 } })).newPage();
+const errors = [];
+page.on("pageerror", (e) => errors.push("pageerror: " + e.message));
+await page.addInitScript({ content: 'window.__caps = { flavor: "mysql", schemas: { available: false, reason: "x" }, routines: { available: true, reason: null }, triggers: { available: true, reason: null }, events: { available: true, reason: null }, users: { available: true, reason: null }, replication: { available: true, reason: null }, explain_analyze: { available: false, reason: "EXPLAIN ANALYZE needs MySQL 8.0.18 or later" }, read_only_session: { available: true, reason: null }, row_estimates: { available: true, reason: null } };\n' + fs.readFileSync(new URL("./mock.js", import.meta.url), "utf8") + "\nSIZES.orders = 900 * 1024 * 1024; // orders is the biggest table here" });
+await page.goto(process.env.APP_URL || "http://localhost:1420/");
+let step = 0;
+const ok = (m) => console.log(`ok ${++step} ${m}`);
+await page.selectOption(".conn-bar select", "1");
+await page.selectOption(".conn-bar select", "1");
+await page.waitForSelector(".tree .db");
+await page.click(".cm-content");
+await page.keyboard.type("SELECT 1");
+const analyze = page.locator("button:text-is('Analyze')");
+await analyze.waitFor();
+await page.waitForFunction(() => document.querySelector("button[title*='MySQL 8.0.18']"));
+assert.equal(await analyze.isDisabled(), true);
+assert.match(await analyze.getAttribute("title"), /needs MySQL 8\.0\.18 or later/);
+ok("Analyze is disabled and its tooltip gives the server's reason");
+assert.deepEqual(errors, []);
+await browser.close();
+console.log("ALL CAPABILITIES UI CHECKS PASSED");

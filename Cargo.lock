@@ -2818,6 +2818,7 @@ version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
  "myq-admin",
+ "myq-core",
  "myq-data",
  "myq-driver",
  "myq-profile",
@@ -2838,6 +2839,7 @@ dependencies = [
 name = "myq-admin"
 version = "0.1.0"
 dependencies = [
+ "myq-core",
  "myq-driver",
  "myq-schema",
  "serde",
@@ -2847,11 +2849,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "myq-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "myq-data"
 version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
  "flate2",
+ "myq-core",
  "myq-driver",
  "myq-sql",
  "rust_xlsxwriter",
@@ -2866,6 +2876,7 @@ dependencies = [
 name = "myq-driver"
 version = "0.1.0"
 dependencies = [
+ "myq-core",
  "myq-schema",
  "myq-sql",
  "mysql_async",
@@ -2890,6 +2901,7 @@ dependencies = [
 name = "myq-schema"
 version = "0.1.0"
 dependencies = [
+ "myq-core",
  "regex",
  "serde",
 ]
@@ -2898,6 +2910,7 @@ dependencies = [
 name = "myq-sql"
 version = "0.1.0"
 dependencies = [
+ "myq-core",
  "myq-schema",
  "serde",
  "sqlformat",
@@ -2923,6 +2936,7 @@ dependencies = [
  "csv",
  "encoding_rs",
  "encoding_rs_io",
+ "myq-core",
  "myq-driver",
  "myq-schema",
  "myq-sql",

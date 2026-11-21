@@ -5,13 +5,7 @@ use myq_driver::mysql_async::{prelude::Queryable, Value};
 use myq_driver::Conn;
 use serde::{Deserialize, Serialize};
 
-fn q(ident: &str) -> String {
-    format!("`{}`", ident.replace('`', "``"))
-}
-
-fn lit(s: &str) -> String {
-    format!("'{}'", s.replace('\\', "\\\\").replace('\'', "''"))
-}
+use myq_core::{lit, q};
 
 /// Something the server cannot do or has switched off (log not enabled, table missing on this version).
 fn unavailable(msg: impl Into<String>) -> Error {

@@ -44,3 +44,20 @@ async fn session_helpers_read_the_server() {
     let on: Option<i64> = myq_driver::mysql_async::prelude::Queryable::query_first(&mut conn, "SELECT @@foreign_key_checks").await.unwrap();
     assert_eq!(on, Some(1));
 }
+
+#[tokio::test]
+async fn capabilities_follow_the_real_server() {
+    let p = pool(&cfg());
+    let mut conn = match p.get_conn().await {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("SKIP: no MySQL reachable: {e}");
+            return;
+        }
+    };
+    let caps = myq_driver::capabilities(&mut conn).await.unwrap();
+    let version: Option<String> = myq_driver::mysql_async::prelude::Queryable::query_first(&mut conn, "SELECT VERSION()").await.unwrap();
+    let version = version.unwrap();
+    assert_eq!(caps.flavor == myq_core::Flavor::MariaDb, version.to_lowercase().contains("mariadb"), "{version}");
+    assert!(caps.users.available && !caps.schemas.available);
+}

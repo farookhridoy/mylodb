@@ -6,13 +6,7 @@ use myq_driver::Conn;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
-fn lit(s: &str) -> String {
-    format!("'{}'", s.replace('\\', "\\\\").replace('\'', "''"))
-}
-
-fn q(s: &str) -> String {
-    format!("`{}`", s.replace('`', "``"))
-}
+use myq_core::{lit, q};
 
 fn account(user: &str, host: &str) -> String {
     format!("{}@{}", lit(user), lit(host))

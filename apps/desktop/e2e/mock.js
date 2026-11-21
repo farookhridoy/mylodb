@@ -123,7 +123,8 @@ const handlers = {
     return { version: "9.7.2", ssl_cipher: a.connection.ssl !== "disabled" ? "TLS_AES_256_GCM_SHA384" : null, via_ssh: !!a.connection.ssh };
   },
   refresh_index: () => { window.__refreshed = (window.__refreshed || 0) + 1; window.__index = currentIndex(); return window.__index; },
-  disconnect: () => null, session_get: () => null, session_set: () => null, history_list: () => [], favorites_list: () => [],
+  disconnect: () => null, // Other suites start on a query tab (a saved session); home.mjs sets __fresh to see a first connect.
+  session_get: () => (window.__fresh ? null : JSON.stringify({ tabs: [{ id: "q1", title: "Query 1", sql: "", database: null }], active: "q1" })), session_set: () => null, history_list: () => [], favorites_list: () => [],
   list_databases: () => ["shop"], filter_index: () => [],
   table_meta: (a) => metaOf(a.table),
   table_page: (a) => {
@@ -466,3 +467,7 @@ handlers.database_tables = (a) => a.db !== "shop" ? [] : [
   { name: "orders", is_view: false, engine: "InnoDB", rows: 5400, collation: "utf8mb4_0900_ai_ci", bytes: 1048576, overhead: 4194304, comment: "" },
   { name: "v_orders", is_view: true, engine: null, rows: null, collation: null, bytes: null, overhead: null, comment: "" },
 ].filter((t) => !(window.__droppedObjects || new Set()).has(`${t.is_view ? "view" : "table"}:${t.name}`));
+handlers.server_home = () => ({
+  info: { version: "9.7.2", version_comment: "MySQL Community Server", hostname: "mac", port: 3306, datadir: "/data", charset: "utf8mb4", collation: "utf8mb4_0900_ai_ci", sql_mode: "", time_zone: "SYSTEM", max_connections: 151, uptime_seconds: 93784, ssl_cipher: "TLS_AES_256_GCM_SHA384" },
+  account: "root@localhost", protocol: 10, connections: 4, connection_collation: "utf8mb4_0900_ai_ci", databases: 3,
+});

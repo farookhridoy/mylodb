@@ -9,6 +9,7 @@ import { PromptDialog, TypeConfirmDialog } from "./Dialogs";
 import PreviewDialog from "./PreviewDialog";
 import DatabasesPage from "./DatabasesPage";
 import StructurePage from "./StructurePage";
+import HomePage from "./HomePage";
 import TableDesigner from "./TableDesigner";
 import ServerTools from "./ServerTools";
 import { useTheme, type ThemePref } from "./theme";
@@ -33,7 +34,7 @@ import { ConfirmDialog, FavoritesPanel, HistoryPanel, SaveFavoriteDialog } from 
 /** A SQL editor tab, or a table data tab (`kind: "table"`). Tabs saved before table tabs existed have no kind. */
 interface QueryTab {
   id: string; title: string; sql: string; database: string | null;
-  kind?: "sql" | "table" | "designer" | "users" | "server" | "transfer" | "databases" | "structure";
+  kind?: "sql" | "table" | "designer" | "users" | "server" | "transfer" | "databases" | "structure" | "home";
   /// For `transfer` tabs: which tool to show and what it is about.
   transfer?: TransferPreset;
   /// For a new-table `designer` tab: the name and column count asked for on the Structure page.
@@ -164,12 +165,17 @@ export default function App() {
         const saved = await queryApi.sessionGet(id);
         if (saved) {
           const s = JSON.parse(saved) as { tabs: QueryTab[]; active: string };
-          restoredTabs = s.tabs.filter((t) => typeof t.id === "string" && (t.kind === "users" || t.kind === "server" || t.kind === "transfer" || (t.kind === "table" || t.kind === "designer" ? !!t.table : typeof t.sql === "string")))
+          restoredTabs = s.tabs.filter((t) => typeof t.id === "string" && (t.kind === "users" || t.kind === "server" || t.kind === "home" || t.kind === "transfer" || (t.kind === "table" || t.kind === "designer" ? !!t.table : typeof t.sql === "string")))
             .map((t) => (isTable(t) ? { ...t, grid: { ...defaultView(), ...t.grid } } : t));
           restoredActive = s.active;
         }
       } catch { /* a corrupt session is ignored; start fresh */ }
-      if (restoredTabs.length === 0) restoredTabs = [newTab(1)];
+      if (restoredTabs.length === 0) {
+        // a fresh connection opens on the server home, with a query tab beside it
+        const home: QueryTab = { id: uid(), title: "Home", sql: "", database: null, kind: "home" };
+        restoredTabs = [home, newTab(1)];
+        restoredActive = home.id;
+      }
       setActiveId(id);
       setIndex(idx);
       setQuery("");
@@ -910,6 +916,17 @@ export default function App() {
                 readOnly={readOnly} onApplied={async (name) => { await reloadIndex(); patchTab(tab.id, { title: name, table: { db: tab.table!.db, name } }); }} />
             )}
             {tab.kind === "transfer" && <TransferTools key={`${activeId}:${tab.id}`} connectionId={activeId} nodes={index} ensureColumns={ensureColumns} preset={tab.transfer ?? {}} onSchemaChanged={() => reloadIndex()} />}
+            {tab.kind === "home" && (
+              <HomePage key={`${activeId}:${tab.id}`} connectionId={activeId} name={connections.find((c) => c.id === activeId)?.name ?? "Server"} readOnly={readOnly} environment={env}
+                actions={[
+                  { label: "Databases", icon: "database", run: openDatabases, hint: "List, create and drop databases" },
+                  { label: "New query", icon: "terminal", run: () => addTab("", selectedDb) },
+                  { label: "Server tools", icon: "pulse", run: openServer, hint: "Processes, variables, status, maintenance, logs" },
+                  { label: "Users and privileges", icon: "user", run: openUsers },
+                  { label: "Export", icon: "export", run: () => openTransfer({ tab: "export" }) },
+                  { label: "Import", icon: "import", run: () => openTransfer({ tab: "import" }) },
+                ]} />
+            )}
             {tab.kind === "databases" && (
               <DatabasesPage key={`${activeId}:${tab.id}`} connectionId={activeId} readOnly={readOnly} refreshKey={dbRefresh}
                 onOpenDatabase={(d) => { setSelectedDb(d); openStructure(d); }}

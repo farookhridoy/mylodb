@@ -141,6 +141,13 @@ export default function ConnectionDialog(props: {
                      onChange={(e) => set("query_timeout_secs", e.target.value === "" ? null : Math.max(1, Number(e.target.value)))} />
             </label>
             <div className="dim small">A run that takes longer is stopped (the same as Cancel).</div>
+            <label>Connection collation
+              <input list="common-collations" placeholder="Server default" value={c.collation ?? ""} onChange={(e) => set("collation", e.target.value.trim() === "" ? null : e.target.value.trim())} />
+              <datalist id="common-collations">
+                {["utf8mb4_0900_ai_ci", "utf8mb4_unicode_ci", "utf8mb4_general_ci", "utf8mb4_bin", "utf8mb3_general_ci", "latin1_swedish_ci"].map((n) => <option key={n} value={n} />)}
+              </datalist>
+            </label>
+            <div className="dim small">How this connection compares and sorts text (SET NAMES … COLLATE …). Applies from the next connect.</div>
           </>
         )}
 

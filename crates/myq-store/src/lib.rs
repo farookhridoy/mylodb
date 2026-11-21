@@ -65,6 +65,28 @@ impl SecretStore for Keychain {
     }
 }
 
+/// Which database engine a saved connection uses.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum EngineKind {
+    #[default]
+    MySql,
+    Sqlite,
+}
+
+impl EngineKind {
+    fn as_str(self) -> &'static str {
+        match self {
+            EngineKind::MySql => "mysql",
+            EngineKind::Sqlite => "sqlite",
+        }
+    }
+
+    fn parse(s: &str) -> EngineKind {
+        if s == "sqlite" { EngineKind::Sqlite } else { EngineKind::MySql }
+    }
+}
+
 /// What a connection points at. It decides how loudly the app warns, not what the server allows.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -114,6 +136,12 @@ pub struct SavedConnection {
     /// (what shared hosting needs: one database per account, and the rest are not yours to browse).
     #[serde(default = "yes")]
     pub show_all_databases: bool,
+    /// MySQL / MariaDB (host, user, password...) or a SQLite file (`file`).
+    #[serde(default)]
+    pub engine: EngineKind,
+    /// The path of the database file, for `engine = sqlite`.
+    #[serde(default)]
+    pub file: Option<String>,
     /// Folder this connection is listed under in the connection picker. None or empty: ungrouped.
     #[serde(default)]
     pub group: Option<String>,
@@ -203,6 +231,8 @@ impl Store {
         Self::ensure_column(&db, "connections", "show_all_databases", "INTEGER NOT NULL DEFAULT 1")?;
         Self::ensure_column(&db, "connections", "collation", "TEXT")?;
         Self::ensure_column(&db, "connections", "group_name", "TEXT")?;
+        Self::ensure_column(&db, "connections", "engine", "TEXT NOT NULL DEFAULT 'mysql'")?;
+        Self::ensure_column(&db, "connections", "file", "TEXT")?;
         Ok(Store { db, secrets })
     }
 
@@ -240,15 +270,15 @@ impl Store {
         let id = match c.id {
             Some(id) => {
                 self.db.execute(
-                    "UPDATE connections SET name=?1,color=?2,host=?3,port=?4,user=?5,database=?6,ssl=?7,ssl_ca=?8,ssl_cert=?9,ssl_key=?10,ssh=?11,environment=?12,read_only=?13,query_timeout=?14,confirm_destructive=?15,show_all_databases=?16,collation=?17,group_name=?18 WHERE id=?19",
-                    params![c.name, c.color, c.config.host, c.config.port, c.config.user, c.config.database, ssl, ca, cert, key, ssh, c.environment.as_str(), c.config.read_only, c.query_timeout_secs, c.confirm_destructive, c.show_all_databases, c.config.collation, group, id],
+                    "UPDATE connections SET name=?1,color=?2,host=?3,port=?4,user=?5,database=?6,ssl=?7,ssl_ca=?8,ssl_cert=?9,ssl_key=?10,ssh=?11,environment=?12,read_only=?13,query_timeout=?14,confirm_destructive=?15,show_all_databases=?16,collation=?17,group_name=?18,engine=?19,file=?20 WHERE id=?21",
+                    params![c.name, c.color, c.config.host, c.config.port, c.config.user, c.config.database, ssl, ca, cert, key, ssh, c.environment.as_str(), c.config.read_only, c.query_timeout_secs, c.confirm_destructive, c.show_all_databases, c.config.collation, group, c.engine.as_str(), c.file, id],
                 )?;
                 id
             }
             None => {
                 self.db.execute(
-                    "INSERT INTO connections (name,color,host,port,user,database,ssl,ssl_ca,ssl_cert,ssl_key,ssh,environment,read_only,query_timeout,confirm_destructive,show_all_databases,collation,group_name) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18)",
-                    params![c.name, c.color, c.config.host, c.config.port, c.config.user, c.config.database, ssl, ca, cert, key, ssh, c.environment.as_str(), c.config.read_only, c.query_timeout_secs, c.confirm_destructive, c.show_all_databases, c.config.collation, group],
+                    "INSERT INTO connections (name,color,host,port,user,database,ssl,ssl_ca,ssl_cert,ssl_key,ssh,environment,read_only,query_timeout,confirm_destructive,show_all_databases,collation,group_name,engine,file) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20)",
+                    params![c.name, c.color, c.config.host, c.config.port, c.config.user, c.config.database, ssl, ca, cert, key, ssh, c.environment.as_str(), c.config.read_only, c.query_timeout_secs, c.confirm_destructive, c.show_all_databases, c.config.collation, group, c.engine.as_str(), c.file],
                 )?;
                 self.db.last_insert_rowid()
             }
@@ -270,7 +300,7 @@ impl Store {
 
     pub fn list(&self) -> Result<Vec<SavedConnection>> {
         let mut st = self.db.prepare(
-            "SELECT id,name,color,host,port,user,database,ssl,ssl_ca,ssl_cert,ssl_key,ssh,environment,read_only,query_timeout,confirm_destructive,show_all_databases,collation,group_name FROM connections ORDER BY group_name COLLATE NOCASE, name COLLATE NOCASE",
+            "SELECT id,name,color,host,port,user,database,ssl,ssl_ca,ssl_cert,ssl_key,ssh,environment,read_only,query_timeout,confirm_destructive,show_all_databases,collation,group_name,engine,file FROM connections ORDER BY group_name COLLATE NOCASE, name COLLATE NOCASE",
         )?;
         let rows = st.query_map([], |r| {
             let ssh: Option<String> = r.get(11)?;
@@ -297,6 +327,8 @@ impl Store {
                     confirm_destructive: r.get::<_, i64>(15)? != 0,
                     show_all_databases: r.get::<_, i64>(16)? != 0,
                     group: r.get(18)?,
+                    engine: EngineKind::parse(&r.get::<_, String>(19)?),
+                    file: r.get(20)?,
                     ssh: None,
                     new_password: None,
                     new_ssh_password: None,
@@ -516,6 +548,8 @@ mod tests {
             confirm_destructive: true,
             show_all_databases: true,
             group: None,
+            engine: EngineKind::MySql,
+            file: None,
             ssh: None,
             new_password: Some("s3cret".into()),
             new_ssh_password: None,
@@ -534,6 +568,20 @@ mod tests {
         assert_eq!(s.config_for(id).unwrap().unwrap().password.as_deref(), Some("s3cret"));
         let n: i64 = s.db.query_row("SELECT COUNT(*) FROM connections WHERE name LIKE '%s3cret%' OR host LIKE '%s3cret%'", [], |r| r.get(0)).unwrap();
         assert_eq!(n, 0);
+    }
+
+    #[test]
+    fn a_sqlite_connection_keeps_its_file_and_old_rows_default_to_mysql() {
+        let s = Store::in_memory(Box::new(Mem::default())).unwrap();
+        let mut c = conn("file");
+        c.engine = EngineKind::Sqlite;
+        c.file = Some("/tmp/shop.db".into());
+        let id = s.save(&c).unwrap();
+        let got = s.connection(id).unwrap().unwrap();
+        assert_eq!((got.engine, got.file.as_deref()), (EngineKind::Sqlite, Some("/tmp/shop.db")));
+        assert_eq!(s.save(&conn("plain")).map(|i| s.connection(i).unwrap().unwrap().engine).unwrap(), EngineKind::MySql);
+        let old: SavedConnection = serde_json::from_str(r##"{"id":null,"name":"n","color":"#fff","host":"h","port":3306,"user":"u","database":null,"ssl":"skipverify"}"##).unwrap();
+        assert_eq!((old.engine, old.file), (EngineKind::MySql, None));
     }
 
     #[test]

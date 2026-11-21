@@ -2824,6 +2824,7 @@ dependencies = [
  "myq-profile",
  "myq-schema",
  "myq-sql",
+ "myq-sqlite",
  "myq-store",
  "myq-transfer",
  "myq-tunnel",

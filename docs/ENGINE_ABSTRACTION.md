@@ -100,3 +100,20 @@ Next: step 4, after the three decisions in section 4.
 (an enum implementing `Backend`, today with one variant) and every `Session` holds one. These commands now go through it: connect (name index),
 columns of a database (browser, autocomplete, re-index), database list, tables of a database, column and index details, capabilities. Everything else still
 uses the MySQL pool via `session_pool` / `conn_for` and is the work of the next steps (MySQL-only writes, admin, transfer stay as they are).
+
+## 9. Step 5: SQLite, read-only (done)
+
+New crate `myq-sqlite`: `SqliteBackend` implements `Backend` (index, columns, indexes, tables, run) and answers the data grid with the same `myq_data` types
+(`table_meta`, `fetch_page`, `count_rows`: offset paging, column filters with literal LIKE wildcards, free WHERE, multi-column sort, exact counts; `REGEXP` is refused
+with a reason). The file is opened **read-only** by the open flag and `PRAGMA query_only`; opening never creates a file. `Sqlite` dialect (double-quoted
+identifiers, no backslash escapes) and `Capabilities::sqlite()` (each missing feature with its reason: no users, events, routines, server tools, dump / restore, writes) live in `myq-core`.
+
+App: saved connections have `engine` (`mysql` | `sqlite`) and `file`; `Engine::Sqlite`; a SQLite session has no MySQL pool, so the MySQL-only commands answer
+"this feature needs a MySQL or MariaDB connection". The connection dialog has a "Database type" choice with a file picker; the toolbar disables Users, Server,
+Transfer and Home with the engine's reason; a SQLite connection opens on a query tab instead of the server home.
+
+Tests: `crates/myq-sqlite/tests/sqlite.rs` (browse, run SQL with NULL / BLOB / errors, writes refused and file unchanged, grid paging / filters / sort / count, bad files),
+store round trip, UI suite `sqlite.mjs`. Not yet: writes (grid edits, designer, import), SQLite attached databases, `EXPLAIN QUERY PLAN`, export from a SQLite table,
+cancel of a running SQLite query, the structure / databases pages' write actions (they are refused by the read-only guard).
+
+Next: PostgreSQL (schemas) and SQL Server, each behind the same trait.

@@ -36,7 +36,7 @@ assert.match(await page.locator(".conn-dialog .error").innerText(), /Not a MySQL
 await page.locator(".conn-dialog label:has-text('Host') input[type=radio]").check();
 assert.equal(await page.locator("input[aria-label='Connection URL']").inputValue(), "jdbc:mysql://db.example.com:3307/shop", "the URL is shown for the host form (without the password)");
 await page.click(".conn-dialog .dz-tabs button:has-text('SSL')");
-assert.equal(await page.locator(".conn-dialog select").first().inputValue(), "required", "ssl-mode=REQUIRED in the URL turns SSL on");
+assert.equal(await page.locator(".conn-dialog label:has-text('SSL mode') select").inputValue(), "required", "ssl-mode=REQUIRED in the URL turns SSL on");
 ok("a connection can be entered by host or by pasting a JDBC / mysql:// URL; SSL and credentials are picked up");
 
 // ---- show all databases

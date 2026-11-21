@@ -52,6 +52,7 @@ const PATHS: Record<string, ReactNode> = {
   properties: <><rect x="2" y="2.500" width="12" height="11" rx="1" /><path d="M2 5.800h12M5 8.500h6M5 11h4" /></>,
   grid: <><rect x="2" y="3" width="12" height="10" rx="1" /><path d="M2 6.400h12M2 9.700h12M6 3v10M10 3v10" /></>,
   eraser: <path d="m9.500 3 3.500 3.500-5.500 5.500H4.500L2.500 10zM6 6.500l3.500 3.500M7 13h6.500" />,
+  settings: <><circle cx="8" cy="8" r="2.2" /><path d="M8 1.8v1.8M8 12.4v1.8M1.8 8h1.8M12.4 8h1.8M3.6 3.6l1.3 1.3M11.1 11.1l1.3 1.3M12.4 3.6l-1.3 1.3M4.9 11.1l-1.3 1.3" /></>,
   search: <><circle cx="7" cy="7" r="4.200" /><path d="m10.200 10.200 3.300 3.300" /></>,
 };
 

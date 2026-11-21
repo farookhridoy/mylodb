@@ -79,7 +79,7 @@ const Editor = forwardRef<EditorHandle, {
           { key: "Shift-Mod-f", run: () => (cb.current.onFormat(), true) },
         ])),
         EditorView.updateListener.of((u) => u.docChanged && cb.current.onChange(u.state.doc.toString())),
-        EditorView.theme({ "&": { height: "100%" }, ".cm-scroller": { fontFamily: "SF Mono, Menlo, monospace", fontSize: "13px" } }),
+        EditorView.theme({ "&": { height: "100%" } }), // fonts come from the Preferences CSS variables
       ],
     });
 

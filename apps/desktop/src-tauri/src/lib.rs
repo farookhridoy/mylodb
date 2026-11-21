@@ -1361,9 +1361,83 @@ fn session_set(state: tauri::State<AppState>, id: i64, session: String) -> Resul
     state.store.lock().unwrap().set_session(id, &session).map_err(err)
 }
 
+/// The native menu bar. Every custom item just tells the window what was chosen (`menu-action` with the item id): what it does
+/// depends on the open connection and tabs, which only the UI knows. Shortcuts are handled by the window itself (so they are not
+/// registered here twice). Standard Edit items use the system's own handlers.
+fn build_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
+    use tauri::menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder};
+    let item = |id: &str, label: &str, accel: Option<&str>| {
+        let b = MenuItemBuilder::with_id(id, label);
+        match accel { Some(a) => b.accelerator(a).build(app), None => b.build(app) }
+    };
+    let app_menu = SubmenuBuilder::new(app, "MyLoDB")
+        .about(None)
+        .separator()
+        .item(&item("preferences", "Preferences…", None)?)
+        .separator()
+        .services()
+        .separator()
+        .hide()
+        .hide_others()
+        .show_all()
+        .separator()
+        .quit()
+        .build()?;
+    let file = SubmenuBuilder::new(app, "File")
+        .item(&item("new_query", "New Query Tab", None)?)
+        .item(&item("close_tab", "Close Tab", None)?)
+        .separator()
+        .item(&item("new_connection", "New Connection…", None)?)
+        .item(&item("edit_connection", "Edit Connection…", None)?)
+        .build()?;
+    let edit = SubmenuBuilder::new(app, "Edit")
+        .item(&PredefinedMenuItem::undo(app, None)?)
+        .item(&PredefinedMenuItem::redo(app, None)?)
+        .separator()
+        .item(&PredefinedMenuItem::cut(app, None)?)
+        .item(&PredefinedMenuItem::copy(app, None)?)
+        .item(&PredefinedMenuItem::paste(app, None)?)
+        .item(&PredefinedMenuItem::select_all(app, None)?)
+        .build()?;
+    let view = SubmenuBuilder::new(app, "View")
+        .item(&item("refresh_tree", "Refresh Object Tree", None)?)
+        .item(&item("focus_filter", "Search Objects", None)?)
+        .separator()
+        .item(&item("theme_system", "Theme: System", None)?)
+        .item(&item("theme_light", "Theme: Light", None)?)
+        .item(&item("theme_dark", "Theme: Dark", None)?)
+        .separator()
+        .fullscreen()
+        .build()?;
+    let database = SubmenuBuilder::new(app, "Database")
+        .item(&item("home", "Server Home", None)?)
+        .item(&item("databases", "Databases…", None)?)
+        .item(&item("structure", "Tables of Selected Database", None)?)
+        .separator()
+        .item(&item("new_table", "New Table…", None)?)
+        .build()?;
+    let tools = SubmenuBuilder::new(app, "Tools")
+        .item(&item("export", "Export Data…", None)?)
+        .item(&item("import", "Import Data…", None)?)
+        .item(&item("backup", "Backup / Restore…", None)?)
+        .separator()
+        .item(&item("users", "Users and Privileges", None)?)
+        .item(&item("server_tools", "Server Tools", None)?)
+        .item(&item("catalog", "Engines, Charsets, Replication", None)?)
+        .build()?;
+    let window = SubmenuBuilder::new(app, "Window").minimize().maximize().separator().close_window().build()?;
+    let help = SubmenuBuilder::new(app, "Help").item(&item("about_shortcuts", "Keyboard Shortcuts", None)?).build()?;
+    MenuBuilder::new(app).items(&[&app_menu, &file, &edit, &view, &database, &tools, &window, &help]).build()
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .menu(build_menu)
+        .on_menu_event(|app, event| {
+            use tauri::Emitter;
+            let _ = app.emit("menu-action", event.id().0.as_str());
+        })
         .setup(|app| {
             let dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&dir)?;

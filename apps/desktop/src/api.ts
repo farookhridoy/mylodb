@@ -338,6 +338,12 @@ export async function onJobProgress(jobId: string, cb: (p: JobProgress) => void)
   return () => { un(); };
 }
 
+/** The native menu bar tells the window which item was chosen (the Rust side only knows the id). */
+export async function onMenuAction(cb: (id: string) => void): Promise<() => void> {
+  const un = await listen<string>("menu-action", (e) => cb(e.payload));
+  return () => { un(); };
+}
+
 export const transferApi = {
   sniff: (path: string) => invoke<string>("csv_sniff", { path }),
   preview: (path: string, format: CsvFormat, limit = 20) => invoke<CsvPreview>("csv_preview", { path, format, limit }),

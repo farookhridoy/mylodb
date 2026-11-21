@@ -24,7 +24,7 @@
 }
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; margin: 0; }
-body { background: var(--bg); color: var(--text); font: 12px/1.35 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif; -webkit-font-smoothing: antialiased; }
+body { background: var(--bg); color: var(--text); font: var(--fw-ui, 400) var(--fs-ui, 12px)/1.35 var(--font-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif); -webkit-font-smoothing: antialiased; }
 .app { display: flex; height: 100%; }
 .icon { flex: none; vertical-align: -2px; }
 .sidebar { width: 300px; min-width: 200px; flex: none; background: var(--panel); display: flex; flex-direction: column; }
@@ -114,7 +114,7 @@ button.mini { padding: 0 4px; min-height: 0; height: 18px; border: 0; background
 .result-tabs button.active { color: var(--text); border-bottom-color: var(--accent); }
 .result-body { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: auto; }
 .grid-scroll { flex: 1; overflow: auto; }
-.grid { border-collapse: collapse; font: 12px "SF Mono", Menlo, monospace; }
+.grid { border-collapse: collapse; font: var(--fw-grid, 400) var(--fs-grid, 12px) var(--font-grid, "SF Mono", Menlo, monospace); }
 .grid th { position: sticky; top: 0; background: var(--panel); text-align: left; padding: 3px 10px; border: 1px solid var(--line); font-weight: 600; }
 .grid td { padding: 2px 10px; border: 1px solid var(--line); max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .grid .rownum { color: var(--dim); text-align: right; background: var(--panel); position: sticky; left: 0; }
@@ -134,7 +134,7 @@ button.link { background: none; border: 0; color: var(--accent); text-align: lef
 .popup-host { position: relative; } .popup { position: absolute; right: 0; top: 30px; z-index: 20; background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 8px 12px; min-width: 190px; max-height: 340px; overflow: auto; display: flex; flex-direction: column; gap: 3px; box-shadow: 0 8px 24px var(--shadow); }
 .popup label { display: flex; gap: 6px; align-items: center; white-space: nowrap; } .popup .small { font-size: 11px; }
 .dg-where { display: flex; gap: 8px; align-items: center; padding: 5px 8px; border-bottom: 1px solid var(--line); }
-.dg-where input { flex: 1; font: 12px "SF Mono", Menlo, monospace; }
+.dg-where input { flex: 1; font: var(--fw-grid, 400) var(--fs-grid, 12px) var(--font-grid, "SF Mono", Menlo, monospace); }
 .banner { padding: 5px 10px; background: var(--banner); color: var(--dim); font-size: 12px; }
 .banner.bad { background: var(--bad-bg); color: var(--bad-text); } .banner.ok { background: var(--good-bg); color: var(--good-text); }
 .dg-main { flex: 1; display: flex; min-height: 0; }
@@ -460,3 +460,11 @@ table.kv th { text-align: left; font-weight: 500; color: var(--dim); width: 170p
   body * { visibility: hidden; } .dict-overlay, .dict-overlay * { visibility: visible; } .dict-overlay { position: absolute; inset: 0; background: #fff; }
   .dict-overlay .dict { max-height: none; width: auto; box-shadow: none; } .no-print { display: none !important; } .print-only { display: block; }
 }
+
+/* preferences: per-area fonts (the variables are set from prefs.ts) */
+.sidebar { font: var(--fw-tree, 400) var(--fs-tree, 12px)/1.35 var(--font-tree, inherit); }
+.cm-scroller { font-family: var(--font-editor, "SF Mono", Menlo, monospace) !important; font-size: var(--fs-editor, 13px) !important; font-weight: var(--fw-editor, 400); line-height: var(--lh-editor, 1.5) !important; }
+.prefs { width: 600px; } .prefs h4 { margin: 8px 0 6px; font-size: 12px; } .prefs-table { border-collapse: collapse; width: 100%; } .prefs-table td, .prefs-table th { padding: 3px 6px 3px 0; text-align: left; font-weight: 400; color: var(--dim); }
+.prefs-table td:first-child { color: var(--text); white-space: nowrap; } .prefs-table .ss { min-width: 190px; }
+.prefs-sample { margin-top: 10px; border: 1px solid var(--line); border-radius: 4px; padding: 8px 10px; background: var(--panel); }
+.sample-grid { font: var(--fw-grid, 400) var(--fs-grid, 12px) var(--font-grid); margin-bottom: 6px; } .sample-editor { font: var(--fw-editor, 400) var(--fs-editor, 13px)/var(--lh-editor, 1.5) var(--font-editor); }

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Select from "./Select";
-import { api, describeError, editorApi, planApi, queryApi, schemaApi, serverApi, type PlanOp, type ConnectError, type Favorite, type FormatOptions, type Kind, type Environment, type Maintenance, type Review, type Node, type SavedConnection, type TableOp } from "./api";
+import { onMenuAction, api, describeError, editorApi, planApi, queryApi, schemaApi, serverApi, type PlanOp, type ConnectError, type Favorite, type FormatOptions, type Kind, type Environment, type Maintenance, type Review, type Node, type SavedConnection, type TableOp } from "./api";
 import AnalysisPane, { type Analysis } from "./AnalysisPane";
 import ConnectionDialog from "./ConnectionDialog";
 import ContextMenu, { type MenuItem } from "./ContextMenu";
@@ -11,6 +11,8 @@ import DatabasesPage from "./DatabasesPage";
 import StructurePage from "./StructurePage";
 import HomePage from "./HomePage";
 import CatalogPage from "./CatalogPage";
+import PreferencesDialog from "./PreferencesDialog";
+import { loadPrefs, type Prefs } from "./prefs";
 import TableDesigner from "./TableDesigner";
 import ServerTools from "./ServerTools";
 import { useTheme, type ThemePref } from "./theme";
@@ -127,6 +129,8 @@ export default function App() {
   const [restored, setRestored] = useState(false);
 
   const theme = useTheme();
+  const [prefsOpen, setPrefsOpen] = useState(false);
+  const [prefs, setPrefs] = useState<Prefs>(loadPrefs);
   const editor = useRef<EditorHandle>(null);
   const filterSeq = useRef(0);
   const runIds = useRef<Record<string, string>>({});
@@ -357,6 +361,41 @@ export default function App() {
   const fkRef = useRef(fkByTab);
   fkRef.current = fkByTab;
 
+  // ---- native menu bar: the Rust side reports the item id, this decides what it means right now ----
+  const menuHandler = useRef<(id: string) => void>(() => {});
+  menuHandler.current = (id) => {
+    const connected = activeId !== null;
+    const need = (f: () => void) => { if (connected) f(); else setStatus("Connect first"); };
+    switch (id) {
+      case "preferences": return setPrefsOpen(true);
+      case "new_query": return need(() => addTab("", tab?.database ?? null));
+      case "close_tab": return tab ? closeTab(tab.id) : undefined;
+      case "new_connection": return setDialog("new");
+      case "edit_connection": return active ? setDialog(active) : setStatus("Pick a connection first");
+      case "refresh_tree": return need(() => reloadIndex());
+      case "focus_filter": return need(() => { setSide("objects"); setTimeout(() => filterInput.current?.focus(), 0); });
+      case "theme_system": return theme.setPref("system");
+      case "theme_light": return theme.setPref("light");
+      case "theme_dark": return theme.setPref("dark");
+      case "home": return need(openHome);
+      case "databases": return need(openDatabases);
+      case "structure": return need(() => (selectedDb ? openStructure(selectedDb) : setStatus("Select a database in the tree first")));
+      case "new_table": return need(() => (selectedDb ? openDesigner(selectedDb, null) : setStatus("Select a database in the tree first")));
+      case "export": return need(() => openTransfer({ tab: "export" }));
+      case "import": return need(() => openTransfer({ tab: "import" }));
+      case "backup": return need(() => openTransfer({ tab: "backup" }));
+      case "users": return need(openUsers);
+      case "server_tools": return need(openServer);
+      case "catalog": return need(openCatalog);
+      case "about_shortcuts": return setStatus("⌘T new tab · ⌘W close tab · ⌘↵ run · ⇧⌘F format · ⇧⌘B search objects · F5 refresh · ⌘, preferences");
+    }
+  };
+  useEffect(() => {
+    let un: (() => void) | undefined; let gone = false;
+    onMenuAction((id) => menuHandler.current(id)).then((f) => { if (gone) f(); else un = f; });
+    return () => { gone = true; un?.(); };
+  }, []);
+
   // ---- run / cancel ----
   const runSql = useCallback(async (tabId: string, sql: string, database: string | null) => {
     if (activeId === null || !sql.trim()) return;
@@ -469,6 +508,14 @@ export default function App() {
     const existing = tabs.find((t) => t.kind === "catalog");
     if (existing) return setActiveTab(existing.id);
     const t: QueryTab = { id: uid(), title: "Engines & charsets", sql: "", database: null, kind: "catalog" };
+    setTabs([...tabs, t]);
+    setActiveTab(t.id);
+  };
+
+  const openHome = () => {
+    const existing = tabs.find((t) => t.kind === "home");
+    if (existing) return setActiveTab(existing.id);
+    const t: QueryTab = { id: uid(), title: "Home", sql: "", database: null, kind: "home" };
     setTabs([...tabs, t]);
     setActiveTab(t.id);
   };
@@ -720,6 +767,7 @@ export default function App() {
         if (e.key === "F4") openTable(selectedDb, selectedTable, undefined, "properties"); else renameTable(selectedDb, selectedTable);
         return;
       }
+      if (e.metaKey && e.key === ",") { e.preventDefault(); setPrefsOpen(true); return; }
       if (!e.metaKey || activeId === null) return;
       if (e.shiftKey && e.key.toLowerCase() === "b") { e.preventDefault(); setSide("objects"); const focus = () => filterInput.current?.focus(); focus(); setTimeout(focus, 0); /* the second call covers the objects tab not being mounted yet */ return; }
       if (e.key === "t") { e.preventDefault(); addTab("", tab?.database ?? null); }
@@ -746,6 +794,7 @@ export default function App() {
             onClick={() => { const order: ThemePref[] = ["system", "light", "dark"]; theme.setPref(order[(order.indexOf(theme.pref) + 1) % 3]); }}>
             <Icon name={theme.pref === "system" ? "auto" : theme.pref === "light" ? "sun" : "moon"} />
           </button>
+          <button title="Preferences (⌘,)" aria-label="Preferences" onClick={() => setPrefsOpen(true)}><Icon name="settings" /></button>
           <button title="Server: processes, variables, status, maintenance, logs" disabled={activeId === null} onClick={openServer}><Icon name="pulse" /></button>
         </div>
         {activeId !== null && (
@@ -991,6 +1040,7 @@ export default function App() {
       )}
       {pendingReview && <ReviewDialog review={pendingReview.review} onCancel={() => setPendingReview(null)} onRun={pendingReview.go} />}
       {prompt && <PromptDialog {...prompt} />}
+      {prefsOpen && <PreferencesDialog initial={prefs} theme={theme.pref} onTheme={theme.setPref} onChange={setPrefs} onClose={() => setPrefsOpen(false)} />}
       {typeConfirm && <TypeConfirmDialog {...typeConfirm} />}
       {planDlg && activeId !== null && (
         <PreviewDialog title={planDlg.title} summary={planDlg.summary} statements={planDlg.statements} environment={env} confirmLabel={planDlg.confirmLabel}

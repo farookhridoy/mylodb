@@ -2,17 +2,19 @@
 
 mod config;
 mod introspect;
+mod estimate;
 mod overview;
 mod script;
 mod values;
 
 pub use config::{ConnConfig, SslMode};
+pub use estimate::estimate_rows;
 pub use overview::{table_overview, ColumnFull, Constraint, ForeignKey, PartitionInfo, TableInfo, TableOverview, TriggerInfo};
 pub use introspect::{index_details, object_definition, IndexDetail, column_details, introspect, introspect_columns, table_stats, ColumnDetail, IntrospectOptions, TableStat};
 pub use mysql_async::{self, Conn, Pool};
 pub use values::{cell_text, hex, is_binary, is_numeric, row_cells};
 pub use myq_sql::{split_statements, Statement};
-pub use script::{execute_script, kill_query, ColumnInfo, ResultSet, StatementResult, MAX_ROWS};
+pub use script::{execute_script, kill_query, ColumnInfo, ResultSet, StatementResult, MAX_ROWS, execute_script_with_timeout};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {

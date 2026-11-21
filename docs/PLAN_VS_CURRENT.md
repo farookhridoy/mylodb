@@ -90,7 +90,7 @@ Note on sizes: MySQL 8 caches table statistics (`information_schema_stats_expiry
 | Streaming, virtualized data grid | 🟡 | Server-side paging (up to 5,000 rows a page) with filters, sort and edit. Every row of the page becomes DOM: no row or column virtualization, no fetch-on-scroll, no bounded cache. |
 | Smart pagination | 🟡 | `LIMIT … OFFSET` only. No keyset / primary-key cursor, so deep pages slow down. Row count is an exact `COUNT(*)` in the background; should start from an estimate. |
 | Large dataset export | 🟡 | ✅ Constant-memory writers, six formats. ❌ JSON Lines, GZIP, fetch-size option, rows/bytes/elapsed progress and **cancel for exports started from the grid or a query**, segmented export. |
-| Production safe mode | ❌ | Missing: environment label and badge, read-only mode enforced by the server, destructive-SQL review (`DROP`, `TRUNCATE`, `DELETE`/`UPDATE` without a real `WHERE`), query timeout, confirm-before-commit. |
+| Production safe mode | ✅ | Phase 9, see section 6d. Not done: optional backup before a destructive operation, row limits, audit log beyond the query history. |
 | Staged editing and SQL preview | ✅ | Gap: query results are read-only. |
 | Query cancellation | ✅ | `KILL QUERY`. |
 | Secure connection management | ✅ | |
@@ -122,12 +122,12 @@ Note on sizes: MySQL 8 caches table statistics (`information_schema_stats_expiry
 
 ## 5. Next phases
 
-Phases 1–8 and the filter, theme and sidebar work are done. Rough effort for one developer; each phase ends with tests and a DMG.
+Phases 1–9 and the filter, theme and sidebar work are done. Rough effort for one developer; each phase ends with tests and a DMG.
 
 | Phase | Theme | Scope | Effort |
 |---|---|---|---|
 | **8** ✅ | **Object browser completion** | Done: indexes under tables, database size, views / routines / triggers / events (definition, drop, templates), state remembered per connection, F5. Moved to Phase 11: sort, Info panel, drag into editor, alter database, collapse all, rename of routines. | done |
-| **9** | **Production Safety** | Environment label and badge (prod / staging / dev); server-enforced read-only; destructive-SQL review; query timeout; confirm-on-commit for production. | 2–3 wk |
+| **9** ✅ | **Production Safety** | Done: environment badge and colour; server-enforced read-only; destructive-SQL review with row estimates; query timeout; confirm-on-commit. Open: backup before destructive operations, row limits. | done |
 | **10** | **Large Data Engine** | Virtualized grid; lazy fetch with a bounded cache; keyset pagination; estimated counts; exports as cancellable tasks (progress, JSON Lines, GZIP); 1M and 10M-row benchmarks. | 3–4 wk |
 | **11** | **SQL workspace parity** | Browser leftovers (sort, Info panel, drag into editor, alter database); open / save `.sql` (new tab or current), drag-open, templates; text result mode; copy with options; **Preferences** dialog; command palette (⌘K); connection tabs (several servers at once); connection groups and environments. | 2–3 wk |
 | **12** | **Quality gates** | Tasks panel; GitHub Actions on macOS arm64 / x64; MySQL 5.7 / 8.0 / 9 and MariaDB in containers; network-drop and restart tests. | 1–2 wk |
@@ -139,6 +139,35 @@ Phases 1–8 and the filter, theme and sidebar work are done. Rough effort for o
 **Why this order.** Phase 8 is done. Phases 9 and 10 are the plan's
 "defining" features and must land before the visual tools. Phase 11 removes daily friction. Phase 12 should run alongside 9–11 so the
 version matrix catches MariaDB and 5.7 differences before the power tools depend on them.
+
+## 6d. Production Safety (Phase 9)
+
+Per connection (Safety tab of the connection dialog): **environment** (development / staging / production), **read-only**, **query timeout**
+and **ask before destructive SQL**. Old connections open as development, writable, warnings on.
+
+* **Environment** is a badge in the sidebar and the status bar, a colour band on the tab bar (red for production, amber for staging) and a
+  tinted status bar. The tab colour follows the environment unless it was chosen by hand.
+* **Read-only is enforced by the server.** Every session of the connection is opened with `SET SESSION TRANSACTION READ ONLY`, re-applied
+  whenever the pool recycles a connection (it uses `setup`, not `init`, which only runs once). The server then refuses INSERT, UPDATE, DELETE,
+  CREATE, ALTER, DROP and TRUNCATE with error 1792. Tested on a real MySQL, including recycled connections. On top of that the app refuses,
+  before sending anything: writes in the console, attempts to switch the session back (`SET SESSION TRANSACTION READ WRITE`,
+  `transaction_read_only`, `START TRANSACTION READ WRITE`), and every writing command of the backend (row edits, table and database
+  operations, designer, imports, restore, accounts, global settings, maintenance). The UI turns off cell editing, row buttons, the
+  designer's Apply and the write entries of the menus.
+* **Review before running** (`review_sql`, in `myq-sql`'s `risk` module): DROP and TRUNCATE, DELETE or UPDATE without a real WHERE (also
+  `WHERE 1=1`), ALTER … DROP COLUMN / PARTITION, DROP USER, GRANT / REVOKE, SET GLOBAL, RENAME, KILL, REPLACE. The dialog shows the SQL, the
+  reason, the environment and the optimizer's row estimate from `EXPLAIN` (which does not run the statement). On production a dangerous
+  statement needs the word "production" typed. Strings, comments and quoted names are not mistaken for code.
+* **Query timeout**: a run that takes longer than the limit is stopped with `KILL QUERY` (the same as Cancel) and marked as stopped. The limit
+  applies to the whole run, not to each statement.
+* **Confirm on commit**: on production, saving grid changes asks first ("Production database: 2 changes to shop.orders will be saved").
+
+What this does **not** do, so nobody relies on it too much:
+* Read-only is a session setting. Another client, or an account with the right privileges, can still change it. For real protection give the
+  connection a database account without write privileges. The dialog says so.
+* The review is advisory. It does not understand dynamic SQL or stored procedures, and `DELETE … WHERE name = 'x' OR 1 = 1` looks restricted to it.
+* The timeout is per run, via the client; it does not set a server-side limit.
+* Not built: an optional backup before a destructive operation, row limits, sensitive-column controls, an audit log beyond the query history.
 
 ## 6c. Filter options and menus
 

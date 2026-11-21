@@ -335,3 +335,33 @@ Object.assign(handlers, {
     };
   },
 });
+
+// ---- connections with safety settings, review and read-only refusal ----
+{
+  const base = handlers.list_connections;
+  handlers.list_connections = () => [...base(), ...(window.__extraConns || [])];
+  const connect = handlers.connect;
+  handlers.connect = (a) => { window.__activeConnId = a.id; return connect(a); };
+  const activeConn = () => handlers.list_connections().find((c) => c.id === window.__activeConnId) || {};
+  const run = handlers.run_query;
+  handlers.run_query = (a) => {
+    if (activeConn().read_only && /^\s*(insert|update|delete|drop|truncate|create|alter)\b/i.test(a.sql)) {
+      throw `Not run: this connection is read-only, and statement 1 (${a.sql.slice(0, 60)}) it changes data. Edit the connection to turn read-only off.`;
+    }
+    return run(a);
+  };
+  handlers.review_sql = (a) => {
+    const c = activeConn();
+    const items = [];
+    a.sql.split(";").map((x) => x.trim()).filter(Boolean).forEach((sql, index) => {
+      const findings = [];
+      if (/^drop\s+(table|database)\b/i.test(sql)) findings.push({ kind: "drop_object", severity: "danger", reason: "DROP TABLE deletes the table and all its rows" });
+      if (/^truncate\b/i.test(sql)) findings.push({ kind: "truncate", severity: "danger", reason: "TRUNCATE deletes every row and cannot be rolled back" });
+      if (/^delete\s+from\b/i.test(sql) && !/\bwhere\b/i.test(sql)) findings.push({ kind: "delete_without_where", severity: "danger", reason: "DELETE without a WHERE condition deletes every row" });
+      if (/^update\b/i.test(sql) && !/\bwhere\b/i.test(sql)) findings.push({ kind: "update_without_where", severity: "danger", reason: "UPDATE without a WHERE condition changes every row" });
+      if (/^rename\b/i.test(sql)) findings.push({ kind: "rename", severity: "warning", reason: "renaming breaks anything that still uses the old name" });
+      if (findings.length) items.push({ index, sql, findings, estimated_rows: /^(delete|update)\b/i.test(sql) ? 5 : null });
+    });
+    return { items, environment: c.environment || "development", read_only: !!c.read_only, confirm: c.confirm_destructive !== false };
+  };
+}

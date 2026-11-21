@@ -96,6 +96,35 @@ pub async fn execute_script(conn: &mut Conn, database: Option<&str>, sql: &str) 
     out
 }
 
+/// Like `execute_script`, but the run may take at most `timeout_secs`: after that the running statement is killed (the same as
+/// Cancel). Returns the results and whether the timeout fired. A killed `SELECT SLEEP()` or similar may end without an error, so the
+/// last result is marked as stopped either way.
+pub async fn execute_script_with_timeout(pool: &Pool, conn: &mut Conn, database: Option<&str>, sql: &str, timeout_secs: Option<u32>) -> (Vec<StatementResult>, bool) {
+    let fired = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let watchdog = timeout_secs.map(|secs| {
+        let (pool, fired, server_conn) = (pool.clone(), fired.clone(), conn.id());
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_secs(u64::from(secs))).await;
+            fired.store(true, std::sync::atomic::Ordering::SeqCst);
+            let _ = kill_query(&pool, server_conn).await;
+        })
+    });
+    let mut results = execute_script(conn, database, sql).await;
+    if let Some(w) = watchdog {
+        w.abort();
+    }
+    let timed_out = fired.load(std::sync::atomic::Ordering::SeqCst);
+    if timed_out {
+        let secs = timeout_secs.unwrap_or(0);
+        let note = format!("Stopped by the {secs} s query timeout of this connection; the result may be incomplete.");
+        match results.last_mut() {
+            Some(last) => last.error = Some(match last.error.take() { Some(e) => format!("{note} ({e})"), None => note }),
+            None => results.push(StatementResult { error: Some(note), ..Default::default() }),
+        }
+    }
+    (results, timed_out)
+}
+
 /// Interrupt the statement running on server connection `connection_id` (`KILL QUERY`).
 pub async fn kill_query(pool: &Pool, connection_id: u32) -> Result<()> {
     let mut c = pool.get_conn().await?;

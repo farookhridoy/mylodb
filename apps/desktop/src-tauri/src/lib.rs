@@ -3,11 +3,20 @@
 use myq_data::{Assign, Change, CellData, ColumnFilter, ExportOptions, LookupItem, Page, PageSpec, TableMeta, ApplyOutcome};
 use myq_admin::{Account, AccountEdit, Grants, ScopeGrant, Sql};
 use myq_schema::ddl::TableDef;
-use myq_driver::{execute_script, introspect, introspect_columns, kill_query, pool, IntrospectOptions, Pool, StatementResult};
+use myq_driver::{introspect, introspect_columns, kill_query, pool, IntrospectOptions, Pool, StatementResult};
 use myq_schema::filter::{Filter, Kind, Node};
 use myq_store::{Favorite, HistoryEntry, Keychain, SavedConnection, Store};
 use std::{collections::HashMap, sync::Mutex};
 use tauri::{Emitter, Manager};
+
+/// The safety settings of a connection, fixed when it is opened.
+#[derive(Clone, Copy, Debug, Default)]
+struct Safety {
+    environment: myq_store::Environment,
+    read_only: bool,
+    timeout_secs: Option<u32>,
+    confirm_destructive: bool,
+}
 
 /// A live connection: its pool and the cached name index the filter runs over.
 struct Session {
@@ -26,14 +35,15 @@ struct Session {
     /// positions into it, so the index may only grow through `load_columns`, which tells the UI where the new nodes start.
     completion_nodes: Vec<Node>,
     completion_loaded: std::collections::HashSet<String>,
+    safety: Safety,
     /// Keeps the SSH tunnel alive for as long as the session lives (dropping it closes the tunnel).
     #[allow(dead_code)]
     tunnel: Option<myq_tunnel::Tunnel>,
 }
 
 impl Session {
-    fn new(pool: Pool, index: Vec<Node>, tunnel: Option<myq_tunnel::Tunnel>) -> Session {
-        let mut s = Session { pool, index: Vec::new(), by_db: HashMap::new(), db_positions: Vec::new(), columns_loaded: Default::default(), catalog: myq_sql::Catalog::default(), completion_nodes: Vec::new(), completion_loaded: Default::default(), tunnel };
+    fn new(pool: Pool, index: Vec<Node>, tunnel: Option<myq_tunnel::Tunnel>, safety: Safety) -> Session {
+        let mut s = Session { pool, index: Vec::new(), by_db: HashMap::new(), db_positions: Vec::new(), columns_loaded: Default::default(), catalog: myq_sql::Catalog::default(), completion_nodes: Vec::new(), completion_loaded: Default::default(), safety, tunnel };
         s.set_index(index);
         s
     }
@@ -89,6 +99,16 @@ struct AppState {
 
 fn err(e: impl std::fmt::Display) -> String {
     e.to_string()
+}
+
+/// Refuse an operation that changes data, schema, accounts or settings on a read-only connection. The server refuses writes in a
+/// read-only session as well; this gives a clear message first and also covers operations that run outside that session.
+fn guard_writable(state: &tauri::State<'_, AppState>, id: i64, what: &str) -> Result<(), String> {
+    let sessions = state.sessions.lock().unwrap();
+    match sessions.get(&id) {
+        Some(s) if s.safety.read_only => Err(format!("This connection is read-only, so {what} is not allowed. Edit the connection to turn read-only off.")),
+        _ => Ok(()),
+    }
 }
 
 #[tauri::command]
@@ -166,7 +186,11 @@ async fn connect(state: tauri::State<'_, AppState>, id: i64, trust_fingerprint: 
     let p = pool(&cfg);
     // names only: columns are loaded per database when needed, so connecting to a huge server stays fast
     let index = introspect(&p, &IntrospectOptions::default()).await.map_err(err)?;
-    state.sessions.lock().unwrap().insert(id, Session::new(p, index.clone(), tunnel));
+    let safety = {
+        let store = state.store.lock().unwrap();
+        store.connection(id).map_err(err)?.map(|c| Safety { environment: c.environment, read_only: c.config.read_only, timeout_secs: c.query_timeout_secs, confirm_destructive: c.confirm_destructive }).unwrap_or_default()
+    };
+    state.sessions.lock().unwrap().insert(id, Session::new(p, index.clone(), tunnel, safety));
     Ok(index)
 }
 
@@ -323,6 +347,7 @@ async fn object_definition(state: tauri::State<'_, AppState>, id: i64, kind: Kin
 /// Drop a view, routine, trigger or event. Tables go through `table_op`, databases through `database_op`.
 #[tauri::command]
 async fn drop_object(state: tauri::State<'_, AppState>, id: i64, kind: Kind, db: String, name: String) -> Result<String, String> {
+    guard_writable(&state, id, "dropping an object")?;
     let sql = myq_schema::ddl::drop_object_sql(kind, &db, &name).ok_or_else(|| format!("{kind:?} cannot be dropped here"))?;
     let mut c = conn_for(&state, id).await?;
     let result = myq_admin::run_statements(&mut c, std::slice::from_ref(&sql)).await;
@@ -341,16 +366,65 @@ async fn run_query(
     database: Option<String>,
     sql: String,
 ) -> Result<Vec<StatementResult>, String> {
-    let pool = state.sessions.lock().unwrap().get(&id).map(|s| s.pool.clone()).ok_or("not connected")?;
+    let (pool, safety) = state.sessions.lock().unwrap().get(&id).map(|s| (s.pool.clone(), s.safety)).ok_or("not connected")?;
+    // A read-only connection is read-only on the server (the session). This check refuses the obvious writes, and attempts to switch the
+    // session back to read-write, before anything is sent, with a message that says why.
+    if safety.read_only {
+        if let Some((n, text, why)) = myq_sql::read_only_violations(&sql).into_iter().next() {
+            return Err(format!("Not run: this connection is read-only, and statement {} ({}) {why}. Edit the connection to turn read-only off.", n + 1, text.lines().next().unwrap_or("").chars().take(60).collect::<String>()));
+        }
+    }
     let mut conn = pool.get_conn().await.map_err(err)?;
     state.running.lock().unwrap().insert(run_id.clone(), (id, conn.id()));
+    // The query timeout: the whole run may take this long, then the running statement is killed (like the Cancel button).
     let started = std::time::Instant::now();
-    let results = execute_script(&mut conn, database.as_deref(), &sql).await;
+    let (results, _timed_out) = myq_driver::execute_script_with_timeout(&pool, &mut conn, database.as_deref(), &sql, safety.timeout_secs).await;
     state.running.lock().unwrap().remove(&run_id);
     let ok = results.iter().all(|r| r.error.is_none());
     // History is best-effort: a logging failure must not hide the query result.
     let _ = state.store.lock().unwrap().add_history(id, sql.trim(), started.elapsed().as_millis() as u64, ok);
     Ok(results)
+}
+
+/// A statement the UI should show for confirmation before it runs, with an estimate of how many rows it touches.
+#[derive(serde::Serialize)]
+struct ReviewItem {
+    #[serde(flatten)]
+    risk: myq_sql::StatementRisk,
+    estimated_rows: Option<u64>,
+}
+
+#[derive(serde::Serialize)]
+struct Review {
+    items: Vec<ReviewItem>,
+    environment: myq_store::Environment,
+    read_only: bool,
+    /// Whether the connection asks for confirmation (the "warn before destructive SQL" setting).
+    confirm: bool,
+}
+
+/// Advisory review of a script before it runs. Sends nothing that changes data: row estimates use EXPLAIN.
+#[tauri::command]
+async fn review_sql(state: tauri::State<'_, AppState>, id: i64, database: Option<String>, sql: String) -> Result<Review, String> {
+    let (pool, safety) = state.sessions.lock().unwrap().get(&id).map(|s| (s.pool.clone(), s.safety)).ok_or("not connected")?;
+    let risks = myq_sql::review(&sql);
+    let mut items = Vec::new();
+    let mut conn = if risks.is_empty() { None } else { Some(pool.get_conn().await.map_err(err)?) };
+    for risk in risks {
+        let writes_rows = risk.findings.iter().any(|f| matches!(f.kind, myq_sql::RiskKind::DeleteWithoutWhere | myq_sql::RiskKind::UpdateWithoutWhere));
+        let estimated_rows = match (&mut conn, writes_rows || is_row_statement(&risk.sql)) {
+            (Some(c), true) => myq_driver::estimate_rows(c, database.as_deref(), &risk.sql).await.ok().flatten(),
+            _ => None,
+        };
+        items.push(ReviewItem { risk, estimated_rows });
+    }
+    Ok(Review { items, environment: safety.environment, read_only: safety.read_only, confirm: safety.confirm_destructive })
+}
+
+/// DELETE or UPDATE: the statements whose reach EXPLAIN can estimate.
+fn is_row_statement(sql: &str) -> bool {
+    let w = sql.trim_start().split(|c: char| !c.is_ascii_alphabetic()).next().unwrap_or("").to_ascii_uppercase();
+    w == "DELETE" || w == "UPDATE"
 }
 
 #[tauri::command]
@@ -406,6 +480,7 @@ async fn preview_changes(state: tauri::State<'_, AppState>, id: i64, db: String,
 
 #[tauri::command]
 async fn apply_changes(state: tauri::State<'_, AppState>, id: i64, db: String, table: String, changes: Vec<Change>) -> Result<ApplyOutcome, String> {
+    guard_writable(&state, id, "saving changes to rows")?;
     let mut c = conn_for(&state, id).await?;
     let meta = myq_data::table_meta(&mut c, &db, &table).await.map_err(err)?;
     let outcome = myq_data::apply_changes(&mut c, &meta, &changes).await.map_err(err)?;
@@ -546,6 +621,7 @@ fn csv_infer(path: String, format: myq_transfer::CsvFormat) -> Result<Vec<myq_tr
 /// Create a table from inferred (and user-edited) columns, for "import into a new table".
 #[tauri::command]
 async fn csv_create_table(state: tauri::State<'_, AppState>, id: i64, db: String, table: String, columns: Vec<myq_transfer::InferredColumn>) -> Result<Vec<Node>, String> {
+    guard_writable(&state, id, "creating a table")?;
     use myq_schema::ddl::{create_table_sql, parse_column_type, ColumnDef, TableDef};
     let def = TableDef {
         name: table,
@@ -575,6 +651,7 @@ async fn import_csv_job(
     format: myq_transfer::CsvFormat,
     plan: myq_transfer::ImportPlan,
 ) -> Result<myq_transfer::ImportResult, String> {
+    guard_writable(&state, id, "importing data")?;
     let mut c = conn_for(&state, id).await?;
     let guard = JobGuard::start(&state, &job_id);
     let mut progress = job_progress(app, job_id);
@@ -593,6 +670,7 @@ async fn run_sql_source_job(
     path: String,
     options: myq_transfer::RunOptions,
 ) -> Result<myq_transfer::RunResult, String> {
+    guard_writable(&state, id, "running a SQL file")?;
     let result = {
         let mut c = conn_for(&state, id).await?;
         let guard = JobGuard::start(&state, &job_id);
@@ -659,6 +737,7 @@ async fn server_status(state: tauri::State<'_, AppState>, id: i64, scope: myq_ad
 /// setting would silently leak into unrelated queries. Returns the server's warnings.
 #[tauri::command]
 async fn set_global_variable(state: tauri::State<'_, AppState>, id: i64, name: String, value: String) -> Result<Vec<String>, String> {
+    guard_writable(&state, id, "changing a server setting")?;
     let mut c = conn_for(&state, id).await?;
     let result = myq_admin::set_variable(&mut c, myq_admin::VarScope::Global, &name, &value).await;
     let _ = state.store.lock().unwrap().add_history(id, &format!("SET GLOBAL {name} = {value}"), 0, result.is_ok());
@@ -667,6 +746,7 @@ async fn set_global_variable(state: tauri::State<'_, AppState>, id: i64, name: S
 
 #[tauri::command]
 async fn maintain_tables(state: tauri::State<'_, AppState>, id: i64, db: String, tables: Vec<String>, operation: myq_admin::Maintenance) -> Result<Vec<myq_admin::MaintenanceRow>, String> {
+    guard_writable(&state, id, "table maintenance")?;
     let mut c = conn_for(&state, id).await?;
     let result = myq_admin::maintain(&mut c, &db, &tables, operation).await;
     let _ = state.store.lock().unwrap().add_history(id, &format!("{operation:?} {db}: {}", tables.join(", ")), 0, result.is_ok());
@@ -832,6 +912,7 @@ async fn refresh_index(state: tauri::State<'_, AppState>, id: i64) -> Result<Vec
 /// never taken from the UI, so what runs is exactly what the diff engine produced.
 #[tauri::command]
 async fn ddl_apply(state: tauri::State<'_, AppState>, id: i64, db: String, original: Option<TableDef>, desired: TableDef) -> Result<Vec<String>, String> {
+    guard_writable(&state, id, "changing a table definition")?;
     let statements = ddl_statements(&db, &original, &desired).map_err(|e| e.join("; "))?;
     if statements.is_empty() {
         return Ok(statements);
@@ -855,6 +936,7 @@ enum TableOp {
 
 #[tauri::command]
 async fn table_op(state: tauri::State<'_, AppState>, id: i64, db: String, table: String, operation: TableOp) -> Result<Vec<String>, String> {
+    guard_writable(&state, id, "changing a table")?;
     use myq_schema::ddl as d;
     let mut c = conn_for(&state, id).await?;
     let statements = match operation {
@@ -887,6 +969,7 @@ enum DatabaseOp {
 
 #[tauri::command]
 async fn database_op(state: tauri::State<'_, AppState>, id: i64, operation: DatabaseOp) -> Result<String, String> {
+    guard_writable(&state, id, "creating or dropping a database")?;
     use myq_schema::ddl as d;
     let sql = match operation {
         DatabaseOp::Create { name, charset, collation } => {
@@ -969,6 +1052,7 @@ async fn account_preview(state: tauri::State<'_, AppState>, id: i64, original: O
 
 #[tauri::command]
 async fn account_apply(state: tauri::State<'_, AppState>, id: i64, original: Option<Account>, edit: AccountEdit, desired: Option<Vec<ScopeGrant>>) -> Result<usize, String> {
+    guard_writable(&state, id, "changing an account")?;
     let mut c = conn_for(&state, id).await?;
     let sql = account_statements(&mut c, &original, &edit, &desired).await?;
     myq_admin::run_sql(&mut c, &sql).await.map_err(|(i, m)| format!("statement {} failed: {m}", i + 1))
@@ -976,6 +1060,7 @@ async fn account_apply(state: tauri::State<'_, AppState>, id: i64, original: Opt
 
 #[tauri::command]
 async fn account_drop(state: tauri::State<'_, AppState>, id: i64, user: String, host: String) -> Result<(), String> {
+    guard_writable(&state, id, "dropping an account")?;
     let mut c = conn_for(&state, id).await?;
     myq_admin::run_sql(&mut c, &[myq_admin::drop_account_sql(&user, &host)]).await.map(|_| ()).map_err(|(_, m)| m)
 }
@@ -1040,6 +1125,7 @@ pub fn run() {
             drop_object,
             table_column_details,
             run_query,
+            review_sql,
             cancel_query,
             list_databases,
             history_list,
@@ -1115,7 +1201,7 @@ mod session_tests {
     fn session() -> Session {
         // a pool opens no connection until it is used
         let pool = Pool::new("mysql://root@127.0.0.1:1/");
-        Session::new(pool, vec![node("shop", Kind::Database, "shop", None), node("shop", Kind::Table, "orders", None)], None)
+        Session::new(pool, vec![node("shop", Kind::Database, "shop", None), node("shop", Kind::Table, "orders", None)], None, Safety::default())
     }
 
     fn column_suggested(s: &Session, col: &str) -> bool {

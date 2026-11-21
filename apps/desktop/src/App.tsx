@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api, describeError, editorApi, queryApi, schemaApi, serverApi, type ConnectError, type Favorite, type FormatOptions, type Kind, type Maintenance, type Node, type SavedConnection, type TableOp } from "./api";
+import { api, describeError, editorApi, queryApi, schemaApi, serverApi, type ConnectError, type Favorite, type FormatOptions, type Kind, type Environment, type Maintenance, type Review, type Node, type SavedConnection, type TableOp } from "./api";
 import AnalysisPane, { type Analysis } from "./AnalysisPane";
 import ConnectionDialog from "./ConnectionDialog";
 import ContextMenu, { type MenuItem } from "./ContextMenu";
@@ -14,6 +14,8 @@ import Editor, { type EditorHandle } from "./Editor";
 import ObjectTree from "./ObjectTree";
 import { useBrowserMeta } from "./browserMeta";
 import Icon from "./Icon";
+import ReviewDialog from "./ReviewDialog";
+import { ENV_COLOR, ENV_LABEL } from "./environment";
 import FilterOptions, { DEFAULT_SCOPE, isDefaultScope, type FilterScope } from "./FilterOptions";
 import TableProperties from "./TableProperties";
 import TableDiagram from "./TableDiagram";
@@ -124,6 +126,10 @@ export default function App() {
   const refresh = useCallback(async () => setConnections(await api.listConnections()), []);
   useEffect(() => { refresh(); }, [refresh]);
   const active = connections.find((c) => c.id === activeId);
+  // safety of the open connection
+  const env: Environment = active?.environment ?? "development";
+  const readOnly = !!active?.read_only;
+  const bandColor = env === "development" ? active?.color : ENV_COLOR[env];
   const tab = tabs.find((t) => t.id === activeTab);
   if (tab && isSql(tab)) lastSqlTab.current = tab.id;
   const editorTab = tabs.find((t) => t.id === lastSqlTab.current && isSql(t)) ?? tabs.find((t) => isSql(t));
@@ -354,10 +360,24 @@ export default function App() {
     setPanelKey((k) => k + 1); // refresh history
   }, [activeId]);
 
+  /// Destructive statements are shown for review first (when the connection asks for it). The review is advisory: if it cannot be
+  /// made, the run goes ahead, and a read-only connection is read-only on the server anyway.
+  const [pendingReview, setPendingReview] = useState<{ review: Review; go(): void } | null>(null);
+  const runReviewed = useCallback(async (tabId: string, sql: string, database: string | null) => {
+    if (activeId === null || !sql.trim()) return;
+    if (!readOnly) {
+      try {
+        const review = await queryApi.review(activeId, database, sql);
+        if (review.confirm && review.items.length > 0) { setPendingReview({ review, go: () => { setPendingReview(null); runSql(tabId, sql, database); } }); return; }
+      } catch { /* advisory */ }
+    }
+    runSql(tabId, sql, database);
+  }, [activeId, readOnly, runSql]);
+
   const run = useCallback(() => {
     if (!editorTab || !editor.current) return;
-    runSql(editorTab.id, editor.current.runnableText(), editorTab.database);
-  }, [editorTab, runSql]);
+    runReviewed(editorTab.id, editor.current.runnableText(), editorTab.database);
+  }, [editorTab, runReviewed]);
 
   const cancel = () => {
     const id = editorTab && runIds.current[editorTab.id];
@@ -493,16 +513,16 @@ export default function App() {
       { label: "View Data", icon: "grid", onClick: () => openTable(d, t, undefined, "data") },
       { separator: true },
       { label: "Export Data…", icon: "export", onClick: () => openTransfer({ tab: "export", db: d, table: t }) },
-      { label: "Import Data…", icon: "import", onClick: () => openTransfer({ tab: "import", db: d, table: t }) },
+      { label: "Import Data…", icon: "import", disabled: readOnly, onClick: () => openTransfer({ tab: "import", db: d, table: t }) },
       { label: "Tools", icon: "tools", children: [
         { label: "Dump table…", icon: "export", onClick: () => openTransfer({ tab: "backup", db: d, table: t }) },
         { separator: true },
-        { label: "Analyze", onClick: () => maintainTable({ op: "analyze" }, d, t) },
-        { label: "Check", onClick: () => maintainTable({ op: "check", option: null }, d, t) },
-        { label: "Optimize", onClick: () => maintainTable({ op: "optimize" }, d, t) },
-        { label: "Repair", onClick: () => maintainTable({ op: "repair", quick: false, extended: false, use_frm: false }, d, t) },
+        { label: "Analyze", disabled: readOnly, onClick: () => maintainTable({ op: "analyze" }, d, t) },
+        { label: "Check", disabled: readOnly, onClick: () => maintainTable({ op: "check", option: null }, d, t) },
+        { label: "Optimize", disabled: readOnly, onClick: () => maintainTable({ op: "optimize" }, d, t) },
+        { label: "Repair", disabled: readOnly, onClick: () => maintainTable({ op: "repair", quick: false, extended: false, use_frm: false }, d, t) },
         { separator: true },
-        { label: "Truncate…", icon: "eraser", danger: true, onClick: () => setTypeConfirm({ title: `Truncate ${t}`, message: `All rows of ${d}.${t} will be deleted and cannot be restored.`, expect: t, confirmLabel: "Truncate",
+        { label: "Truncate…", icon: "eraser", danger: true, disabled: readOnly, onClick: () => setTypeConfirm({ title: `Truncate ${t}`, message: `All rows of ${d}.${t} will be deleted and cannot be restored.`, expect: t, confirmLabel: "Truncate",
             onCancel: () => setTypeConfirm(null), onConfirm: () => { setTypeConfirm(null); runTableOp(d, t, { op: "truncate" }); } }) },
         { separator: true },
         { label: "Server tools", icon: "pulse", onClick: openServer },
@@ -517,10 +537,10 @@ export default function App() {
       { separator: true },
       { label: "Copy name", icon: "copy", onClick: () => navigator.clipboard.writeText(t) },
       { label: "Copy Advanced Info", icon: "copy", onClick: () => copyAdvanced(d, t) },
-      { label: "Duplicate…", icon: "copy", onClick: () => setPrompt({ title: `Duplicate ${t}`, label: "New table name", initial: `${t}_copy`, confirmLabel: "Duplicate", option: { label: "Copy the rows too", initial: false },
+      { label: "Duplicate…", icon: "copy", disabled: readOnly, onClick: () => setPrompt({ title: `Duplicate ${t}`, label: "New table name", initial: `${t}_copy`, confirmLabel: "Duplicate", option: { label: "Copy the rows too", initial: false },
           onCancel: () => setPrompt(null), onSubmit: (to, withData) => { setPrompt(null); runTableOp(d, t, { op: "duplicate", to, with_data: withData }); } }) },
-      { label: "Rename…", icon: "edit", shortcut: "F2", onClick: () => renameTable(d, t) },
-      { label: "Drop…", icon: "trash", danger: true, onClick: () => setTypeConfirm({ title: `Drop ${t}`, message: `The table ${d}.${t} and all its data will be permanently deleted.`, expect: t, confirmLabel: "Drop table",
+      { label: "Rename…", icon: "edit", shortcut: "F2", disabled: readOnly, onClick: () => renameTable(d, t) },
+      { label: "Drop…", icon: "trash", danger: true, disabled: readOnly, onClick: () => setTypeConfirm({ title: `Drop ${t}`, message: `The table ${d}.${t} and all its data will be permanently deleted.`, expect: t, confirmLabel: "Drop table",
           onCancel: () => setTypeConfirm(null), onConfirm: () => { setTypeConfirm(null); runTableOp(d, t, { op: "drop" }); } }) },
       { separator: true },
       { label: "Refresh", icon: "refresh", shortcut: "F5", onClick: () => reloadIndex() },
@@ -554,7 +574,7 @@ export default function App() {
     items.push(
       { label: "Show / edit definition", icon: "sql", onClick: () => showDefinition(d, kind, name) },
       { separator: true },
-      { label: "Drop…", icon: "trash", danger: true, onClick: () => setTypeConfirm({ title: `Drop ${KIND_LABEL[kind]} ${name}`, message: `The ${KIND_LABEL[kind]} ${d}.${name} will be permanently deleted.`, expect: name, confirmLabel: `Drop ${KIND_LABEL[kind]}`,
+      { label: "Drop…", icon: "trash", danger: true, disabled: readOnly, onClick: () => setTypeConfirm({ title: `Drop ${KIND_LABEL[kind]} ${name}`, message: `The ${KIND_LABEL[kind]} ${d}.${name} will be permanently deleted.`, expect: name, confirmLabel: `Drop ${KIND_LABEL[kind]}`,
           onCancel: () => setTypeConfirm(null),
           onConfirm: async () => { setTypeConfirm(null); try { await api.dropObject(activeId!, kind, d, name); await reloadIndex(); setStatus(`Dropped ${KIND_LABEL[kind]} ${d}.${name}`); } catch (err) { setStatus(`Error: ${describeError(err)}`); } } }) },
       { separator: true },
@@ -579,13 +599,13 @@ export default function App() {
       { label: "Create", icon: "plus", children: createItems(d) },
       { separator: true },
       { label: "Back up this database…", icon: "export", onClick: () => openTransfer({ tab: "backup", db: d }) },
-      { label: "Import CSV…", icon: "import", onClick: () => openTransfer({ tab: "import", db: d }) },
+      { label: "Import CSV…", icon: "import", disabled: readOnly, onClick: () => openTransfer({ tab: "import", db: d }) },
       { label: "New query console", icon: "terminal", onClick: () => addTab("", d) },
       { separator: true },
     );
-    items.push({ label: "Create database…", icon: "database", onClick: () => setPrompt({ title: "Create database", label: "Database name", confirmLabel: "Create",
+    items.push({ label: "Create database…", icon: "database", disabled: readOnly, onClick: () => setPrompt({ title: "Create database", label: "Database name", confirmLabel: "Create",
       onCancel: () => setPrompt(null), onSubmit: async (name) => { setPrompt(null); try { await schemaApi.databaseOp(activeId!, { op: "create", name, charset: "utf8mb4", collation: null }); await reloadIndex(); } catch (err) { setStatus(`Error: ${err}`); } } }) });
-    if (d) items.push({ label: "Drop database…", icon: "trash", danger: true, onClick: () => setTypeConfirm({ title: `Drop database ${d}`, message: `The database ${d} with all its tables and data will be permanently deleted.`, expect: d, confirmLabel: "Drop database",
+    if (d) items.push({ label: "Drop database…", icon: "trash", danger: true, disabled: readOnly, onClick: () => setTypeConfirm({ title: `Drop database ${d}`, message: `The database ${d} with all its tables and data will be permanently deleted.`, expect: d, confirmLabel: "Drop database",
       onCancel: () => setTypeConfirm(null), onConfirm: async () => { setTypeConfirm(null); try { await schemaApi.databaseOp(activeId!, { op: "drop", name: d }); await reloadIndex(); setTabs(tabs.filter((t) => t.table?.db !== d || t.kind === "sql")); } catch (err) { setStatus(`Error: ${err}`); } } }) });
     items.push({ separator: true }, { label: "Refresh", icon: "refresh", shortcut: "F5", onClick: () => reloadIndex() });
     setTreeMenu({ x: e.clientX, y: e.clientY, items });
@@ -667,6 +687,13 @@ export default function App() {
           </button>
           <button title="Server: processes, variables, status, maintenance, logs" disabled={activeId === null} onClick={openServer}><Icon name="pulse" /></button>
         </div>
+        {activeId !== null && (
+          <div className={`env-bar env-${env}`} title={`${ENV_LABEL[env]} connection${readOnly ? ", read-only on the server" : ""}${active?.query_timeout_secs ? `, queries stop after ${active.query_timeout_secs} s` : ""}`}>
+            <span className={`env-badge env-${env}`}>{ENV_LABEL[env]}</span>
+            {readOnly && <span className="ro-badge"><Icon name="lock" size={11} /> Read-only</span>}
+            {active?.query_timeout_secs ? <span className="dim small limit" title="Runs longer than this are stopped">{active.query_timeout_secs} s limit</span> : null}
+          </div>
+        )}
         <div className="side-tabs">
           {(["objects", "history", "favorites"] as Side[]).map((s) => (
             <button key={s} className={side === s ? "active" : ""} onClick={() => setSide(s)}>
@@ -734,7 +761,7 @@ export default function App() {
           <div className="placeholder"><h2>MyLoDB</h2><p>Create or select a connection to start.</p></div>
         ) : (
           <>
-            <div className="query-tabs" style={{ borderBottomColor: active?.color }}>
+            <div className="query-tabs" style={{ borderBottomColor: bandColor }}>
               {tabs.map((t) => (
                 <div key={t.id} className={`qtab ${t.id === activeTab ? "active" : ""}`} onClick={() => setActiveTab(t.id)}>
                   {runs[t.id]?.running ? <Icon name="clock" size={12} /> : isTable(t) ? <Icon name="table" size={12} /> : t.kind === "designer" ? <Icon name="edit" size={12} /> : t.kind === "users" ? <Icon name="user" size={12} /> : t.kind === "server" ? <Icon name="pulse" size={12} /> : t.kind === "transfer" ? <Icon name="transfer" size={12} /> : null}<span>{t.title}</span>
@@ -815,6 +842,7 @@ export default function App() {
                   data={isTable(editorTab) && editorTab.id === tab.id && (tab.view ?? "data") === "data" && editorTab.table?.name ? (
                     <DataGrid key={`${activeId}:${editorTab.id}`} connectionId={activeId} db={editorTab.table.db} table={editorTab.table.name}
                       initial={editorTab.grid ?? defaultView()} onViewChange={(grid) => patchTab(editorTab.id, { grid })}
+                      readOnlyConnection={readOnly} confirmCommit={env === "production" ? "Production database:" : undefined}
                       onOpenTable={(d, t, f) => openTable(d, t, f)} />
                   ) : undefined}
                 />
@@ -823,14 +851,14 @@ export default function App() {
             {tab.kind === "designer" && tab.table && (
               <TableDesigner key={`${activeId}:${tab.id}`} connectionId={activeId} db={tab.table.db} table={tab.table.name} nodes={index} ensureColumns={ensureColumns}
                 onOpenData={(d, t) => openTable(d, t)}
-                onApplied={async (name) => { await reloadIndex(); patchTab(tab.id, { title: name, table: { db: tab.table!.db, name } }); }} />
+                readOnly={readOnly} onApplied={async (name) => { await reloadIndex(); patchTab(tab.id, { title: name, table: { db: tab.table!.db, name } }); }} />
             )}
             {tab.kind === "transfer" && <TransferTools key={`${activeId}:${tab.id}`} connectionId={activeId} nodes={index} ensureColumns={ensureColumns} preset={tab.transfer ?? {}} onSchemaChanged={() => reloadIndex()} />}
             {tab.kind === "server" && <ServerTools key={`${activeId}:${tab.id}`} connectionId={activeId} nodes={index} />}
             {tab.kind === "users" && <UsersManager key={`${activeId}:${tab.id}`} connectionId={activeId} nodes={index} ensureColumns={ensureColumns} />}
           </>
         )}
-        <div className="statusbar" style={{ borderTopColor: active?.color }}>{status}</div>
+        <div className={`statusbar env-${env}`} style={{ borderTopColor: bandColor }}><span>{status}</span>{activeId !== null && env !== "development" && <span className={`env-chip env-${env}`}>{ENV_LABEL[env]}{readOnly ? " · read-only" : ""}</span>}</div>
       </main>
 
       {hostPrompt && (
@@ -861,6 +889,7 @@ export default function App() {
           </div>
         </div>
       )}
+      {pendingReview && <ReviewDialog review={pendingReview.review} onCancel={() => setPendingReview(null)} onRun={pendingReview.go} />}
       {prompt && <PromptDialog {...prompt} />}
       {typeConfirm && <TypeConfirmDialog {...typeConfirm} />}
       {treeMenu && <ContextMenu x={treeMenu.x} y={treeMenu.y} items={treeMenu.items} onClose={() => setTreeMenu(null)} />}

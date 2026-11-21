@@ -35,6 +35,10 @@ pub struct ConnConfig {
     pub ssl_cert: Option<String>,
     #[serde(default)]
     pub ssl_key: Option<String>,
+    /// Make every session of this connection read-only on the server (`SET SESSION TRANSACTION READ ONLY` when it is opened).
+    /// The server then refuses writes and schema changes, whatever the client sends.
+    #[serde(default)]
+    pub read_only: bool,
 }
 
 fn path(p: &str) -> PathBuf {
@@ -46,6 +50,11 @@ fn path(p: &str) -> PathBuf {
 
 impl ConnConfig {
     pub fn to_opts(&self) -> Opts {
+        // `setup` (not `init`): it runs again whenever the pool resets a recycled connection, which wipes session state.
+        let mut setup = vec!["SET NAMES utf8mb4".to_string()];
+        if self.read_only {
+            setup.push("SET SESSION TRANSACTION READ ONLY".to_string());
+        }
         let mut b = OptsBuilder::default()
             .ip_or_hostname(self.host.clone())
             .tcp_port(self.port)
@@ -53,7 +62,7 @@ impl ConnConfig {
             .pass(self.password.clone())
             .db_name(self.database.clone())
             // Default charset: utf8mb4 for full Unicode.
-            .init(vec!["SET NAMES utf8mb4".to_string()]);
+            .setup(setup);
         if self.ssl != SslMode::Disabled {
             let mut ssl = SslOpts::default();
             if let Some(ca) = self.ssl_ca.as_deref().filter(|c| !c.is_empty()) {

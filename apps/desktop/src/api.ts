@@ -5,6 +5,8 @@ export interface Node { database: string; kind: Kind; name: string; parent: stri
 export type SslMode = "disabled" | "required" | "verifyca" | "skipverify";
 export type SshAuth = { method: "password" } | { method: "key"; path: string };
 export interface SshConfig { host: string; port: number; user: string; auth: SshAuth }
+export type Environment = "development" | "staging" | "production";
+
 export interface SavedConnection {
   id: number | null;
   name: string;
@@ -17,6 +19,11 @@ export interface SavedConnection {
   ssl_ca?: string | null;
   ssl_cert?: string | null;
   ssl_key?: string | null;
+  /// Safety: what the connection points at, whether the server session is read-only, a time limit per run, and the destructive-SQL warning.
+  environment?: Environment;
+  read_only?: boolean;
+  query_timeout_secs?: number | null;
+  confirm_destructive?: boolean;
   ssh?: SshConfig | null;
   new_password?: string | null;
   new_ssh_password?: string | null;
@@ -76,6 +83,8 @@ export const queryApi = {
   run: (id: number, runId: string, database: string | null, sql: string) =>
     invoke<StatementResult[]>("run_query", { id, runId, database, sql }),
   cancel: (runId: string) => invoke<void>("cancel_query", { runId }),
+  /** Advisory review of a script before it runs (destructive statements, estimated rows). */
+  review: (id: number, database: string | null, sql: string) => invoke<Review>("review_sql", { id, database, sql }),
   databases: (id: number) => invoke<string[]>("list_databases", { id }),
   historyList: (id: number, search: string) => invoke<HistoryEntry[]>("history_list", { id, search }),
   historyClear: (id: number) => invoke<void>("history_clear", { id }),
@@ -218,6 +227,9 @@ export interface TableOverview {
   info: TableInfo; columns: ColumnFull[]; indexes: IndexDetail[]; constraints: ConstraintInfo[]; outgoing: ForeignKeyInfo[]; incoming: ForeignKeyInfo[];
   triggers: TriggerInfo[]; partitions: PartitionInfo[]; ddl: string | null;
 }
+export interface RiskFinding { kind: string; severity: "warning" | "danger"; reason: string }
+export interface ReviewItem { index: number; sql: string; findings: RiskFinding[]; estimated_rows: number | null }
+export interface Review { items: ReviewItem[]; environment: Environment; read_only: boolean; confirm: boolean }
 export interface IndexDetail { name: string; unique: boolean; kind: string; columns: string[] }
 export interface ColumnDetail { name: string; column_type: string; nullable: boolean; key: string; extra: string }
 

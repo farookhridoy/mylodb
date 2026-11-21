@@ -11,5 +11,7 @@ mysql_async = { version = "0.36", default-features = false, features = ["default
 thiserror = "2"
 serde = { version = "1", features = ["derive"] }
 
+tokio = { version = "1", features = ["rt", "time"] }
+
 [dev-dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }

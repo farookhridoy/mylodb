@@ -1,16 +1,18 @@
 import { useState } from "react";
 import { open as pickFile } from "@tauri-apps/plugin-dialog";
-import { api, describeError, type ConnectError, type SavedConnection, type SshConfig } from "./api";
+import { api, describeError, type ConnectError, type Environment, type SavedConnection, type SshConfig } from "./api";
+import { ENV_COLOR, ENV_LABEL } from "./environment";
 
 const blank: SavedConnection = {
   id: null, name: "", color: "#4f8cff", host: "127.0.0.1", port: 3306,
   user: "root", database: null, ssl: "disabled", new_password: "",
   ssl_ca: null, ssl_cert: null, ssl_key: null, ssh: null, new_ssh_password: "", new_ssh_passphrase: "",
+  environment: "development", read_only: false, query_timeout_secs: null, confirm_destructive: true,
 };
 
 const blankSsh: SshConfig = { host: "", port: 22, user: "", auth: { method: "key", path: "~/.ssh/id_ed25519" } };
 
-type Tab = "general" | "ssh" | "ssl";
+type Tab = "general" | "safety" | "ssh" | "ssl";
 
 /** A text field with a "Browse…" button that fills in a file path. */
 function PathField(props: { label: string; value: string | null | undefined; onChange(v: string | null): void; placeholder?: string }) {
@@ -71,7 +73,7 @@ export default function ConnectionDialog(props: {
       <div className="dialog conn-dialog">
         <h3>{c.id ? "Edit connection" : "New connection"}</h3>
         <div className="dz-tabs">
-          {([["general", "General"], ["ssh", `SSH tunnel${ssh ? " ●" : ""}`], ["ssl", `SSL${c.ssl !== "disabled" ? " ●" : ""}`]] as [Tab, string][]).map(([t, label]) => (
+          {([["general", "General"], ["safety", `Safety${(c.environment ?? "development") !== "development" || c.read_only ? " ●" : ""}`], ["ssh", `SSH tunnel${ssh ? " ●" : ""}`], ["ssl", `SSL${c.ssl !== "disabled" ? " ●" : ""}`]] as [Tab, string][]).map(([t, label]) => (
             <button key={t} type="button" className={tab === t ? "active" : ""} onClick={() => setTab(t)}>{label}</button>
           ))}
         </div>
@@ -92,6 +94,32 @@ export default function ConnectionDialog(props: {
               <label>Default database<input value={c.database ?? ""} onChange={(e) => set("database", e.target.value || null)} /></label>
               <label className="narrow">Tab color<input type="color" value={c.color} onChange={(e) => set("color", e.target.value)} /></label>
             </div>
+          </>
+        )}
+
+        {tab === "safety" && (
+          <>
+            <label>Environment
+              <select value={c.environment ?? "development"} onChange={(e) => {
+                const env = e.target.value as Environment;
+                // the tab colour follows the environment unless it was chosen by hand
+                const wasDefault = Object.values(ENV_COLOR).includes(c.color);
+                setC({ ...c, environment: env, color: wasDefault ? ENV_COLOR[env] : c.color });
+              }}>
+                {(["development", "staging", "production"] as Environment[]).map((env) => <option key={env} value={env}>{ENV_LABEL[env]}</option>)}
+              </select>
+            </label>
+            <div className="dim small">Shown as a badge and colour in the app so the connection cannot be mistaken for another one.</div>
+            <label className="check"><input type="checkbox" checked={!!c.read_only} onChange={(e) => set("read_only", e.target.checked)} /> Read-only</label>
+            <div className="dim small">Every session of this connection is opened read-only on the server, so it refuses INSERT, UPDATE, DELETE, schema changes and the like, whatever is sent.
+              The app also blocks editing, designers and imports. Use a database account without write privileges for the strongest protection.</div>
+            <label className="check"><input type="checkbox" checked={c.confirm_destructive !== false} onChange={(e) => set("confirm_destructive", e.target.checked)} /> Ask before running destructive SQL</label>
+            <div className="dim small">DROP, TRUNCATE, DELETE or UPDATE without a WHERE, dropped columns and the like are shown for review first, with an estimate of the rows affected. This is a safety net, not a security boundary.</div>
+            <label>Query timeout (seconds)
+              <input type="number" min={1} placeholder="No limit" value={c.query_timeout_secs ?? ""}
+                     onChange={(e) => set("query_timeout_secs", e.target.value === "" ? null : Math.max(1, Number(e.target.value)))} />
+            </label>
+            <div className="dim small">A run that takes longer is stopped (the same as Cancel).</div>
           </>
         )}
 

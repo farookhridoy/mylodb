@@ -50,6 +50,8 @@ export default function TableDesigner(props: {
   connectionId: number; db: string; table: string | null; nodes: Node[]; ensureColumns(db: string): Promise<unknown>;
   onApplied(newName: string, statements: string[]): void;
   onOpenData(db: string, table: string): void;
+  /** The connection is read-only: the definition can be looked at but not applied. */
+  readOnly?: boolean;
 }) {
   const { connectionId: cid, db } = props;
   const [original, setOriginal] = useState<TableDef | null>(null);
@@ -193,10 +195,11 @@ export default function TableDesigner(props: {
         <span className="grow" />
         {props.table && <button onClick={() => props.onOpenData(db, props.table!)}>Open data</button>}
         <button disabled={!dirty} onClick={() => original ? setDraft(structuredClone(original)) : setDraft(blankTable(opts))}>Revert</button>
-        <button className="primary" disabled={!dirty || preview.errors.length > 0 || busy} onClick={apply}>
+        <button className="primary" disabled={!dirty || preview.errors.length > 0 || busy || props.readOnly} onClick={apply} title={props.readOnly ? "This connection is read-only" : undefined}>
           {busy ? "Applying…" : props.table ? "Apply changes" : "Create table"}
         </button>
       </div>
+      {props.readOnly && <div className="banner"><Icon name="lock" size={12} /> Read-only connection: you can look at the definition and the SQL, but not apply changes.</div>}
       {warnings.map((w) => <div key={w} className="banner">{w}</div>)}
       {error && <div className="banner bad">{error} <button className="mini" onClick={() => setError(null)}><Icon name="close" size={10} /></button></div>}
       {notice && <div className="banner ok">{notice}</div>}

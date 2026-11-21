@@ -37,6 +37,10 @@ export default function DataGrid(props: {
   initial: GridView;
   onViewChange(v: GridView): void;
   onOpenTable(db: string, table: string, filters: GridView["filters"]): void;
+  /** The connection is read-only: no editing, even for tables that could be edited. */
+  readOnlyConnection?: boolean;
+  /** Ask before saving changes (production): the text shown in the confirmation. */
+  confirmCommit?: string;
 }) {
   const { connectionId: cid, db, table } = props;
   const [meta, setMeta] = useState<TableMeta | null>(null);
@@ -73,7 +77,10 @@ export default function DataGrid(props: {
   const pendingCount = Object.keys(staged.edits).length + staged.deleted.length + staged.added.length;
 
   const keyIdx = useMemo(() => (meta && page ? meta.row_key.map((n) => page.columns.findIndex((c) => c.name === n)) : []), [meta, page]);
-  const editable = !!meta && !meta.read_only_reason && keyIdx.length > 0 && keyIdx.every((i) => i >= 0);
+  const editable = !!meta && !props.readOnlyConnection && !meta.read_only_reason && keyIdx.length > 0 && keyIdx.every((i) => i >= 0);
+  const [confirmApply, setConfirmApply] = useState(false);
+  /** Submit, after asking when the connection requires it. */
+  const requestSubmit = () => { if (props.confirmCommit) setConfirmApply(true); else submit(); };
   const longSet = useMemo(() => new Set((page?.long_cells ?? []).map(([r, c]) => `${r}:${c}`)), [page]);
   const colMeta = useCallback((name: string) => meta?.columns.find((c) => c.name === name), [meta]);
 
@@ -228,6 +235,7 @@ export default function DataGrid(props: {
   };
 
   const addRow = () => {
+    if (props.readOnlyConnection) return;
     if (!meta || meta.is_view) return;
     const id = `new-${newSeq++}`;
     setStaged((s) => ({ ...s, added: [...s.added, { id, values: {} }] }));
@@ -238,6 +246,7 @@ export default function DataGrid(props: {
   };
 
   const duplicateRows = async () => {
+    if (props.readOnlyConnection) return;
     if (!page || !meta) return;
     for (const row of targetRows()) {
       const values: Record<string, CellValue> = {};
@@ -261,6 +270,7 @@ export default function DataGrid(props: {
   };
 
   const deleteRows = () => {
+    if (props.readOnlyConnection) return;
     const targets = targetRows();
     if (!targets.length) return;
     setStaged((s) => {
@@ -418,7 +428,7 @@ export default function DataGrid(props: {
     else if (e.key === "ArrowUp") go(active.r - 1, active.c);
     else if (e.key === "ArrowLeft") go(active.r, active.c - 1);
     else if (e.key === "ArrowRight") go(active.r, active.c + 1);
-    else if (e.key === "Enter" && mod) { e.preventDefault(); if (pendingCount) submit(); }
+    else if (e.key === "Enter" && mod) { e.preventDefault(); if (pendingCount) requestSubmit(); }
     else if (e.key === "Enter" || e.key === "F2") { e.preventDefault(); startEdit(active.r, active.c); }
     else if (mod && e.key === "c") { e.preventDefault(); copyCell(active.r, active.c); }
     else if (e.key === "Delete") { e.preventDefault(); deleteRows(); }
@@ -462,11 +472,11 @@ export default function DataGrid(props: {
           {[100, 250, 500, 1000, 5000].map((n) => <option key={n} value={n}>{n} rows</option>)}
         </select>
         <span className="sep" />
-        <button disabled={!meta || meta.is_view} onClick={addRow} title="Add row">＋</button>
-        <button disabled={!rows.length} onClick={deleteRows} title="Delete selected row(s) (Delete)">－</button>
-        <button disabled={!active || !!meta?.is_view} onClick={duplicateRows} title="Duplicate row"><Icon name="copy" /></button>
+        <button disabled={!meta || meta.is_view || props.readOnlyConnection} onClick={addRow} title="Add row">＋</button>
+        <button disabled={!rows.length || props.readOnlyConnection} onClick={deleteRows} title="Delete selected row(s) (Delete)">－</button>
+        <button disabled={!active || !!meta?.is_view || props.readOnlyConnection} onClick={duplicateRows} title="Duplicate row"><Icon name="copy" /></button>
         <button disabled={!pendingCount} onClick={() => setStaged(noStaged())} title="Revert pending changes">↶</button>
-        <button className="primary" disabled={!pendingCount} onClick={submit} title="Submit changes (⌘↵)"><Icon name="check" /> Submit{pendingCount ? ` (${pendingCount})` : ""}</button>
+        <button className="primary" disabled={!pendingCount} onClick={requestSubmit} title="Submit changes (⌘↵)"><Icon name="check" /> Submit{pendingCount ? ` (${pendingCount})` : ""}</button>
         <button onClick={showSql} title="View queries">SQL</button>
         <span className="grow" />
         <button className={view.filterRow ? "toggled" : ""} onClick={() => setView({ ...view, filterRow: !view.filterRow })} title="Column filters">
@@ -510,7 +520,8 @@ export default function DataGrid(props: {
         )}
       </div>
 
-      {meta?.read_only_reason && <div className="banner">Read-only: {meta.read_only_reason}.</div>}
+      {props.readOnlyConnection && <div className="banner"><Icon name="lock" size={12} /> Read-only connection: rows cannot be changed here.</div>}
+      {!props.readOnlyConnection && meta?.read_only_reason && <div className="banner">Read-only: {meta.read_only_reason}.</div>}
       {error && <div className="banner bad">{error} <button className="mini" onClick={() => setError(null)}><Icon name="close" size={10} /></button></div>}
       {notice && <div className="banner ok">{notice}</div>}
 
@@ -686,6 +697,10 @@ export default function DataGrid(props: {
       {fkPick && (
         <FkPicker connectionId={cid} fk={fkPick.fk} onClose={() => setFkPick(null)}
           onPick={(value) => { const row = rows[fkPick.r]; if (row) stage(row, fkPick.c, { kind: "text", value }); setFkPick(null); setEditing(null); }} />
+      )}
+      {confirmApply && (
+        <ConfirmDialog message={`${props.confirmCommit} ${pendingCount} change${pendingCount === 1 ? "" : "s"} to ${db}.${table} will be saved.`} confirmLabel="Save changes"
+                       onCancel={() => setConfirmApply(false)} onConfirm={() => { setConfirmApply(false); submit(); }} />
       )}
       {confirm && <ConfirmDialog message={confirm.message} confirmLabel="Discard" onCancel={() => setConfirm(null)} onConfirm={() => { const c = confirm; setConfirm(null); c.run(); }} />}
       {sqlDialog && (

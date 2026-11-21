@@ -117,7 +117,7 @@ The analysis, screen mapping and design of these items are in `PHPMYADMIN_AND_EN
 | 14 🟡 | **Quality gates** (built; first green CI run on GitHub still to confirm) | CI, Tasks panel, MySQL 5.7 / 8.0 / 8.4 / 9 and MariaDB matrix, network-drop tests | 1 to 2 wk |
 | 15 🟡 | **Database engines** | done: `myq-core`, the `Backend` trait, SQLite read-only (see ENGINE_ABSTRACTION.md). Open: SQLite writes, PostgreSQL, SQL Server; Oracle only on demand | 8 to 12 wk |
 | 16 🟡 | **Power tools** | done in 0.3.0: schema compare, data search, index advisor, server charts, JSON import. Open: data compare and sync, copying a database between connections, saved transfer configurations, XLSX / XML import, SQL inspections | 4 to 5 wk |
-| 17 ✅ | **Visual tools** | done in 0.3.0: visual query builder, whole-database ER diagram (an editable ER *designer* that generates DDL is not built) | 4 to 5 wk |
+| 17 🟡 | **Visual tools** | done in 0.3.0: visual query builder, whole-database ER diagram (reverse engineering). Open: forward design, i.e. editing the diagram to generate DDL | 4 to 5 wk |
 | 18 ❌ | **Beta release** | signing, Intel build, Homebrew cask, documentation | 1 to 2 wk |
 
 Why this order: phase 11 is what you asked for next and what makes MyLoDB usable the way phpMyAdmin is. Phase 14 sits before the extra engines

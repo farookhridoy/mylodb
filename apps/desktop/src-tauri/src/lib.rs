@@ -310,6 +310,12 @@ async fn index_advice(state: tauri::State<'_, AppState>, id: i64, db: String) ->
     Ok(IndexAdvice { findings, unused, unused_note, tables: defs.len() })
 }
 
+/// Every table of a database with its columns and every foreign key, for the ER diagram.
+#[tauri::command]
+async fn er_model(state: tauri::State<'_, AppState>, id: i64, db: String) -> Result<myq_driver::ErModel, String> {
+    myq_driver::er_model(&session_pool(&state, id)?, &db).await.map_err(err)
+}
+
 /// The SELECT for the query builder page, in the dialect of the connection's engine. Nothing runs.
 #[tauri::command]
 fn build_query(state: tauri::State<AppState>, id: i64, spec: myq_schema::builder::QuerySpec) -> Result<String, String> {
@@ -1595,6 +1601,7 @@ fn build_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::
         .item(&with_icon("new_query", "New SQL Script", icon!("terminal"))?)
         .item(&with_icon("new_query_db", "New Script in Selected Database", icon!("terminal"))?)
         .item(&with_icon("builder", "Visual Query Builder…", icon!("sql"))?)
+        .item(&with_icon("er", "ER Diagram of Database…", icon!("diagram"))?)
         .item(&with_icon("open_file", "Open SQL File…", icon!("folder"))?)
         .separator()
         .item(&with_icon("run", "Execute", icon!("play"))?)
@@ -1657,6 +1664,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             open_url,
             index_advice,
+            er_model,
             build_query,
             schema_compare,
             search_data,

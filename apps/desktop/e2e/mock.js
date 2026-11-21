@@ -119,6 +119,15 @@ const handlers = {
     { table: "orders", kind: "duplicate", index: "idx_s2", detail: "`idx_s2` has the same columns (status) as `idx_s1`", sql: "DROP INDEX `idx_s2` ON `" + a.db + "`.`orders`" },
     { table: "items", kind: "missing_foreign_key_index", index: "fk_order", detail: "foreign key `fk_order` on (order_id) has no index that starts with those columns", sql: "CREATE INDEX `idx_items_order_id` ON `" + a.db + "`.`items` (`order_id`)" },
   ], unused: [["orders", "idx_old"]], unused_note: "Unused means: no query has used the index since the server started.", tables: 3 },
+  er_model: (a) => window.__er ?? { tables: [
+    { name: "customers", columns: [{ name: "id", column_type: "bigint unsigned", primary: true, nullable: false }, { name: "name", column_type: "varchar(255)", primary: false, nullable: false }] },
+    { name: "orders", columns: [{ name: "id", column_type: "bigint unsigned", primary: true, nullable: false }, { name: "customer_id", column_type: "bigint unsigned", primary: false, nullable: false }] },
+    { name: "items", columns: [{ name: "id", column_type: "int", primary: true, nullable: false }, { name: "order_id", column_type: "bigint unsigned", primary: false, nullable: false }] },
+    { name: "logs", columns: [{ name: "id", column_type: "int", primary: true, nullable: false }] },
+  ], relations: [
+    { name: "fk_orders_customer", table: "orders", columns: ["customer_id"], ref_schema: a.db, ref_table: "customers", ref_columns: ["id"], on_delete: "CASCADE", on_update: "RESTRICT" },
+    { name: "fk_items_order", table: "items", columns: ["order_id"], ref_schema: a.db, ref_table: "orders", ref_columns: ["id"], on_delete: "RESTRICT", on_update: "RESTRICT" },
+  ] },
   build_query: (a) => {
     const s = a.spec;
     if (window.__buildProblem) throw window.__buildProblem;

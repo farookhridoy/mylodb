@@ -8,6 +8,7 @@ import ContextMenu, { type MenuItem } from "./ContextMenu";
 import DataGrid, { defaultView, type GridView } from "./DataGrid";
 import DataSearchPage from "./DataSearchPage";
 import IndexAdvisorPage from "./IndexAdvisorPage";
+import ErDiagramPage from "./ErDiagramPage";
 import QueryBuilderPage from "./QueryBuilderPage";
 import SchemaComparePage from "./SchemaComparePage";
 import AboutDialog from "./AboutDialog";
@@ -49,7 +50,7 @@ import { ConfirmDialog, FavoritesPanel, HistoryPanel, SaveFavoriteDialog } from 
 /** A SQL editor tab, or a table data tab (`kind: "table"`). Tabs saved before table tabs existed have no kind. */
 interface QueryTab {
   id: string; title: string; sql: string; database: string | null;
-  kind?: "sql" | "table" | "designer" | "users" | "server" | "transfer" | "databases" | "structure" | "home" | "catalog" | "compare" | "search" | "advisor" | "builder";
+  kind?: "sql" | "table" | "designer" | "users" | "server" | "transfer" | "databases" | "structure" | "home" | "catalog" | "compare" | "search" | "advisor" | "builder" | "er";
   /// For `transfer` tabs: which tool to show and what it is about.
   transfer?: TransferPreset;
   /// For query tabs opened from or saved to a .sql file: its path.
@@ -485,6 +486,7 @@ export default function App() {
       case "compare": return need(() => (selectedDb ? openCompare(selectedDb) : setStatus("Select a database in the tree first")));
       case "advisor": return need(() => (selectedDb ? openAdvisor(selectedDb) : setStatus("Select a database in the tree first")));
       case "builder": return need(() => openBuilder(null));
+      case "er": return need(() => openEr(null));
       case "structure": return need(() => (selectedDb ? openStructure(selectedDb) : setStatus("Select a database in the tree first")));
       case "new_table": return need(() => (selectedDb ? openDesigner(selectedDb, null) : setStatus("Select a database in the tree first")));
       case "export": return need(() => openTransfer({ tab: "export" }));
@@ -635,6 +637,16 @@ export default function App() {
     const existing = tabs.find((t) => t.kind === "advisor" && t.table?.db === db);
     if (existing) return setActiveTab(existing.id);
     const t: QueryTab = { id: uid(), title: `Indexes: ${db}`, sql: "", database: db, kind: "advisor", table: { db, name: null } };
+    setTabs([...tabs, t]);
+    setActiveTab(t.id);
+  };
+
+  const openEr = (db: string | null) => {
+    const target = db ?? selectedDb ?? databases[0];
+    if (!target) return setStatus("Connect and select a database first");
+    const existing = tabs.find((t) => t.kind === "er" && t.table?.db === target);
+    if (existing) return setActiveTab(existing.id);
+    const t: QueryTab = { id: uid(), title: `ER diagram: ${target}`, sql: "", database: target, kind: "er", table: { db: target, name: null } };
     setTabs([...tabs, t]);
     setActiveTab(t.id);
   };
@@ -877,6 +889,7 @@ export default function App() {
     if (d) items.push({ label: "Structure (all tables)", icon: "table", onClick: () => openStructure(d) });
     if (d) items.push({ label: "Search data…", icon: "search", onClick: () => openSearch(d) });
     if (d) items.push({ label: "Index advisor…", icon: "key", disabled: readOnly, onClick: () => openAdvisor(d) });
+    if (d) items.push({ label: "ER diagram…", icon: "diagram", onClick: () => openEr(d) });
     if (d) items.push({ label: "Query builder…", icon: "sql", onClick: () => openBuilder(d) });
     if (d) items.push({ label: "Compare schemas…", icon: "transfer", disabled: readOnly, onClick: () => openCompare(d) });
     items.push({ label: "Databases (list, bulk drop)", icon: "database", onClick: openDatabases });
@@ -1199,6 +1212,9 @@ export default function App() {
               <IndexAdvisorPage key={`${activeId}:${tab.id}`} connectionId={activeId} database={tab.table.db}
                 onApply={(statements, summary) => setPlanDlg({ title: `Index changes: ${tab.table!.db}`, summary, statements, confirmLabel: "Apply changes", after: () => setDbRefresh((n) => n + 1) })} />
             )}
+            {tab.kind === "er" && tab.table && (
+              <ErDiagramPage key={`${activeId}:${tab.id}`} connectionId={activeId} database={tab.table.db} onOpenTable={(d, t) => openTable(d, t)} />
+            )}
             {tab.kind === "builder" && tab.table && (
               <QueryBuilderPage key={`${activeId}:${tab.id}`} connectionId={activeId} database={tab.table.db}
                 tables={index.filter((n) => n.database === tab.table!.db && n.kind === "table").map((n) => n.name)}
@@ -1279,7 +1295,7 @@ export default function App() {
       )}
       {paletteOpen && (
         <CommandPalette onClose={() => setPaletteOpen(false)} commands={[
-          ...([["new_query", "New query tab"], ["home", "Server home"], ["databases", "Databases"], ["search_data", "Search data in a database"], ["compare", "Compare schemas of the selected database"], ["advisor", "Index advisor for the selected database"], ["builder", "Visual query builder"], ["structure", "Tables of the selected database"], ["new_table", "New table"], ["export", "Export data"], ["import", "Import data"],
+          ...([["new_query", "New query tab"], ["home", "Server home"], ["databases", "Databases"], ["search_data", "Search data in a database"], ["compare", "Compare schemas of the selected database"], ["advisor", "Index advisor for the selected database"], ["builder", "Visual query builder"], ["er", "ER diagram of the selected database"], ["structure", "Tables of the selected database"], ["new_table", "New table"], ["export", "Export data"], ["import", "Import data"],
               ["backup", "Backup / restore"], ["users", "Users and privileges"], ["server_tools", "Server tools"], ["catalog", "Engines, charsets, replication"], ["refresh_tree", "Refresh object tree"],
               ["theme_dark", "Theme: dark"], ["theme_light", "Theme: light"], ["theme_system", "Theme: system"], ["preferences", "Preferences"], ["manual", "User manual"], ["tour", "Quick tour"], ["about", "About MyLoDB"], ["new_connection", "New connection"], ["edit_connection", "Edit connection"]] as const)
             .map(([id, label]): Command => ({ id, label, hint: "action", run: () => menuHandler.current(id) })),

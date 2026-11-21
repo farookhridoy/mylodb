@@ -1,0 +1,51 @@
+// ER diagram of a whole database: boxes by foreign key depth, unrelated tables underneath, filter, Mermaid copy, open a table.
+import { chromium } from "playwright-core";
+import fs from "node:fs";
+import assert from "node:assert/strict";
+const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || undefined, headless: true });
+const page = await (await browser.newContext({ viewport: { width: 1400, height: 900 } })).newPage();
+const errors = [];
+page.on("pageerror", (e) => errors.push("pageerror: " + e.message));
+await page.addInitScript({ content: fs.readFileSync(new URL("./mock.js", import.meta.url), "utf8") + "\nSIZES.orders = 900 * 1024 * 1024; // orders is the biggest table here" });
+await page.goto(process.env.APP_URL || "http://localhost:1420/");
+let step = 0;
+const ok = (m) => console.log(`ok ${++step} ${m}`);
+await page.selectOption(".conn-bar select", "1");
+await page.selectOption(".conn-bar select", "1");
+await page.waitForSelector(".tree .db");
+await page.click(".tree .db:has-text('shop')", { button: "right" });
+await page.getByText("ER diagram…").click();
+await page.waitForSelector(".dgm-box[data-table=customers]");
+const pos = async (t) => page.locator(`.dgm-box[data-table=${t}]`).evaluate((e) => ({ x: parseFloat(e.style.left), y: parseFloat(e.style.top) }));
+const [c, o, i, l] = [await pos("customers"), await pos("orders"), await pos("items"), await pos("logs")];
+assert.ok(i.x < o.x && o.x < c.x, `children on the left, parents on the right: items ${i.x} < orders ${o.x} < customers ${c.x}`);
+assert.ok(l.y > Math.max(c.y, o.y, i.y), "a table with no relation sits underneath");
+assert.equal(await page.locator("g.dgm-edge").count(), 2);
+assert.match(await page.locator("[aria-label=Counts]").innerText(), /4 of 4 tables · 2 relations/);
+const call = await page.evaluate(() => window.__calls.filter((x) => x.cmd === "er_model").at(-1).args);
+assert.deepEqual([call.id, call.db], [1, "shop"]);
+ok("tables are laid out by foreign key depth, unrelated ones underneath, relations drawn");
+
+await page.fill("input[aria-label='Filter tables']", "ord");
+assert.equal(await page.locator(".dgm-box").count(), 1);
+assert.match(await page.locator("[aria-label=Counts]").innerText(), /1 of 4 tables · 0 relations/);
+await page.fill("input[aria-label='Filter tables']", "");
+await page.click("label:has-text('only tables with relations') input");
+assert.equal(await page.locator(".dgm-box[data-table=logs]").count(), 0);
+assert.equal(await page.locator(".dgm-box").count(), 3);
+ok("the filter and 'only tables with relations' narrow the diagram");
+
+await page.evaluate(() => { window.__clip = ""; navigator.clipboard.writeText = (t) => { window.__clip = t; return Promise.resolve(); }; });
+await page.click("button:has-text('Copy as Mermaid')");
+const mm = await page.evaluate(() => window.__clip);
+assert.match(mm, /^erDiagram\n/);
+assert.ok(mm.includes('customers ||--o{ orders : "fk_orders_customer"') && mm.includes('orders ||--o{ items : "fk_items_order"'), mm);
+assert.ok(mm.includes("  customers {\n    bigint id PK\n    varchar name\n  }") && !mm.includes("logs"), "the hidden table is not exported: " + mm);
+ok("the shown tables and relations are copied as Mermaid erDiagram text");
+
+await page.locator(".dgm-box[data-table=orders] .dgm-head").dblclick();
+await page.waitForFunction(() => document.querySelector(".qtab.active")?.innerText.includes("orders"));
+ok("double-clicking a table opens it");
+assert.deepEqual(errors, []);
+await browser.close();
+console.log("ALL ER DIAGRAM UI CHECKS PASSED");

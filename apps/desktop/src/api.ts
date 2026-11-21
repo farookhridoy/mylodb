@@ -236,6 +236,12 @@ export interface QuerySpec {
 }
 export const builderApi = { build: (id: number, spec: QuerySpec) => invoke<string>("build_query", { id, spec }) };
 
+export interface ErColumn { name: string; column_type: string; primary: boolean; nullable: boolean }
+export interface ErTable { name: string; columns: ErColumn[] }
+export interface ErRelation { name: string; table: string; columns: string[]; ref_schema: string; ref_table: string; ref_columns: string[]; on_delete: string; on_update: string }
+export interface ErModel { tables: ErTable[]; relations: ErRelation[] }
+export const erApi = { model: (id: number, db: string) => invoke<ErModel>("er_model", { id, db }) };
+
 export type ChangeKind = "added" | "changed" | "removed";
 export interface TableChange { table: string; kind: ChangeKind; statements: string[]; deferred: string[]; destructive: boolean }
 export interface SchemaCompare { changes: TableChange[]; identical: number; warnings: string[] }

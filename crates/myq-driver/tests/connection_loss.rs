@@ -45,6 +45,10 @@ async fn a_connection_killed_mid_statement_reports_an_error_and_the_pool_recover
     let mut again = p.get_conn().await.expect("the pool hands out a fresh connection");
     let one: Option<i64> = again.query_first("SELECT 1").await.unwrap();
     assert_eq!(one, Some(1));
-    let ro: Option<i64> = again.query_first("SELECT @@transaction_read_only").await.unwrap_or(None);
+    // MySQL 8+ and MariaDB 11.1+ call it transaction_read_only; MariaDB 10.x calls it tx_read_only
+    let ro: Option<i64> = match again.query_first("SELECT @@transaction_read_only").await {
+        Ok(v) => v,
+        Err(_) => again.query_first("SELECT @@tx_read_only").await.unwrap_or(None),
+    };
     assert_eq!(ro, Some(1), "read-only is re-applied to the replacement connection");
 }

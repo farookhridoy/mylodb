@@ -56,7 +56,11 @@ async fn check(cfg_rw: ConnConfig, cfg_ro: ConnConfig, db: String) -> Result<(),
             let mut c = ro.get_conn().await?;
             let n: Option<i64> = c.query_first(format!("SELECT COUNT(*) FROM `{db}`.t")).await?;
             assert_eq!(n, Some(1));
-            let ro_flag: Option<i64> = c.query_first("SELECT @@session.transaction_read_only").await?;
+            // MySQL 8+ and MariaDB 11.1+ call it transaction_read_only; MariaDB 10.x calls it tx_read_only
+            let ro_flag: Option<i64> = match c.query_first("SELECT @@session.transaction_read_only").await {
+                Ok(v) => v,
+                Err(_) => c.query_first("SELECT @@session.tx_read_only").await?,
+            };
             assert_eq!(ro_flag, Some(1), "the session is read-only");
         }
         let mut c = ro.get_conn().await?;

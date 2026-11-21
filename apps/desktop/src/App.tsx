@@ -7,6 +7,9 @@ import ConnectionDialog from "./ConnectionDialog";
 import ContextMenu, { type MenuItem } from "./ContextMenu";
 import DataGrid, { defaultView, type GridView } from "./DataGrid";
 import ObjectInfo from "./ObjectInfo";
+import AboutDialog from "./AboutDialog";
+import Manual from "./Manual";
+import Tour, { tourSeen } from "./Tour";
 import { AlterDatabaseDialog, PromptDialog, TypeConfirmDialog } from "./Dialogs";
 import PreviewDialog from "./PreviewDialog";
 import DatabasesPage from "./DatabasesPage";
@@ -150,6 +153,11 @@ export default function App() {
   const filterSeq = useRef(0);
   const runIds = useRef<Record<string, string>>({});
 
+  const [aboutOpen, setAboutOpen] = useState(false);
+  const [manualOpen, setManualOpen] = useState(false);
+  // the first-run guide starts by itself once, shortly after the window is up
+  const [tourOpen, setTourOpen] = useState(false);
+  useEffect(() => { if (tourSeen()) return; const t = setTimeout(() => setTourOpen(true), 600); return () => clearTimeout(t); }, []);
   const [alterDb, setAlterDb] = useState<string | null>(null);
   const pendingSave = useRef<{ id: number; payload: string } | null>(null);
   const connectionsRef = useRef(connections);
@@ -445,6 +453,9 @@ export default function App() {
       case "explain": return need(() => { analyse("explain"); });
       case "format": return need(() => { formatSql(); });
       case "palette": return setPaletteOpen(true);
+      case "about": return setAboutOpen(true);
+      case "manual": return setManualOpen(true);
+      case "tour": return setTourOpen(true);
       case "new_query_db": return need(() => addTab("", selectedDb));
       case "disconnect": return disconnectActive();
       case "close_tab": return tab ? closeTab(tab.id) : undefined;
@@ -1180,6 +1191,9 @@ export default function App() {
         </div>
       )}
       {pendingReview && <ReviewDialog review={pendingReview.review} onCancel={() => setPendingReview(null)} onRun={pendingReview.go} />}
+      {aboutOpen && <AboutDialog onClose={() => setAboutOpen(false)} onManual={() => { setAboutOpen(false); setManualOpen(true); }} />}
+      {manualOpen && <Manual onClose={() => setManualOpen(false)} onTour={() => { setManualOpen(false); setTourOpen(true); }} />}
+      {tourOpen && <Tour onClose={() => setTourOpen(false)} />}
       {prompt && <PromptDialog {...prompt} />}
       {alterDb && activeId !== null && (
         <AlterDatabaseDialog connectionId={activeId} database={alterDb} onCancel={() => setAlterDb(null)}
@@ -1189,7 +1203,7 @@ export default function App() {
         <CommandPalette onClose={() => setPaletteOpen(false)} commands={[
           ...([["new_query", "New query tab"], ["home", "Server home"], ["databases", "Databases"], ["structure", "Tables of the selected database"], ["new_table", "New table"], ["export", "Export data"], ["import", "Import data"],
               ["backup", "Backup / restore"], ["users", "Users and privileges"], ["server_tools", "Server tools"], ["catalog", "Engines, charsets, replication"], ["refresh_tree", "Refresh object tree"],
-              ["theme_dark", "Theme: dark"], ["theme_light", "Theme: light"], ["theme_system", "Theme: system"], ["preferences", "Preferences"], ["new_connection", "New connection"], ["edit_connection", "Edit connection"]] as const)
+              ["theme_dark", "Theme: dark"], ["theme_light", "Theme: light"], ["theme_system", "Theme: system"], ["preferences", "Preferences"], ["manual", "User manual"], ["tour", "Quick tour"], ["about", "About MyLoDB"], ["new_connection", "New connection"], ["edit_connection", "Edit connection"]] as const)
             .map(([id, label]): Command => ({ id, label, hint: "action", run: () => menuHandler.current(id) })),
           { id: "snippet-save", label: "Save editor text as my snippet…", hint: "selection, or the whole editor", run: () => {
             const text = editor.current?.runnableText().trim();

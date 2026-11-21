@@ -239,6 +239,21 @@ async fn test_connection(state: tauri::State<'_, AppState>, connection: SavedCon
 }
 
 /// Forget the saved host key of a connection's SSH server (after the server was legitimately re-keyed).
+/// Links the About and Manual pages may open in the browser. Anything else is refused, so a page can never launch an arbitrary URL.
+const ALLOWED_LINKS: [&str; 4] = ["https://farookhridoy.com", "https://thelarasoft.com", "https://github.com/farookhridoy/mylodb", "https://github.com/farookhridoy"];
+
+fn link_allowed(url: &str) -> bool {
+    ALLOWED_LINKS.iter().any(|a| url == *a || url.strip_prefix(a).is_some_and(|rest| rest.starts_with('/') || rest.starts_with('#')))
+}
+
+#[tauri::command]
+fn open_url(url: String) -> Result<(), String> {
+    if !link_allowed(&url) {
+        return Err("this link is not allowed".into());
+    }
+    std::process::Command::new("open").arg(&url).spawn().map(|_| ()).map_err(err)
+}
+
 #[tauri::command]
 fn forget_ssh_host(state: tauri::State<AppState>, id: i64) -> Result<(), String> {
     let store = state.store.lock().unwrap();
@@ -1353,7 +1368,7 @@ fn build_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::
     };
     let with_icon = |id: &str, label: &str, icon: tauri::image::Image<'_>| tauri::menu::IconMenuItemBuilder::with_id(id, label).icon(icon).build(app);
     let app_menu = SubmenuBuilder::new(app, "MyLoDB")
-        .about(None)
+        .item(&with_icon("about", "About MyLoDB", icon!("info"))?)
         .separator()
         .item(&with_icon("preferences", "Preferences…", icon!("settings"))?)
         .separator()
@@ -1430,7 +1445,13 @@ fn build_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::
         .fullscreen()
         .build()?;
     let window = SubmenuBuilder::new(app, "Window").minimize().maximize().separator().close_window().build()?;
-    let help = SubmenuBuilder::new(app, "Help").item(&item("about_shortcuts", "Keyboard Shortcuts", None)?).build()?;
+    let help = SubmenuBuilder::new(app, "Help")
+        .item(&with_icon("manual", "User Manual", icon!("info"))?)
+        .item(&with_icon("tour", "Quick Tour", icon!("play"))?)
+        .item(&item("about_shortcuts", "Keyboard Shortcuts", None)?)
+        .separator()
+        .item(&with_icon("about", "About MyLoDB", icon!("info"))?)
+        .build()?;
     MenuBuilder::new(app).items(&[&app_menu, &file, &edit, &search, &sql_editor, &database, &view, &window, &help]).build()
 }
 
@@ -1450,6 +1471,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            open_url,
             list_connections,
             save_connection,
             delete_connection,
@@ -1542,6 +1564,18 @@ pub fn run() {
 #[cfg(test)]
 mod session_tests {
     use super::*;
+
+    #[test]
+    fn only_the_authors_links_can_be_opened() {
+        assert!(link_allowed("https://farookhridoy.com"));
+        assert!(link_allowed("https://thelarasoft.com/"));
+        assert!(link_allowed("https://github.com/farookhridoy/mylodb/releases/latest"));
+        assert!(!link_allowed("https://farookhridoy.com.evil.example"));
+        assert!(!link_allowed("https://evil.example/https://farookhridoy.com"));
+        assert!(!link_allowed("file:///etc/passwd"));
+        assert!(!link_allowed("https://github.com/farookhridoyx"));
+    }
+
     use myq_schema::filter::Kind;
 
     fn node(db: &str, kind: Kind, name: &str, parent: Option<&str>) -> Node {

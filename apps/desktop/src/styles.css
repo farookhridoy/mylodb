@@ -507,3 +507,28 @@ table.kv th { text-align: left; font-weight: 500; color: var(--dim); width: 170p
 .object-info-head .clip { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 400; }
 .object-info .info.kv { margin: 0 8px 8px; width: calc(100% - 16px); }
 .object-info .empty, .object-info .error { padding: 2px 8px 8px; }
+
+/* About, manual and the first-run tour */
+.dialog.about { width: 460px; }
+.about-head { display: flex; gap: 14px; align-items: center; margin-bottom: 8px; }
+.about-head h3 { margin: 0; font-size: 20px; }
+.ext-link { color: var(--accent); text-decoration: none; cursor: pointer; }
+.ext-link:hover { text-decoration: underline; }
+.dialog.manual { position: relative; display: flex; width: min(900px, 92vw); height: min(640px, 86vh); padding: 0; overflow: hidden; }
+.manual nav { flex: none; width: 210px; border-right: 1px solid var(--line); background: var(--panel); padding: 12px 8px; display: flex; flex-direction: column; gap: 2px; overflow: auto; }
+.manual nav h3 { margin: 0 6px 8px; }
+.manual nav button { text-align: left; background: transparent; border: 0; padding: 5px 8px; border-radius: 4px; }
+.manual nav button.active { background: var(--accent); color: #fff; }
+.manual nav .tour-link { margin-top: auto; color: var(--accent); }
+.manual article { flex: 1; overflow: auto; padding: 18px 28px 28px; line-height: 1.55; user-select: text; }
+.manual article h2 { margin-top: 0; }
+.manual article code, .manual kbd { font-family: var(--font-editor, monospace); background: var(--hover, rgba(127,127,127,.15)); padding: 1px 5px; border-radius: 3px; font-size: 0.92em; }
+.manual-close { position: absolute; top: 8px; right: 10px; background: transparent; border: 0; }
+.tour { position: fixed; inset: 0; z-index: 3000; }
+.tour-spot { position: fixed; border-radius: 6px; box-shadow: 0 0 0 9999px rgba(0,0,0,.55), 0 0 0 2px var(--accent); pointer-events: none; transition: all .15s; }
+.tour-card { position: fixed; background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; box-shadow: 0 8px 30px rgba(0,0,0,.35); }
+.tour-card h4 { margin: 0 0 6px; font-size: 14px; }
+.tour-card p { margin: 0 0 12px; line-height: 1.5; }
+.tour-actions { display: flex; justify-content: space-between; align-items: center; }
+.tour-actions button { margin-left: 6px; }
+.manual nav button { display: flex; justify-content: flex-start; width: 100%; }

@@ -340,6 +340,9 @@ export async function onJobProgress(jobId: string, cb: (p: JobProgress) => void)
   return () => { un(); };
 }
 
+/** Open one of the author's links in the browser (the backend refuses any other address). */
+export const openUrl = (url: string) => invoke<void>("open_url", { url });
+
 export const fileApi = {
   read: (path: string) => invoke<string>("read_text_file", { path }),
   write: (path: string, content: string) => invoke<void>("write_text_file", { path, content }),

@@ -23,8 +23,8 @@ assert.deepEqual(await names(), ["blog", "old_2019", "shop"], "system databases 
 await page.waitForSelector("td:has-text('50.0 MB'), td:has-text('50 MB')");
 ok("lists databases with collation, table count and size; system ones hidden");
 
-await page.click("th:has-text('Size')");
-await page.click("th:has-text('Size')");
+await page.click("table[aria-label=Databases] th:has-text('Size')");
+await page.click("table[aria-label=Databases] th:has-text('Size')");
 assert.deepEqual(await names(), ["old_2019", "shop", "blog"], "sorted by size, largest first");
 await page.check("text=Show system databases");
 assert.equal((await names()).length, 5);

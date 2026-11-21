@@ -1,3 +1,4 @@
+try { if (!window.__tour) localStorage.setItem("mylodb.tourDone", "1"); } catch {}
 // Fake Tauri bridge: in-memory tables + a call log, so the real React UI can be exercised in a browser.
 window.__calls = [];
 window.__cbs = {}; window.__cbSeq = 0; window.__listeners = [];
@@ -108,6 +109,7 @@ const handlers = {
   account_preview: (a) => { window.__lastPreview = JSON.parse(JSON.stringify(a)); return [`-- ${a.original ? "ALTER" : "CREATE"} ${a.edit.user}`]; },
   account_apply: (a) => { window.__accountApplied = JSON.parse(JSON.stringify(a)); return 2; },
   account_drop: (a) => { window.__dropped = a; return null; },
+  open_url: () => null,
   list_connections: () => [{ id: 1, name: "Local", color: "#4f8cff", host: "127.0.0.1", port: 3306, user: "root", database: null, ssl: "disabled" }],
   connect: (a) => {
     window.__loaded = new Set(); window.__index = nodes();

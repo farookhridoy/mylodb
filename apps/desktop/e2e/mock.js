@@ -110,6 +110,10 @@ const handlers = {
   account_apply: (a) => { window.__accountApplied = JSON.parse(JSON.stringify(a)); return 2; },
   account_drop: (a) => { window.__dropped = a; return null; },
   open_url: () => null,
+  search_data: (a) => window.__search ?? { hits: [
+    { table: "customers", rows: 2, columns: [["email", 2], ["note", 1]] },
+    { table: "orders", rows: 5, columns: [["ref", 5]] },
+  ], tables_total: 4, tables_scanned: 4, cancelled: false, skipped: ["blobs: no text column to search"] },
   schema_compare: (a) => window.__compare ?? { changes: [
     { table: "old_log", kind: "removed", statements: ["DROP TABLE `" + a.targetDb + "`.`old_log`"], deferred: [], destructive: true },
     { table: "posts", kind: "added", statements: ["CREATE TABLE `" + a.targetDb + "`.`posts` (\n  `id` int NOT NULL\n)"], deferred: ["ALTER TABLE `" + a.targetDb + "`.`posts` ADD CONSTRAINT `fk_user` FOREIGN KEY (`id`) REFERENCES `users` (`id`)"], destructive: false },

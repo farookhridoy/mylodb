@@ -1556,6 +1556,7 @@ fn build_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::
         .build()?;
     let search = SubmenuBuilder::new(app, "Search")
         .item(&with_icon("focus_filter", "Search Objects (DB Metadata)", icon!("search"))?)
+        .item(&with_icon("search_data", "Search Data in Database…", icon!("search"))?)
         .item(&with_icon("palette", "Command Palette…", icon!("terminal"))?)
         .build()?;
     let sql_editor = SubmenuBuilder::new(app, "SQL Editor")
@@ -1578,6 +1579,7 @@ fn build_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::
         .item(&with_icon("databases", "Databases…", icon!("database"))?)
         .item(&with_icon("structure", "Tables of Selected Database", icon!("table"))?)
         .item(&with_icon("new_table", "New Table…", icon!("plus"))?)
+        .item(&with_icon("compare", "Compare Schemas…", icon!("transfer"))?)
         .separator()
         .item(&SubmenuBuilder::new(app, "Tools")
             .item(&with_icon("users", "Users and Privileges", icon!("user"))?)

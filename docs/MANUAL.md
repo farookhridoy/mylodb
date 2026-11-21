@@ -111,6 +111,12 @@ Choose **Database type → SQLite file (read-only)** in the connection dialog, p
 * **Users and Privileges:** create, rename, lock and drop accounts, and global, database, table and column privileges, shown as the exact GRANT / REVOKE changes with passwords masked.
 * **Server Tools:** overview with live queries per second, process list (stop query, kill connection), variables (edit with confirmation), status with rates, CHECK / ANALYZE / OPTIMIZE / REPAIR for many tables, and logs. **Engines, charsets, replication** is under Tools.
 
+### Data search
+
+Right-click a database → **Search data…** (or **Search → Search Data in Database…**) finds a value anywhere in the database. Type the text, choose *contains* or *whole value*, optionally include numbers and dates, and press **Search**.
+Every base table is read once (one `COUNT(*)` over its searchable columns), and only the tables that match get a second query for the per-column counts, so a miss costs one scan. Results list each matching table with its row count and the columns that matched; click a column to open the table filtered to it.
+`%` and `_` in the text are taken literally, matching follows each column's collation (usually case-insensitive), BLOB columns are never searched, views are not searched. **Cancel** stops between tables and kills the running statement; what was found so far is kept.
+
 ### Compare schemas
 
 Right-click a database → **Compare schemas…** opens a tab that makes **this** database (the target) match another one (the source), which can be on any open connection.

@@ -25,10 +25,8 @@ jobs:
           - { name: "MySQL 8.0", image: "mysql:8.0", env: "MYSQL_ALLOW_EMPTY_PASSWORD=yes" }
           - { name: "MySQL 8.4", image: "mysql:8.4", env: "MYSQL_ALLOW_EMPTY_PASSWORD=yes" }
           - { name: "MySQL 9", image: "mysql:9", env: "MYSQL_ALLOW_EMPTY_PASSWORD=yes" }
-          # MariaDB 10.11 and 11.4 first ran on 2026-11-21 and still fail some tests that pass on MariaDB 13 and MySQL 8.0 to 9
-          # (docs/SERVER_COMPATIBILITY.md lists them): reported, not blocking, until they are fixed
-          - { name: "MariaDB 10.11", image: "mariadb:10.11", env: "MARIADB_ALLOW_EMPTY_ROOT_PASSWORD=1", experimental: true }
-          - { name: "MariaDB 11.4", image: "mariadb:11.4", env: "MARIADB_ALLOW_EMPTY_ROOT_PASSWORD=1", experimental: true }
+          - { name: "MariaDB 10.11", image: "mariadb:10.11", env: "MARIADB_ALLOW_EMPTY_ROOT_PASSWORD=1" }
+          - { name: "MariaDB 11.4", image: "mariadb:11.4", env: "MARIADB_ALLOW_EMPTY_ROOT_PASSWORD=1" }
           # 5.7 is end of life and lacks features the app uses (window functions, EXPLAIN ANALYZE, roles): reported, not blocking
           - { name: "MySQL 5.7", image: "mysql:5.7", env: "MYSQL_ALLOW_EMPTY_PASSWORD=yes", experimental: true }
     steps:

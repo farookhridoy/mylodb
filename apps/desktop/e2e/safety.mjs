@@ -27,7 +27,7 @@ const connect = async (id) => {
 };
 const write = async (sql, replace = true) => {
   await page.click(".cm-content");
-  if (replace) await page.keyboard.press("Meta+a");
+  if (replace) await page.keyboard.press("ControlOrMeta+a");
   await page.keyboard.type(sql);
 };
 const run = async () => { await page.click(".cm-content"); await page.keyboard.press("Meta+Enter"); await page.waitForTimeout(350); };

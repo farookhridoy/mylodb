@@ -18,9 +18,10 @@ First public release. macOS, Apple Silicon, unsigned.
 
 **Fixed (found while preparing this release)**
 * Edits made within a second of switching connections were not saved for the connection you left.
+* On MariaDB 10.10 and later the list of collations (designer, Alter database) panicked on `uca1400_*` rows with no character set.
 * The desktop app no longer imports the MySQL driver directly (groundwork for more database engines).
 
 **Known limits**
 * Not signed or notarised: macOS asks you to confirm the first launch.
 * Apple Silicon only; no Intel, Windows or Linux build yet.
-* MySQL and MariaDB only. The GitHub CI matrix (MySQL 5.7 to 9, MariaDB 10.11 / 11.4) had not run on GitHub before this release.
+* MySQL and MariaDB only. Tested and passing in CI on MySQL 8.0, 8.4 and 9 and locally on MySQL 9.7 and MariaDB 13. On MariaDB 10.11 / 11.4 and MySQL 5.7 some integration tests still fail ([details](docs/SERVER_COMPATIBILITY.md)); treat those servers as unverified.

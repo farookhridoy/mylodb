@@ -125,7 +125,7 @@ Single runs on one machine, so treat them as indications. The method, the limits
 
 ## Status
 
-Version **0.1.0** is the first public release. Phases 1 to 13 of the [roadmap](docs/ROADMAP.md) are done: connection manager, object browser, SQL editor, data grid, table designer, users, server tools, backup and import, production safety, large-table engine, admin console, shell and preferences, workspace features. The Rust suite passes on MySQL 9.7 (it also passed on MariaDB 13 when last run, before the 0.1.0 changes); the CI workflow targets MySQL 5.7 to 9 and MariaDB 10.11 / 11.4 but had not run on GitHub before this release. Not yet: PostgreSQL / SQLite / SQL Server (design in [docs/ENGINE_ABSTRACTION.md](docs/ENGINE_ABSTRACTION.md)), schema compare, visual query builder, Windows and Linux builds, and a signed and notarised build.
+Version **0.1.0** is the first public release. Phases 1 to 13 of the [roadmap](docs/ROADMAP.md) are done: connection manager, object browser, SQL editor, data grid, table designer, users, server tools, backup and import, production safety, large-table engine, admin console, shell and preferences, workspace features. The Rust suite passes in CI on MySQL 8.0, 8.4 and 9 and locally on MySQL 9.7 and MariaDB 13. MariaDB 10.11 / 11.4 and MySQL 5.7 still fail some integration tests and are unverified ([details](docs/SERVER_COMPATIBILITY.md)). Not yet: PostgreSQL / SQLite / SQL Server (design in [docs/ENGINE_ABSTRACTION.md](docs/ENGINE_ABSTRACTION.md)), schema compare, visual query builder, Windows and Linux builds, and a signed and notarised build.
 
 ## Build it yourself
 

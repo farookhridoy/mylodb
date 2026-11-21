@@ -18,7 +18,7 @@ const doc = () => page.evaluate(() => document.querySelector(".cm-content").inne
 const settle = () => page.waitForTimeout(450);
 let step = 0;
 const ok = (m) => console.log(`ok ${++step} ${m}`);
-const clear = async () => { await page.click(".cm-content"); await page.keyboard.press("Meta+a"); await page.keyboard.press("Backspace"); };
+const clear = async () => { await page.click(".cm-content"); await page.keyboard.press("ControlOrMeta+a"); await page.keyboard.press("Backspace"); };
 
 await page.selectOption(".conn-bar select", "1");
 await page.waitForSelector(".tree .db");

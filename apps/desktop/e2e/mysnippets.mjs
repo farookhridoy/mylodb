@@ -25,7 +25,7 @@ assert.match(await page.evaluate(() => localStorage.getItem("mylodb.snippets")),
 ok("the editor text is saved as a named snippet in the library");
 
 await page.click(".cm-content");
-await page.keyboard.press("Meta+a");
+await page.keyboard.press("ControlOrMeta+a");
 await page.keyboard.press("Backspace");
 await reopen();
 await page.fill("input[aria-label=Command]", "my snippet answer");

@@ -58,11 +58,13 @@ pub struct ServerOptions {
 
 pub async fn server_options(conn: &mut Conn) -> Result<ServerOptions> {
     let engines: Vec<String> = conn.query("SELECT ENGINE FROM information_schema.ENGINES WHERE SUPPORT IN ('YES','DEFAULT') ORDER BY ENGINE").await?;
-    let rows: Vec<(String, String, String)> = conn
+    // MariaDB 10.10+ lists its UCA-14.0.0 collations (`uca1400_*`) with a NULL character set and NULL IS_DEFAULT: they belong to no
+    // charset in this list, so they are skipped instead of failing the whole call.
+    let rows: Vec<(String, Option<String>, Option<String>)> = conn
         .query("SELECT COLLATION_NAME, CHARACTER_SET_NAME, IS_DEFAULT FROM information_schema.COLLATIONS ORDER BY CHARACTER_SET_NAME, COLLATION_NAME")
         .await?;
     let mut charsets: Vec<(String, Vec<String>, String)> = Vec::new();
-    for (collation, charset, is_default) in rows {
+    for (collation, charset, is_default) in rows.into_iter().filter_map(|(c, cs, d)| Some((c, cs?, d.unwrap_or_default()))) {
         let entry = match charsets.iter().position(|c| c.0 == charset) {
             Some(i) => i,
             None => {

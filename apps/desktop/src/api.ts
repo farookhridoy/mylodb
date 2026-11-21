@@ -211,6 +211,13 @@ export type Scope = { level: "global" } | { level: "database"; db: string } | { 
 export type ScopeGrant = Scope & { privileges: string[]; columns: Record<string, string[]>; grant_option: boolean };
 export interface Grants { scopes: ScopeGrant[]; unsupported: string[] }
 
+export type ChangeKind = "added" | "changed" | "removed";
+export interface TableChange { table: string; kind: ChangeKind; statements: string[]; deferred: string[]; destructive: boolean }
+export interface SchemaCompare { changes: TableChange[]; identical: number; warnings: string[] }
+export const compareApi = {
+  schemas: (source_id: number, source_db: string, target_id: number, target_db: string) => invoke<SchemaCompare>("schema_compare", { sourceId: source_id, sourceDb: source_db, targetId: target_id, targetDb: target_db }),
+};
+
 export const userApi = {
   list: (id: number) => invoke<Account[]>("accounts_list", { id }),
   grants: (id: number, user: string, host: string) => invoke<Grants>("account_grants", { id, user, host }),

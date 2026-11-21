@@ -111,6 +111,13 @@ Choose **Database type → SQLite file (read-only)** in the connection dialog, p
 * **Users and Privileges:** create, rename, lock and drop accounts, and global, database, table and column privileges, shown as the exact GRANT / REVOKE changes with passwords masked.
 * **Server Tools:** overview with live queries per second, process list (stop query, kill connection), variables (edit with confirmation), status with rates, CHECK / ANALYZE / OPTIMIZE / REPAIR for many tables, and logs. **Engines, charsets, replication** is under Tools.
 
+### Compare schemas
+
+Right-click a database → **Compare schemas…** opens a tab that makes **this** database (the target) match another one (the source), which can be on any open connection.
+Pick the source connection and database, press **Compare**, and read the list: *New in source* (a `CREATE TABLE`), *Different* (an `ALTER TABLE`: changed and added columns, dropped columns, indexes, keys, options) and *Only in target* (a `DROP TABLE`).
+Tables only the target has are **never pre-selected**. **Show SQL** reveals each table's statements; **Preview and apply…** opens Preview SQL with exactly the chosen statements: creates and alters first, then the foreign keys of new tables (so creation order never matters), then any drops.
+Only tables are compared, not views, routines, triggers or events. It uses the same statement generator as the table designer, and the integration test applies a comparison to a real server and compares again to prove the result is empty.
+
 ## 7. Stay safe on production
 
 * The **Environment** sets a colour band and badge. Production asks you to type a name before destructive operations, and saving grid changes asks for confirmation.

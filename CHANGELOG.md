@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+**Added**
+* **Compare schemas** (database context menu): make a database's tables match another database's, on the same or another open connection. Differences are listed per table with their SQL; drops are never pre-selected; Preview SQL shows the exact script.
+
 ## 0.2.0 (2026-11-21)
 
 **Added**

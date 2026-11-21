@@ -110,6 +110,11 @@ const handlers = {
   account_apply: (a) => { window.__accountApplied = JSON.parse(JSON.stringify(a)); return 2; },
   account_drop: (a) => { window.__dropped = a; return null; },
   open_url: () => null,
+  schema_compare: (a) => window.__compare ?? { changes: [
+    { table: "old_log", kind: "removed", statements: ["DROP TABLE `" + a.targetDb + "`.`old_log`"], deferred: [], destructive: true },
+    { table: "posts", kind: "added", statements: ["CREATE TABLE `" + a.targetDb + "`.`posts` (\n  `id` int NOT NULL\n)"], deferred: ["ALTER TABLE `" + a.targetDb + "`.`posts` ADD CONSTRAINT `fk_user` FOREIGN KEY (`id`) REFERENCES `users` (`id`)"], destructive: false },
+    { table: "users", kind: "changed", statements: ["ALTER TABLE `" + a.targetDb + "`.`users` ADD COLUMN `email` varchar(255) NULL AFTER `name`"], deferred: [], destructive: false },
+  ], identical: 2, warnings: [] },
   capabilities: () => (window.__caps ?? { flavor: "mysql", schemas: { available: false, reason: "MySQL and MariaDB have databases, not schemas" }, routines: { available: true, reason: null }, triggers: { available: true, reason: null }, events: { available: true, reason: null }, users: { available: true, reason: null }, replication: { available: true, reason: null }, explain_analyze: { available: true, reason: null }, read_only_session: { available: true, reason: null }, row_estimates: { available: true, reason: null }, server_tools: { available: true, reason: null }, dump_restore: { available: true, reason: null }, writes: { available: true, reason: null } }),
   list_connections: () => [{ id: 1, name: "Local", color: "#4f8cff", host: "127.0.0.1", port: 3306, user: "root", database: null, ssl: "disabled" }],
   connect: (a) => {

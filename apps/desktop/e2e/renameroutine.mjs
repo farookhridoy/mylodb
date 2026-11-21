@@ -1,0 +1,28 @@
+// Rename a stored procedure: create under the new name, then drop the old one, previewed first.
+import { chromium } from "playwright-core";
+import fs from "node:fs";
+import assert from "node:assert/strict";
+const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || undefined, headless: true });
+const page = await (await browser.newContext({ viewport: { width: 1400, height: 900 } })).newPage();
+const errors = [];
+page.on("pageerror", (e) => errors.push("pageerror: " + e.message));
+await page.addInitScript({ content: fs.readFileSync(new URL("./mock.js", import.meta.url), "utf8") + "\nSIZES.orders = 900 * 1024 * 1024; // orders is the biggest table here" });
+await page.goto(process.env.APP_URL || "http://localhost:1420/");
+let step = 0;
+const ok = (m) => console.log(`ok ${++step} ${m}`);
+await page.selectOption(".conn-bar select", "1");
+await page.click(".tree .db:has-text('shop')");
+await page.click(".row-item.group:has-text('Stored Procs')");
+await page.click(".row-item.leaf:has-text('p_total')", { button: "right" });
+await page.getByText("Rename…").click();
+await page.fill(".dialog input", "p_grand_total");
+await page.click(".dialog .primary");
+await page.waitForSelector("text=DROP PROCEDURE `shop`.`p_total`;");
+const body = await page.locator("body").innerText();
+assert.ok(body.includes("PROCEDURE `shop`.`p_grand_total`()"), "the create statement uses the new name");
+assert.ok(body.indexOf("p_grand_total") < body.indexOf("DROP PROCEDURE `shop`.`p_total`"), "create comes before drop");
+assert.deepEqual((await page.evaluate(() => window.__plans)).at(-1).to, "p_grand_total");
+ok("Rename… on a procedure previews CREATE under the new name, then DROP of the old one");
+assert.deepEqual(errors, []);
+await browser.close();
+console.log("ALL RENAME ROUTINE UI CHECKS PASSED");

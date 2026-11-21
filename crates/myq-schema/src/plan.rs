@@ -36,6 +36,27 @@ pub fn create_database(name: &str, collation: Option<&str>) -> PlanResult {
     Ok(vec![format!("CREATE DATABASE {}{};", q(name), charset_clause(None, collation).unwrap_or_default())])
 }
 
+/// Rename a stored procedure or function. MySQL has no `RENAME PROCEDURE`, so the plan creates the routine again under the
+/// new name from its `SHOW CREATE` text and only then drops the old one: if the create fails, nothing was lost.
+/// Grants on the old routine are not carried over (they belong to the old name).
+pub fn rename_routine(db: &str, kind: crate::filter::Kind, old: &str, new: &str, definition: &str) -> PlanResult {
+    use crate::filter::Kind;
+    let word = match kind {
+        Kind::Procedure => "PROCEDURE",
+        Kind::Function => "FUNCTION",
+        _ => return Err("only procedures and functions can be renamed this way".into()),
+    };
+    if new.trim().is_empty() || new == old {
+        return Err("choose a different, non-empty name".into());
+    }
+    // SHOW CREATE writes: CREATE [DEFINER=`u`@`h`] PROCEDURE `name`(...). Only that header is rewritten.
+    let marker = format!("{word} {}", q(old));
+    let at = definition.find(&marker).filter(|&i| definition[..i].trim_start().to_uppercase().starts_with("CREATE"))
+        .ok_or_else(|| format!("the definition of `{old}` does not have the expected CREATE {word} header"))?;
+    let create = format!("{}{word} {}{}", &definition[..at], qualified(db, new), &definition[at + marker.len()..]);
+    Ok(vec![format!("{create};"), format!("DROP {word} {};", qualified(db, old))])
+}
+
 /// `DROP DATABASE` for each. The system databases are refused.
 pub fn drop_databases(names: &[String]) -> PlanResult {
     nonempty(names, "database")?;
@@ -217,6 +238,21 @@ mod tests {
     }
     fn objs(v: &[(&str, bool)]) -> Vec<(String, bool)> {
         v.iter().map(|(n, b)| (n.to_string(), *b)).collect()
+    }
+
+    #[test]
+    fn renaming_a_routine_creates_the_new_name_first_and_drops_the_old_one() {
+        use crate::filter::Kind;
+        let def = "CREATE DEFINER=`root`@`localhost` PROCEDURE `old_p`(IN x INT)\nBEGIN SELECT `old_p`; END";
+        let plan = rename_routine("shop", Kind::Procedure, "old_p", "new_p", def).unwrap();
+        assert_eq!(plan, [
+            "CREATE DEFINER=`root`@`localhost` PROCEDURE `shop`.`new_p`(IN x INT)\nBEGIN SELECT `old_p`; END;",
+            "DROP PROCEDURE `shop`.`old_p`;",
+        ], "only the header is renamed; the body is left alone");
+        assert!(rename_routine("shop", Kind::Procedure, "a", "a", def).is_err());
+        assert!(rename_routine("shop", Kind::Table, "a", "b", def).is_err());
+        assert!(rename_routine("shop", Kind::Function, "old_p", "x", def).is_err(), "a PROCEDURE definition is not a FUNCTION");
+        assert!(rename_routine("shop", Kind::Procedure, "old_p", " ", def).is_err());
     }
 
     #[test]

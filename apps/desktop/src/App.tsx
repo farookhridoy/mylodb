@@ -768,6 +768,15 @@ export default function App() {
     if (kind === "view") items.push({ label: "View Data", icon: "grid", onClick: () => openTable(d, name, undefined, "data") }, { label: "View Properties", icon: "properties", onClick: () => openTable(d, name, undefined, "properties") }, { label: "Read data in SQL console", icon: "terminal", onClick: () => selectInEditor(d, name) }, { label: "Generate SELECT", icon: "sql", onClick: () => sample("select", d, name) }, { separator: true });
     items.push(
       { label: "Show / edit definition", icon: "sql", onClick: () => showDefinition(d, kind, name) },
+      ...(kind === "procedure" || kind === "function" ? [{ label: "Rename…", icon: "edit", disabled: readOnly, onClick: () => setPrompt({ title: `Rename ${name}`, label: "New name", initial: name, confirmLabel: "Next", onCancel: () => setPrompt(null),
+        onSubmit: async (to: string) => {
+          setPrompt(null);
+          if (to === name) return;
+          try {
+            const definition = await api.objectDefinition(activeId!, kind, d, name);
+            openPlan({ op: "rename_routine", db: d, kind, from: name, to, definition }, { title: `Rename ${KIND_LABEL[kind]} ${name}`, confirmLabel: "Rename", summary: `Creates ${to} from the definition of ${name}, then drops ${name}. Grants on ${name} are not carried over.` });
+          } catch (err) { setStatus(`Error: ${describeError(err)}`); }
+        } }) }] : []),
       { separator: true },
       { label: "Drop…", icon: "trash", danger: true, disabled: readOnly, onClick: () => openPlan({ op: "drop_object", db: d, kind, name }, { title: `Drop ${KIND_LABEL[kind]} ${name}`, confirmLabel: `Drop ${KIND_LABEL[kind]}`, summary: `The ${KIND_LABEL[kind]} ${d}.${name} will be permanently deleted.`, after: () => { if (kind === "view") forgetTables(d, [name]); } }) },
       { separator: true },

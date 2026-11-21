@@ -381,7 +381,8 @@ export type PlanOp =
   | { op: "rename_database"; old: string; new: string; collation: string | null }
   | { op: "create_database"; name: string; collation: string | null }
   | { op: "drop_object"; db: string; kind: Kind; name: string }
-  | { op: "rename_table"; db: string; from: string; to: string };
+  | { op: "rename_table"; db: string; from: string; to: string }
+  | { op: "rename_routine"; db: string; kind: Kind; from: string; to: string; definition: string };
 
 export const planApi = {
   /** The statements for an operation (nothing runs). Rejects with the reason when it cannot be done. */

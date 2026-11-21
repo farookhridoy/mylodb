@@ -145,3 +145,31 @@ async fn checks(cfg: ConnConfig, db: String, copy: String, moved: String) {
     let gone: Option<String> = conn.query_first(format!("SELECT SCHEMA_NAME FROM information_schema.SCHEMATA WHERE SCHEMA_NAME='{moved}'")).await.unwrap();
     assert!(gone.is_none());
 }
+
+#[tokio::test]
+async fn renaming_a_routine_keeps_it_working_under_the_new_name() {
+    let p = pool(&cfg());
+    let mut conn = match p.get_conn().await {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("SKIP: no MySQL reachable: {e}");
+            return;
+        }
+    };
+    let db = format!("mylodb_itest_rr_{}", std::process::id());
+    conn.query_drop(format!("CREATE DATABASE `{db}`")).await.unwrap();
+    conn.query_drop(format!("CREATE FUNCTION `{db}`.`f_old`(x INT) RETURNS INT DETERMINISTIC RETURN x * 2")).await.unwrap();
+    let outcome = async {
+        let def = myq_driver::object_definition(&p, myq_schema::filter::Kind::Function, &db, "f_old").await.unwrap().expect("a definition");
+        let steps = plan::rename_routine(&db, myq_schema::filter::Kind::Function, "f_old", "f_new", &def).unwrap();
+        let errors = run(&mut conn, &steps).await;
+        assert!(errors.iter().all(|e| e.is_none()), "plan failed: {errors:?}");
+        let got: Option<i64> = conn.query_first(format!("SELECT `{db}`.`f_new`(21)")).await.unwrap();
+        assert_eq!(got, Some(42), "the renamed function still computes");
+        let old: Vec<String> = conn.query(format!("SELECT ROUTINE_NAME FROM information_schema.ROUTINES WHERE ROUTINE_SCHEMA = '{db}'")).await.unwrap();
+        assert_eq!(old, ["f_new"], "the old name is gone");
+    }
+    .await;
+    conn.query_drop(format!("DROP DATABASE IF EXISTS `{db}`")).await.unwrap();
+    outcome
+}

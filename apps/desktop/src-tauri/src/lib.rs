@@ -738,6 +738,7 @@ enum PlanOp {
     DropObject { db: String, kind: Kind, name: String },
     CreateDatabase { name: String, collation: Option<String> },
     RenameTable { db: String, from: String, to: String },
+    RenameRoutine { db: String, kind: Kind, from: String, to: String, definition: String },
 }
 
 /// The statements for `op`, or the reason it cannot be done.
@@ -769,6 +770,7 @@ fn build_plan(state: tauri::State<AppState>, id: i64, op: PlanOp) -> Result<Vec<
         }
         PlanOp::CreateDatabase { name, collation } => p::create_database(&name, collation.as_deref()),
         PlanOp::DropObject { db, kind, name } => myq_schema::ddl::drop_object_sql(kind, &db, &name).map(|sql| vec![format!("{sql};")]).ok_or_else(|| format!("{kind:?} cannot be dropped this way")),
+        PlanOp::RenameRoutine { db, kind, from, to, definition } => p::rename_routine(&db, kind, &from, &to, &definition),
         PlanOp::RenameTable { db, from, to } => {
             if to.trim().is_empty() || to == from {
                 Err("choose a different, non-empty name".into())

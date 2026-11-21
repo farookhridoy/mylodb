@@ -425,6 +425,7 @@ Object.assign(handlers, {
       case "empty_tables": return o.objects.map((x) => `TRUNCATE TABLE ${t(o.db, x[0])};`);
       case "copy_tables": return o.copies.flatMap(([f, to]) => [`CREATE TABLE ${t(o.db, to)} LIKE ${t(o.db, f)};`, ...(o.with_data ? [`INSERT INTO ${t(o.db, to)} SELECT * FROM ${t(o.db, f)};`] : [])]);
       case "rename_table": return [`RENAME TABLE ${t(o.db, o.from)} TO ${t(o.db, o.to)};`];
+      case "rename_routine": return [o.definition.replace(`${o.kind.toUpperCase()} ${qn(o.from)}`, `${o.kind.toUpperCase()} ${t(o.db, o.to)}`) + ";", `DROP ${o.kind.toUpperCase()} ${t(o.db, o.from)};`];
       case "drop_object": return [`DROP ${o.kind.toUpperCase()} ${t(o.db, o.name)};`];
       case "create_database": return [`CREATE DATABASE ${qn(o.name)}${o.collation ? " COLLATE " + o.collation : ""};`];
       case "drop_databases": return o.names.map((n) => `DROP DATABASE ${qn(n)};`);

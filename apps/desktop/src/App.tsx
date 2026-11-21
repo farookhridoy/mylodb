@@ -153,6 +153,8 @@ export default function App() {
   const runIds = useRef<Record<string, string>>({});
 
   const [caps, setCaps] = useState<Capabilities | null>(null);
+  const capOff = (k: "server_tools" | "users" | "dump_restore") => caps?.[k].available === false;
+  const capTitle = (k: "server_tools" | "users" | "dump_restore", on: string) => (caps?.[k].available === false ? (caps[k].reason ?? "Not available for this connection") : on);
   const [aboutOpen, setAboutOpen] = useState(false);
   const [manualOpen, setManualOpen] = useState(false);
   // the first-run guide starts by itself once, shortly after the window is up
@@ -190,6 +192,9 @@ export default function App() {
       setBrowserState({ open: savedBrowser.open });
       setSelectedDb(restoredDb); setSelectedTable(restoredTable); setLockedTable(null); setQuery(""); meta.reset(); setColumnsLoaded(new Set()); setMatches(null); setMatchScope(null);
       colQueue.current = Promise.resolve();
+      // what this connection's engine can do; a SQLite file has no server home, users, server tools or dump-based transfer
+      const cp = await capabilitiesApi.get(id).catch(() => null);
+      const serverKinds = cp && !cp.server_tools.available ? ["home", "users", "server", "transfer", "catalog", "designer"] : [];
       let restoredTabs: QueryTab[] = [];
       let restoredActive = "";
       try {
@@ -197,6 +202,7 @@ export default function App() {
         if (saved) {
           const s = JSON.parse(saved) as { tabs: QueryTab[]; active: string };
           restoredTabs = s.tabs.filter((t) => typeof t.id === "string" && (t.kind === "users" || t.kind === "server" || t.kind === "home" || t.kind === "transfer" || (t.kind === "table" || t.kind === "designer" ? !!t.table : typeof t.sql === "string")))
+            .filter((t) => !serverKinds.includes(t.kind ?? ""))
             .map((t) => (isTable(t) ? { ...t, grid: { ...defaultView(), ...t.grid } } : t));
           restoredActive = s.active;
         }
@@ -204,10 +210,10 @@ export default function App() {
       if (restoredTabs.length === 0) {
         // a fresh connection opens on the server home, with a query tab beside it
         const home: QueryTab = { id: uid(), title: "Home", sql: "", database: null, kind: "home" };
-        restoredTabs = [home, newTab(1)];
-        restoredActive = home.id;
+        restoredTabs = serverKinds.length ? [newTab(1)] : [home, newTab(1)];
+        restoredActive = restoredTabs[0].id;
       }
-      capabilitiesApi.get(id).then(setCaps).catch(() => setCaps(null));
+      setCaps(cp);
       setActiveId(id);
       setOpenIds((ids) => (ids.includes(id) ? ids : [...ids, id]));
       setIndex(idx);
@@ -442,6 +448,8 @@ export default function App() {
   menuHandler.current = (id) => {
     const connected = activeId !== null;
     const need = (f: () => void) => { if (connected) f(); else setStatus("Connect first"); };
+    // a feature the connected engine lacks says why instead of failing later
+    const gate = (cap: "server_tools" | "users" | "dump_restore", f: () => void) => { const c = caps?.[cap]; if (c && !c.available) setStatus(c.reason ?? "Not available for this connection"); else f(); };
     switch (id) {
       case "preferences": return setPrefsOpen(true);
       case "new_query": return need(() => addTab("", tab?.database ?? null));
@@ -467,16 +475,16 @@ export default function App() {
       case "theme_system": return theme.setPref("system");
       case "theme_light": return theme.setPref("light");
       case "theme_dark": return theme.setPref("dark");
-      case "home": return need(openHome);
+      case "home": return need(() => gate("server_tools", openHome));
       case "databases": return need(openDatabases);
       case "structure": return need(() => (selectedDb ? openStructure(selectedDb) : setStatus("Select a database in the tree first")));
       case "new_table": return need(() => (selectedDb ? openDesigner(selectedDb, null) : setStatus("Select a database in the tree first")));
       case "export": return need(() => openTransfer({ tab: "export" }));
       case "import": return need(() => openTransfer({ tab: "import" }));
-      case "backup": return need(() => openTransfer({ tab: "backup" }));
-      case "users": return need(openUsers);
-      case "server_tools": return need(openServer);
-      case "catalog": return need(openCatalog);
+      case "backup": return need(() => gate("dump_restore", () => openTransfer({ tab: "backup" })));
+      case "users": return need(() => gate("users", openUsers));
+      case "server_tools": return need(() => gate("server_tools", openServer));
+      case "catalog": return need(() => gate("server_tools", openCatalog));
       case "about_shortcuts": return setStatus("⌘T new tab · ⌘W close tab · ⌘↵ run · ⇧⌘F format · ⇧⌘B search objects · F5 refresh · ⌘, preferences");
     }
   };
@@ -890,13 +898,13 @@ export default function App() {
   return (
     <div className="app">
       <header className="topbar" role="toolbar" aria-label="Main toolbar">
-        <button title="Server home" disabled={activeId === null} onClick={openHome}><Icon name="home" /> Home</button>
+        <button title={capTitle("server_tools", "Server home")} disabled={activeId === null || capOff("server_tools")} onClick={openHome}><Icon name="home" /> Home</button>
         <button title="New query tab (⌘T)" disabled={activeId === null} onClick={() => addTab("", selectedDb)}><Icon name="terminal" /> New query</button>
         <button title="List, create and drop databases" disabled={activeId === null} onClick={openDatabases}><Icon name="database" /> Databases</button>
         <span className="sep" />
-        <button title="Backup, restore, import and export" disabled={activeId === null} onClick={() => openTransfer()}><Icon name="transfer" /> Transfer</button>
-        <button title="Users and privileges" disabled={activeId === null} onClick={openUsers}><Icon name="user" /> Users</button>
-        <button title="Server: processes, variables, status, maintenance, logs" disabled={activeId === null} onClick={openServer}><Icon name="pulse" /> Server</button>
+        <button title={capTitle("dump_restore", "Backup, restore, import and export")} disabled={activeId === null || capOff("dump_restore")} onClick={() => openTransfer()}><Icon name="transfer" /> Transfer</button>
+        <button title={capTitle("users", "Users and privileges")} disabled={activeId === null || capOff("users")} onClick={openUsers}><Icon name="user" /> Users</button>
+        <button title={capTitle("server_tools", "Server: processes, variables, status, maintenance, logs")} disabled={activeId === null || capOff("server_tools")} onClick={openServer}><Icon name="pulse" /> Server</button>
         <span className="grow" />
         <button className="theme-toggle" title={`Theme: ${theme.pref} (click to change)`}
           onClick={() => { const order: ThemePref[] = ["system", "light", "dark"]; theme.setPref(order[(order.indexOf(theme.pref) + 1) % 3]); }}>

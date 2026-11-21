@@ -39,6 +39,24 @@ impl Dialect for MySql {
     }
 }
 
+/// SQLite: identifiers in double quotes, strings in single quotes with no backslash escapes.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Sqlite;
+
+impl Dialect for Sqlite {
+    fn quote_ident(&self, ident: &str) -> String {
+        format!("\"{}\"", ident.replace('"', "\"\""))
+    }
+
+    fn quote_string(&self, s: &str) -> String {
+        format!("'{}'", s.replace('\'', "''"))
+    }
+
+    fn limit_offset(&self, limit: u64, offset: u64) -> String {
+        format!("LIMIT {limit} OFFSET {offset}")
+    }
+}
+
 /// A quoted MySQL identifier.
 pub fn q(ident: &str) -> String {
     MySql.quote_ident(ident)
@@ -69,6 +87,15 @@ mod tests {
     fn control_characters_in_a_literal_are_escaped() {
         assert_eq!(lit("a\0b"), "'a\\0b'");
         assert_eq!(lit("a\u{1a}b"), "'a\\Zb'");
+    }
+
+    #[test]
+    fn sqlite_quoting() {
+        assert_eq!(Sqlite.quote_ident("orders"), "\"orders\"");
+        assert_eq!(Sqlite.quote_ident("we\"ird"), "\"we\"\"ird\"");
+        assert_eq!(Sqlite.quote_ident("back`tick"), "\"back`tick\"");
+        assert_eq!(Sqlite.quote_string("O'Neil"), "'O''Neil'");
+        assert_eq!(Sqlite.quote_string("a\\b"), "'a\\b'", "backslash is an ordinary character in SQLite");
     }
 
     #[test]

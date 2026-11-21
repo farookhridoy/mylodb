@@ -17,12 +17,12 @@ const blankSsh: SshConfig = { host: "", port: 22, user: "", auth: { method: "key
 type Tab = "general" | "safety" | "ssh" | "ssl";
 
 /** A text field with a "Browse…" button that fills in a file path. */
-function PathField(props: { label: string; value: string | null | undefined; onChange(v: string | null): void; placeholder?: string }) {
+function PathField(props: { label: string; value: string | null | undefined; onChange(v: string | null): void; placeholder?: string; filters?: { name: string; extensions: string[] }[] }) {
   return (
     <label>{props.label}
       <div className="path-field">
         <input value={props.value ?? ""} placeholder={props.placeholder} onChange={(e) => props.onChange(e.target.value || null)} />
-        <button type="button" onClick={async () => { const p = await pickFile({ multiple: false, directory: false }); if (typeof p === "string") props.onChange(p); }}>Browse…</button>
+        <button type="button" onClick={async () => { const p = await pickFile({ multiple: false, directory: false, filters: props.filters }); if (typeof p === "string") props.onChange(p); }}>Browse…</button>
       </div>
     </label>
   );
@@ -59,7 +59,7 @@ export default function ConnectionDialog(props: {
     setTesting(true); setResult(null); setError(null);
     try {
       const r = await api.testConnection(payload(), trust);
-      setResult(`Connected to MySQL ${r.version}${r.via_ssh ? " through the SSH tunnel" : ""}${r.ssl_cipher ? ` · encrypted (${r.ssl_cipher})` : " · not encrypted"}`);
+      setResult(`Connected to ${sqlite ? "" : "MySQL "}${r.version}${r.via_ssh ? " through the SSH tunnel" : ""}${r.ssl_cipher ? ` · encrypted (${r.ssl_cipher})` : " · not encrypted"}`);
     } catch (e) {
       const err = e as ConnectError;
       if (typeof err === "object" && err && err.kind === "unknown_host") setUnknownHost({ host: err.host, fingerprint: err.fingerprint, then: "test" });
@@ -72,18 +72,37 @@ export default function ConnectionDialog(props: {
     try { props.onSaved(await api.saveConnection(payload())); } catch (e) { setError(String(e)); }
   };
 
-  const valid = c.name && c.host && c.user && (!ssh || (ssh.host && ssh.user && (ssh.auth.method === "password" || ssh.auth.path)));
+  const sqlite = c.engine === "sqlite";
+  const valid = sqlite ? !!(c.name && c.file) : c.name && c.host && c.user && (!ssh || (ssh.host && ssh.user && (ssh.auth.method === "password" || ssh.auth.path)));
 
   return (
     <div className="overlay">
       <div className="dialog conn-dialog">
         <h3>{c.id ? "Edit connection" : "New connection"}</h3>
-        <div className="dz-tabs">
+        <label>Database type
+          <Select value={c.engine ?? "mysql"} onChange={(e) => { const engine = e.target.value as "mysql" | "sqlite"; setC({ ...c, engine, ...(engine === "sqlite" ? { host: "", user: "", port: 0 } : { host: c.host || "127.0.0.1", user: c.user || "root", port: c.port || 3306 }) }); setTab("general"); }}>
+            <option value="mysql">MySQL / MariaDB</option>
+            <option value="sqlite">SQLite file (read-only)</option>
+          </Select>
+        </label>
+        {sqlite ? (
+          <>
+            <label>Name<input value={c.name} onChange={(e) => set("name", e.target.value)} autoFocus /></label>
+            <label>Group (folder)
+              <input value={c.group ?? ""} list="connection-groups" placeholder="None" onChange={(e) => set("group", e.target.value)} />
+              <datalist id="connection-groups">{(props.groups ?? []).map((g) => <option key={g} value={g} />)}</datalist>
+            </label>
+            <PathField label="Database file" value={c.file} placeholder="/path/to/data.sqlite" onChange={(v) => set("file", v)} filters={[{ name: "SQLite database", extensions: ["db", "sqlite", "sqlite3", "db3", "s3db", "sl3"] }]} />
+            <div className="dim small">The file is opened read-only: MyLoDB cannot change it in this version. Users, events, server tools and backup do not apply to SQLite.</div>
+          </>
+        ) : null}
+        {!sqlite && <div className="dz-tabs">
           {([["general", "General"], ["safety", `Safety${(c.environment ?? "development") !== "development" || c.read_only ? " ●" : ""}`], ["ssh", `SSH tunnel${ssh ? " ●" : ""}`], ["ssl", `SSL${c.ssl !== "disabled" ? " ●" : ""}`]] as [Tab, string][]).map(([t, label]) => (
             <button key={t} type="button" className={tab === t ? "active" : ""} onClick={() => setTab(t)}>{label}</button>
           ))}
-        </div>
+        </div>}
 
+        {!sqlite && <>
         {tab === "general" && (
           <>
             <label>Name<input value={c.name} onChange={(e) => set("name", e.target.value)} autoFocus /></label>
@@ -204,6 +223,8 @@ export default function ConnectionDialog(props: {
             {ssh && c.ssl === "required" && <div className="dim small">Through an SSH tunnel the server certificate is checked against 127.0.0.1; use "verify certificate, ignore host name".</div>}
           </>
         )}
+
+        </>}
 
         {result && <div className="banner ok">{result}</div>}
         {error && <div className="error">{error}</div>}

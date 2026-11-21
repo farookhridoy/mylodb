@@ -6,6 +6,7 @@ use serde::Serialize;
 pub enum Flavor {
     MySql,
     MariaDb,
+    Sqlite,
 }
 
 /// One thing an engine may or may not do. When it cannot, `reason` says why in words a person can read.
@@ -42,6 +43,12 @@ pub struct Capabilities {
     pub read_only_session: Cap,
     /// Row counts from table statistics instead of `COUNT(*)`.
     pub row_estimates: Cap,
+    /// Server overview, process list, variables, status and logs.
+    pub server_tools: Cap,
+    /// Backup to and restore from MySQL-flavoured SQL dumps.
+    pub dump_restore: Cap,
+    /// Whether MyLoDB can change data and structure through this connection (grid edits, designer). Off means browse and query only.
+    pub writes: Cap,
 }
 
 /// The first numbers of a version string: `"8.0.36-0ubuntu1"` is `(8, 0, 36)`, `"10.11.6-MariaDB-1:10.11.6+maria~ubu2204"` is `(10, 11, 6)`.
@@ -67,6 +74,7 @@ impl Capabilities {
             Flavor::MySql => Cap::no("EXPLAIN ANALYZE needs MySQL 8.0.18 or later"),
             Flavor::MariaDb if v >= (10, 1, 0) => Cap::yes(),
             Flavor::MariaDb => Cap::no("ANALYZE needs MariaDB 10.1 or later"),
+            Flavor::Sqlite => Cap::no("SQLite offers EXPLAIN QUERY PLAN only"),
         };
         Capabilities {
             flavor,
@@ -79,6 +87,28 @@ impl Capabilities {
             explain_analyze,
             read_only_session: Cap::yes(),
             row_estimates: Cap::yes(),
+            server_tools: Cap::yes(),
+            dump_restore: Cap::yes(),
+            writes: Cap::yes(),
+        }
+    }
+
+    /// For a SQLite file. It is opened read-only in this version, so `writes` is off.
+    pub fn sqlite() -> Capabilities {
+        Capabilities {
+            flavor: Flavor::Sqlite,
+            schemas: Cap::no("a SQLite file has one main database (attached files are not listed yet)"),
+            routines: Cap::no("SQLite has no stored procedures or functions"),
+            triggers: Cap::yes(),
+            events: Cap::no("SQLite has no scheduled events"),
+            users: Cap::no("SQLite has no users or privileges: access is the file's permissions"),
+            replication: Cap::no("SQLite has no replication"),
+            explain_analyze: Cap::no("SQLite offers EXPLAIN QUERY PLAN only"),
+            read_only_session: Cap::yes(),
+            row_estimates: Cap::no("SQLite keeps no row statistics; counts are exact"),
+            server_tools: Cap::no("SQLite is a file, not a server: there is no process list, variables or log"),
+            dump_restore: Cap::no("backup and restore of SQL dumps is MySQL-only for now"),
+            writes: Cap::no("SQLite files open read-only in this version"),
         }
     }
 }
@@ -104,6 +134,16 @@ mod tests {
         assert!(old.explain_analyze.reason.unwrap().contains("8.0.18"));
         assert!(!Capabilities::mysql_family("8.0.17").explain_analyze.available);
         assert!(Capabilities::mysql_family("10.11.6-MariaDB").explain_analyze.available);
+    }
+
+    #[test]
+    fn a_sqlite_file_says_what_it_lacks_and_why() {
+        let c = Capabilities::sqlite();
+        assert_eq!(c.flavor, Flavor::Sqlite);
+        assert!(c.triggers.available && c.read_only_session.available);
+        for (name, cap) in [("users", &c.users), ("events", &c.events), ("routines", &c.routines), ("server_tools", &c.server_tools), ("writes", &c.writes)] {
+            assert!(!cap.available && cap.reason.as_deref().is_some_and(|r| !r.is_empty()), "{name}");
+        }
     }
 
     #[test]

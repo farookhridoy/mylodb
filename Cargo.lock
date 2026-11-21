@@ -2824,6 +2824,7 @@ dependencies = [
  "myq-profile",
  "myq-schema",
  "myq-sql",
+ "myq-sqlite",
  "myq-store",
  "myq-transfer",
  "myq-tunnel",
@@ -2914,6 +2915,17 @@ dependencies = [
  "myq-schema",
  "serde",
  "sqlformat",
+]
+
+[[package]]
+name = "myq-sqlite"
+version = "0.1.0"
+dependencies = [
+ "myq-core",
+ "myq-data",
+ "myq-sql",
+ "rusqlite",
+ "tokio",
 ]
 
 [[package]]

@@ -28,6 +28,10 @@ export interface SavedConnection {
   confirm_destructive?: boolean;
   /// Folder the connection is listed under in the picker; empty or null: ungrouped.
   group?: string | null;
+  /// MySQL / MariaDB (default) or a SQLite file.
+  engine?: "mysql" | "sqlite";
+  /// The database file, for `engine = "sqlite"`.
+  file?: string | null;
   /// false + a default database: only that database is listed.
   show_all_databases?: boolean;
   ssh?: SshConfig | null;
@@ -343,8 +347,9 @@ export async function onJobProgress(jobId: string, cb: (p: JobProgress) => void)
 export interface Cap { available: boolean; reason: string | null }
 /** What the connected server can do; a feature it lacks comes with the reason. */
 export interface Capabilities {
-  flavor: "mysql" | "mariadb";
+  flavor: "mysql" | "mariadb" | "sqlite";
   schemas: Cap; routines: Cap; triggers: Cap; events: Cap; users: Cap; replication: Cap; explain_analyze: Cap; read_only_session: Cap; row_estimates: Cap;
+  server_tools: Cap; dump_restore: Cap; writes: Cap;
 }
 export const capabilitiesApi = { get: (id: number) => invoke<Capabilities>("capabilities", { id }) };
 

@@ -31,8 +31,9 @@ fn restrict_databases(index: Vec<Node>, only: Option<&str>) -> Vec<Node> {
 
 /// A live connection: its pool and the cached name index the filter runs over.
 struct Session {
+    /// The MySQL pool; `None` for a SQLite file.
     #[allow(dead_code)]
-    pool: Pool,
+    pool: Option<Pool>,
     /// The engine behind this session; the read commands go through it.
     engine: Engine,
     index: Vec<Node>,
@@ -57,7 +58,7 @@ struct Session {
 }
 
 impl Session {
-    fn new(pool: Pool, engine: Engine, index: Vec<Node>, tunnel: Option<myq_tunnel::Tunnel>, safety: Safety, only_database: Option<String>) -> Session {
+    fn new(pool: Option<Pool>, engine: Engine, index: Vec<Node>, tunnel: Option<myq_tunnel::Tunnel>, safety: Safety, only_database: Option<String>) -> Session {
         let mut s = Session { pool, engine, index: Vec::new(), by_db: HashMap::new(), db_positions: Vec::new(), columns_loaded: Default::default(), catalog: myq_sql::Catalog::default(), completion_nodes: Vec::new(), completion_loaded: Default::default(), safety, only_database, tunnel };
         s.set_index(index);
         s
@@ -121,6 +122,7 @@ fn err(e: impl std::fmt::Display) -> String {
 fn guard_writable(state: &tauri::State<'_, AppState>, id: i64, what: &str) -> Result<(), String> {
     let sessions = state.sessions.lock().unwrap();
     match sessions.get(&id) {
+        Some(s) if matches!(s.engine, Engine::Sqlite(_)) => Err(format!("This SQLite file is open read-only in this version, so {what} is not allowed.")),
         Some(s) if s.safety.read_only => Err(format!("This connection is read-only, so {what} is not allowed. Edit the connection to turn read-only off.")),
         _ => Ok(()),
     }
@@ -192,6 +194,17 @@ async fn establish(
 /// Connect, build the name index, and return it to the UI.
 #[tauri::command]
 async fn connect(state: tauri::State<'_, AppState>, id: i64, trust_fingerprint: Option<String>) -> Result<Vec<Node>, ConnectError> {
+    let saved = state.store.lock().unwrap().connection(id).map_err(err)?;
+    if let Some(c) = saved.as_ref().filter(|c| c.engine == myq_store::EngineKind::Sqlite) {
+        // a SQLite file: no network, no tunnel, always read-only
+        let file = c.file.clone().filter(|f| !f.trim().is_empty()).ok_or_else(|| "this connection has no database file".to_string())?;
+        let backend = myq_sqlite::SqliteBackend::open(file)?;
+        let engine = Engine::Sqlite(backend);
+        let index = engine.index(false).await.map_err(err)?;
+        let safety = Safety { environment: c.environment, read_only: true, timeout_secs: None, confirm_destructive: c.confirm_destructive };
+        state.sessions.lock().unwrap().insert(id, Session::new(None, engine, index.clone(), None, safety, None));
+        return Ok(index);
+    }
     let (cfg, ssh) = {
         let store = state.store.lock().unwrap();
         let cfg = store.config_for(id).map_err(err)?.ok_or_else(|| "connection not found".to_string())?;
@@ -209,7 +222,7 @@ async fn connect(state: tauri::State<'_, AppState>, id: i64, trust_fingerprint: 
     // names only: columns are loaded per database when needed, so connecting to a huge server stays fast
     let engine = Engine::mysql(p.clone());
     let index = restrict_databases(engine.index(false).await.map_err(err)?, only_database.as_deref());
-    state.sessions.lock().unwrap().insert(id, Session::new(p, engine, index.clone(), tunnel, safety, only_database));
+    state.sessions.lock().unwrap().insert(id, Session::new(Some(p), engine, index.clone(), tunnel, safety, only_database));
     Ok(index)
 }
 
@@ -224,6 +237,11 @@ struct TestResult {
 /// passphrase falls back to the saved one when editing an existing connection.
 #[tauri::command]
 async fn test_connection(state: tauri::State<'_, AppState>, connection: SavedConnection, trust_fingerprint: Option<String>) -> Result<TestResult, ConnectError> {
+    if connection.engine == myq_store::EngineKind::Sqlite {
+        let file = connection.file.clone().filter(|f| !f.trim().is_empty()).ok_or_else(|| "choose a database file".to_string())?;
+        myq_sqlite::SqliteBackend::open(file)?;
+        return Ok(TestResult { version: format!("SQLite {}", myq_sqlite::sqlite_version()), ssl_cipher: None, via_ssh: false });
+    }
     let mut cfg = connection.config.clone();
     let mut ssh = None;
     {
@@ -279,7 +297,9 @@ fn forget_ssh_host(state: tauri::State<AppState>, id: i64) -> Result<(), String>
 async fn disconnect(state: tauri::State<'_, AppState>, id: i64) -> Result<(), String> {
     let session = state.sessions.lock().unwrap().remove(&id);
     if let Some(s) = session {
-        s.pool.disconnect().await.map_err(err)?;
+        if let Some(pool) = s.pool {
+            pool.disconnect().await.map_err(err)?;
+        }
     }
     Ok(())
 }
@@ -347,8 +367,11 @@ fn session_engine(state: &tauri::State<'_, AppState>, id: i64) -> Result<Engine,
     state.sessions.lock().unwrap().get(&id).map(|s| s.engine.clone()).ok_or_else(|| "not connected".to_string())
 }
 
+/// The MySQL pool of a session. A SQLite session has none: the features that need it say so.
 fn session_pool(state: &tauri::State<'_, AppState>, id: i64) -> Result<Pool, String> {
-    state.sessions.lock().unwrap().get(&id).map(|s| s.pool.clone()).ok_or_else(|| "not connected".to_string())
+    let sessions = state.sessions.lock().unwrap();
+    let s = sessions.get(&id).ok_or("not connected")?;
+    s.pool.clone().ok_or_else(|| "this feature needs a MySQL or MariaDB connection; it is not available for a SQLite file".to_string())
 }
 
 /// Sizes and row estimates of a database's tables (one query), for the object browser.
@@ -408,7 +431,7 @@ async fn run_query(
     // `Some(false)` runs the script with foreign key checks off, `Some(true)` forces them on; `None` leaves the server's setting.
     foreign_key_checks: Option<bool>,
 ) -> Result<Vec<StatementResult>, String> {
-    let (pool, safety) = state.sessions.lock().unwrap().get(&id).map(|s| (s.pool.clone(), s.safety)).ok_or("not connected")?;
+    let (engine, safety) = state.sessions.lock().unwrap().get(&id).map(|s| (s.engine.clone(), s.safety)).ok_or("not connected")?;
     // A read-only connection is read-only on the server (the session). This check refuses the obvious writes, and attempts to switch the
     // session back to read-write, before anything is sent, with a message that says why.
     if safety.read_only {
@@ -416,6 +439,15 @@ async fn run_query(
             return Err(format!("Not run: this connection is read-only, and statement {} ({}) {why}. Edit the connection to turn read-only off.", n + 1, text.lines().next().unwrap_or("").chars().take(60).collect::<String>()));
         }
     }
+    if matches!(engine, Engine::Sqlite(_)) {
+        // a SQLite file: opened read-only, no foreign-key switch, no server-side cancel
+        let started = std::time::Instant::now();
+        let results = engine.run(database.as_deref(), &sql).await.map_err(err)?;
+        let ok = results.iter().all(|r| r.error.is_none());
+        let _ = state.store.lock().unwrap().add_history(id, sql.trim(), started.elapsed().as_millis() as u64, ok);
+        return Ok(results);
+    }
+    let pool = session_pool(&state, id)?;
     let mut conn = pool.get_conn().await.map_err(err)?;
     if let Some(on) = foreign_key_checks {
         myq_driver::set_foreign_key_checks(&mut conn, on).await.map_err(err)?;
@@ -458,7 +490,11 @@ async fn review_sql(state: tauri::State<'_, AppState>, id: i64, database: Option
     let (pool, safety) = state.sessions.lock().unwrap().get(&id).map(|s| (s.pool.clone(), s.safety)).ok_or("not connected")?;
     let risks = myq_sql::review(&sql);
     let mut items = Vec::new();
-    let mut conn = if risks.is_empty() { None } else { Some(pool.get_conn().await.map_err(err)?) };
+    // a SQLite session has no pool: the review still lists the risks, without a row estimate
+    let mut conn = match (&pool, risks.is_empty()) {
+        (Some(p), false) => Some(p.get_conn().await.map_err(err)?),
+        _ => None,
+    };
     for risk in risks {
         let writes_rows = risk.findings.iter().any(|f| matches!(f.kind, myq_sql::RiskKind::DeleteWithoutWhere | myq_sql::RiskKind::UpdateWithoutWhere));
         let estimated_rows = match (&mut conn, writes_rows || is_row_statement(&risk.sql)) {
@@ -481,7 +517,11 @@ async fn cancel_query(state: tauri::State<'_, AppState>, run_id: String) -> Resu
     let target = state.running.lock().unwrap().get(&run_id).copied();
     let Some((id, server_conn)) = target else { return Ok(()) };
     let pool = state.sessions.lock().unwrap().get(&id).map(|s| s.pool.clone()).ok_or("not connected")?;
-    kill_query(&pool, server_conn).await.map_err(err)
+    // a SQLite run cannot be cancelled from here (it is registered nowhere), so only MySQL sessions get here with a pool
+    match pool {
+        Some(pool) => kill_query(&pool, server_conn).await.map_err(err),
+        None => Ok(()),
+    }
 }
 
 /// Databases visible on the connection, for the editor's database selector.
@@ -496,18 +536,37 @@ fn list_databases(state: tauri::State<AppState>, id: i64) -> Result<Vec<String>,
 
 /// A dedicated server connection from the session's pool.
 async fn conn_for(state: &tauri::State<'_, AppState>, id: i64) -> Result<myq_driver::Conn, String> {
-    let pool = state.sessions.lock().unwrap().get(&id).map(|s| s.pool.clone()).ok_or("not connected")?;
-    pool.get_conn().await.map_err(err)
+    session_pool(state, id)?.get_conn().await.map_err(err)
+}
+
+/// The file of a SQLite session, or `None` for a MySQL one.
+fn sqlite_file(state: &tauri::State<'_, AppState>, id: i64) -> Option<std::path::PathBuf> {
+    state.sessions.lock().unwrap().get(&id).and_then(|s| s.engine.sqlite_path().map(|p| p.to_path_buf()))
+}
+
+/// Run blocking SQLite work off the async runtime's threads.
+async fn blocking<T: Send + 'static>(f: impl FnOnce() -> Result<T, String> + Send + 'static) -> Result<T, String> {
+    tokio::task::spawn_blocking(f).await.map_err(err)?
 }
 
 #[tauri::command]
 async fn table_meta(state: tauri::State<'_, AppState>, id: i64, db: String, table: String) -> Result<TableMeta, String> {
+    if let Some(path) = sqlite_file(&state, id) {
+        return blocking(move || myq_sqlite::table_meta(&path, &table)).await;
+    }
     let mut c = conn_for(&state, id).await?;
     myq_data::table_meta(&mut c, &db, &table).await.map_err(err)
 }
 
 #[tauri::command]
 async fn table_page(state: tauri::State<'_, AppState>, id: i64, db: String, table: String, spec: PageSpec) -> Result<Page, String> {
+    if let Some(path) = sqlite_file(&state, id) {
+        return blocking(move || {
+            let meta = myq_sqlite::table_meta(&path, &table)?;
+            myq_sqlite::fetch_page(&path, &meta, &spec)
+        })
+        .await;
+    }
     let mut c = conn_for(&state, id).await?;
     let meta = myq_data::table_meta(&mut c, &db, &table).await.map_err(err)?;
     myq_data::fetch_page(&mut c, &meta, &spec).await.map_err(err)
@@ -515,6 +574,13 @@ async fn table_page(state: tauri::State<'_, AppState>, id: i64, db: String, tabl
 
 #[tauri::command]
 async fn table_count(state: tauri::State<'_, AppState>, id: i64, db: String, table: String, filters: Vec<ColumnFilter>, where_sql: Option<String>, run_id: Option<String>) -> Result<u64, String> {
+    if let Some(path) = sqlite_file(&state, id) {
+        return blocking(move || {
+            let meta = myq_sqlite::table_meta(&path, &table)?;
+            myq_sqlite::count_rows(&path, &meta, &filters, where_sql.as_deref())
+        })
+        .await;
+    }
     let mut c = conn_for(&state, id).await?;
     let meta = myq_data::table_meta(&mut c, &db, &table).await.map_err(err)?;
     // an exact COUNT(*) can take long on a big table: with a run id it can be cancelled like a query (KILL QUERY)
@@ -531,6 +597,9 @@ async fn table_count(state: tauri::State<'_, AppState>, id: i64, db: String, tab
 /// A quick row estimate (table statistics, or EXPLAIN when filtered). None when the server has none.
 #[tauri::command]
 async fn table_count_estimate(state: tauri::State<'_, AppState>, id: i64, db: String, table: String, filters: Vec<ColumnFilter>, where_sql: Option<String>) -> Result<Option<u64>, String> {
+    if sqlite_file(&state, id).is_some() {
+        return Ok(None); // SQLite keeps no statistics; the grid counts exactly
+    }
     let mut c = conn_for(&state, id).await?;
     let meta = myq_data::table_meta(&mut c, &db, &table).await.map_err(err)?;
     myq_data::estimate_count(&mut c, &meta, &filters, where_sql.as_deref()).await.map_err(err)
@@ -652,7 +721,15 @@ async fn database_list(state: tauri::State<'_, AppState>, id: i64) -> Result<Vec
 /// Table counts and sizes per database. Slower than the list (it reads every table's statistics), so the page asks for it separately.
 #[tauri::command]
 async fn database_sizes(state: tauri::State<'_, AppState>, id: i64) -> Result<Vec<(String, u64, u64)>, String> {
-    let (pool, only) = state.sessions.lock().unwrap().get(&id).map(|s| (s.pool.clone(), s.only_database.clone())).ok_or("not connected")?;
+    let (pool, only, tables) = {
+        let sessions = state.sessions.lock().unwrap();
+        let s = sessions.get(&id).ok_or("not connected")?;
+        (s.pool.clone(), s.only_database.clone(), s.index.iter().filter(|n| n.kind == Kind::Table).count() as u64)
+    };
+    let Some(pool) = pool else {
+        // a SQLite file: one database, no size statistics
+        return Ok(vec![("main".to_string(), tables, 0)]);
+    };
     let mut rows = myq_driver::database_sizes(&pool).await.map_err(err)?;
     if let Some(db) = only {
         rows.retain(|r| r.0 == db);
@@ -796,7 +873,8 @@ async fn run_plan(state: tauri::State<'_, AppState>, id: i64, statements: Vec<St
     if statements.is_empty() {
         return Err("there is nothing to run".into());
     }
-    let (pool, safety) = state.sessions.lock().unwrap().get(&id).map(|s| (s.pool.clone(), s.safety)).ok_or("not connected")?;
+    let safety = state.sessions.lock().unwrap().get(&id).map(|s| s.safety).ok_or("not connected")?;
+    let pool = session_pool(&state, id)?;
     let mut conn = pool.get_conn().await.map_err(err)?;
     let sql = statements.join("\n");
     let started = std::time::Instant::now();
@@ -1602,7 +1680,7 @@ mod session_tests {
     fn session() -> Session {
         // a pool opens no connection until it is used
         let pool = Pool::new("mysql://root@127.0.0.1:1/");
-        Session::new(pool.clone(), Engine::mysql(pool), vec![node("shop", Kind::Database, "shop", None), node("shop", Kind::Table, "orders", None)], None, Safety::default(), None)
+        Session::new(Some(pool.clone()), Engine::mysql(pool), vec![node("shop", Kind::Database, "shop", None), node("shop", Kind::Table, "orders", None)], None, Safety::default(), None)
     }
 
     fn column_suggested(s: &Session, col: &str) -> bool {

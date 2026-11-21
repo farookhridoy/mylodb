@@ -211,6 +211,15 @@ export type Scope = { level: "global" } | { level: "database"; db: string } | { 
 export type ScopeGrant = Scope & { privileges: string[]; columns: Record<string, string[]>; grant_option: boolean };
 export interface Grants { scopes: ScopeGrant[]; unsupported: string[] }
 
+export interface TableHit { table: string; rows: number; columns: [string, number][] }
+export interface SearchResult { hits: TableHit[]; tables_total: number; tables_scanned: number; cancelled: boolean; skipped: string[] }
+export interface SearchRequest { needle: string; exact: boolean; all_columns: boolean; tables?: string[] | null }
+export const searchApi = {
+  run: (id: number, jobId: string, db: string, request: SearchRequest) => invoke<SearchResult>("search_data", { id, jobId, db, request }),
+  /** Stops the search between tables and kills the statement that is running. */
+  cancel: async (jobId: string) => { await invoke<void>("cancel_job", { jobId }); await invoke<void>("cancel_query", { runId: jobId }).catch(() => {}); },
+};
+
 export type ChangeKind = "added" | "changed" | "removed";
 export interface TableChange { table: string; kind: ChangeKind; statements: string[]; deferred: string[]; destructive: boolean }
 export interface SchemaCompare { changes: TableChange[]; identical: number; warnings: string[] }

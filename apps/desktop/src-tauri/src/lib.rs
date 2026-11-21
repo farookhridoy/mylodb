@@ -966,6 +966,22 @@ impl Drop for JobGuard<'_> {
     }
 }
 
+/// Search a database for a value (Search → Data search). `job_id` lets the UI cancel it and follow its progress ("job-progress"); a
+/// cancel also stops the statement that is running, and what was found so far is returned.
+#[tauri::command]
+async fn search_data(app: tauri::AppHandle, state: tauri::State<'_, AppState>, id: i64, job_id: String, db: String, request: myq_data::SearchRequest) -> Result<myq_data::SearchResult, String> {
+    let mut c = conn_for(&state, id).await?;
+    let guard = JobGuard::start(&state, &job_id);
+    state.running.lock().unwrap().insert(job_id.clone(), (id, c.id()));
+    let mut tick = job_progress(app, job_id.clone());
+    let flag = guard.flag.clone();
+    let is_cancelled = move || flag.load(std::sync::atomic::Ordering::Relaxed);
+    let mut progress = |done: usize, total: usize| tick(myq_transfer::Progress { phase: "Searching".into(), done: done as u64, total: Some(total as u64), message: String::new() });
+    let result = myq_data::search_database(&mut c, &db, &request, &is_cancelled, &mut progress).await.map_err(err);
+    state.running.lock().unwrap().remove(&job_id);
+    result
+}
+
 #[tauri::command]
 fn cancel_job(state: tauri::State<AppState>, job_id: String) {
     if let Some(flag) = state.jobs.lock().unwrap().get(&job_id) {
@@ -1540,6 +1556,7 @@ fn build_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::
         .build()?;
     let search = SubmenuBuilder::new(app, "Search")
         .item(&with_icon("focus_filter", "Search Objects (DB Metadata)", icon!("search"))?)
+        .item(&with_icon("search_data", "Search Data in Database…", icon!("search"))?)
         .item(&with_icon("palette", "Command Palette…", icon!("terminal"))?)
         .build()?;
     let sql_editor = SubmenuBuilder::new(app, "SQL Editor")
@@ -1562,6 +1579,7 @@ fn build_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::
         .item(&with_icon("databases", "Databases…", icon!("database"))?)
         .item(&with_icon("structure", "Tables of Selected Database", icon!("table"))?)
         .item(&with_icon("new_table", "New Table…", icon!("plus"))?)
+        .item(&with_icon("compare", "Compare Schemas…", icon!("transfer"))?)
         .separator()
         .item(&SubmenuBuilder::new(app, "Tools")
             .item(&with_icon("users", "Users and Privileges", icon!("user"))?)
@@ -1605,6 +1623,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             open_url,
             schema_compare,
+            search_data,
             capabilities,
             list_connections,
             save_connection,

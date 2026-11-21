@@ -112,9 +112,15 @@ export type Op =
   | "between" | "in" | "regexp" | "is_null" | "not_null" | "is_empty";
 export interface ColumnFilter { column: string; op: Op; values: string[] }
 export interface Sort { column: string; desc: boolean }
-export interface PageSpec { filters: ColumnFilter[]; where_sql: string | null; sort: Sort[]; limit: number; offset: number }
+/** A position in primary-key order (keyset paging): much cheaper than OFFSET on big tables. */
+export type Cursor = { after: string[] } | { before: string[] } | "end";
+export interface PageSpec { filters: ColumnFilter[]; where_sql: string | null; sort: Sort[]; limit: number; offset: number; cursor?: Cursor | null }
 export interface Page {
   columns: ColumnInfo[]; rows: (string | null)[][]; long_cells: [number, number][]; has_more: boolean; elapsed_ms: number; sql: string;
+  /** Rows exist before this page. */
+  has_prev: boolean;
+  /** Keyset navigation works for this table and request; `first_key` / `last_key` are the cursors for previous and next. */
+  keyset: boolean; first_key: string[] | null; last_key: string[] | null;
 }
 export type CellValue = { kind: "null" } | { kind: "default" } | { kind: "text"; value: string } | { kind: "file"; value: string };
 export interface Assign { column: string; value: CellValue }
@@ -124,17 +130,21 @@ export type Change =
   | { op: "delete"; key: Assign[] };
 export interface CellData { is_null: boolean; len: number; truncated: boolean; base64: string | null }
 export interface LookupItem { value: string; label: string | null }
-export type ExportFormat = "csv" | "json" | "sql_insert" | "xml" | "html" | "xlsx";
+export type ExportFormat = "csv" | "json" | "json_lines" | "sql_insert" | "xml" | "html" | "xlsx";
 export const EXPORT_FORMATS: { format: ExportFormat; label: string; ext: string }[] = [
-  { format: "csv", label: "CSV", ext: "csv" }, { format: "json", label: "JSON", ext: "json" }, { format: "sql_insert", label: "SQL INSERT", ext: "sql" },
+  { format: "csv", label: "CSV", ext: "csv" }, { format: "json", label: "JSON", ext: "json" }, { format: "json_lines", label: "JSON Lines", ext: "jsonl" }, { format: "sql_insert", label: "SQL INSERT", ext: "sql" },
   { format: "xml", label: "XML", ext: "xml" }, { format: "html", label: "HTML table", ext: "html" }, { format: "xlsx", label: "Excel (XLSX)", ext: "xlsx" },
 ];
 
 export const dataApi = {
   meta: (id: number, db: string, table: string) => invoke<TableMeta>("table_meta", { id, db, table }),
   page: (id: number, db: string, table: string, spec: PageSpec) => invoke<Page>("table_page", { id, db, table, spec }),
-  count: (id: number, db: string, table: string, filters: ColumnFilter[], whereSql: string | null) =>
-    invoke<number>("table_count", { id, db, table, filters, whereSql }),
+  /** Exact count. With a run id it can be cancelled through `queryApi.cancel`. */
+  count: (id: number, db: string, table: string, filters: ColumnFilter[], whereSql: string | null, runId: string | null = null) =>
+    invoke<number>("table_count", { id, db, table, filters, whereSql, runId }),
+  /** A quick estimate (table statistics, or EXPLAIN when filtered); null when the server has none. */
+  estimate: (id: number, db: string, table: string, filters: ColumnFilter[], whereSql: string | null) =>
+    invoke<number | null>("table_count_estimate", { id, db, table, filters, whereSql }),
   preview: (id: number, db: string, table: string, changes: Change[]) => invoke<string[]>("preview_changes", { id, db, table, changes }),
   apply: (id: number, db: string, table: string, changes: Change[]) =>
     invoke<{ applied: number; insert_ids: number[] }>("apply_changes", { id, db, table, changes }),
@@ -144,8 +154,9 @@ export const dataApi = {
     invoke<number>("save_cell_to_file", { id, db, table, key, column, path }),
   lookup: (id: number, refSchema: string, refTable: string, refColumn: string, search: string) =>
     invoke<LookupItem[]>("fk_lookup", { id, refSchema, refTable, refColumn, search }),
-  exportTable: (id: number, db: string, table: string, spec: PageSpec, format: ExportFormat, nullText: string, path: string) =>
-    invoke<{ rows: number; warnings: string[] }>("export_table", { id, db, table, spec, options: { format, null_text: nullText }, path }),
+  /** Export as a job: progress arrives through `onJobProgress(jobId)`, `transferApi.cancel(jobId)` stops it (the promise then rejects with "cancelled"). */
+  exportTable: (id: number, jobId: string, db: string, table: string, spec: PageSpec, format: ExportFormat, nullText: string, gzip: boolean, path: string) =>
+    invoke<{ rows: number; warnings: string[] }>("export_table", { id, jobId, db, table, spec, options: { format, null_text: nullText, gzip }, path }),
 };
 
 // ---- schema designer ----
@@ -331,6 +342,6 @@ export const transferApi = {
   runSource: (id: number, jobId: string, path: string, options: RunOptions) => invoke<RunResult>("run_sql_source_job", { id, jobId, path, options }),
   backup: (id: number, jobId: string, options: BackupOptions, dir: string, name: string) => invoke<BackupResult>("backup_job", { id, jobId, options, dir, name }),
   cancel: (jobId: string) => invoke<void>("cancel_job", { jobId }),
-  exportQuery: (id: number, database: string | null, sql: string, format: ExportFormat, nullText: string, path: string) =>
-    invoke<{ rows: number; warnings: string[] }>("export_query", { id, database, sql, options: { format, null_text: nullText }, path }),
+  exportQuery: (id: number, jobId: string, database: string | null, sql: string, format: ExportFormat, nullText: string, gzip: boolean, path: string) =>
+    invoke<{ rows: number; warnings: string[] }>("export_query", { id, jobId, database, sql, options: { format, null_text: nullText, gzip }, path }),
 };

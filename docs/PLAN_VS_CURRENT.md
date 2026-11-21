@@ -1,5 +1,9 @@
 # MyLoDB: plan versus what exists, and the next phases
 
+> **Current status, priorities and the phase order are in [ROADMAP.md](ROADMAP.md)** (done / mandatory / nice to have / optional).
+> Phase 10 measurements: [BENCHMARKS.md](BENCHMARKS.md). phpMyAdmin parity, menu bar, preferences and extra database engines:
+> [PHPMYADMIN_AND_ENGINES.md](PHPMYADMIN_AND_ENGINES.md). The phase table in section 5 below is the older numbering; ROADMAP.md supersedes it.
+
 Compared on 2026-11-20 against two documents in this folder, checked against the code (not from memory):
 
 * `MyLoDB_Final_Product_and_Technical_Plan.md`, the product plan.
@@ -87,9 +91,9 @@ Note on sizes: MySQL 8 caches table statistics (`information_schema_stats_expiry
 
 | Plan item | Status | What exists / what is missing |
 |---|---|---|
-| Streaming, virtualized data grid | 🟡 | Server-side paging (up to 5,000 rows a page) with filters, sort and edit. Every row of the page becomes DOM: no row or column virtualization, no fetch-on-scroll, no bounded cache. |
-| Smart pagination | 🟡 | `LIMIT … OFFSET` only. No keyset / primary-key cursor, so deep pages slow down. Row count is an exact `COUNT(*)` in the background; should start from an estimate. |
-| Large dataset export | 🟡 | ✅ Constant-memory writers, six formats. ❌ JSON Lines, GZIP, fetch-size option, rows/bytes/elapsed progress and **cancel for exports started from the grid or a query**, segmented export. |
+| Streaming, virtualized data grid | ✅ rows / 🟡 columns | Phase 10: only the rows on screen are drawn (a 5,000-row page draws about 32); the page held in memory is bounded by the page size. Not done: column virtualization, a multi-page cache. |
+| Smart pagination | ✅ | Phase 10: keyset paging (a seek on the primary key) when the table allows it, 350 to 1,100 times faster than OFFSET at 10M rows; OFFSET otherwise or when sorted. The total starts as an instant estimate (≈), with a cancellable exact count. |
+| Large dataset export | ✅ / 🟡 | Phase 10: constant memory, JSON Lines, gzip, progress, cancel (also from the grid and the query export tab: that tab's Cancel button used to do nothing). Not done: segmented export. |
 | Production safe mode | ✅ | Phase 9, see section 6d. Not done: optional backup before a destructive operation, row limits, audit log beyond the query history. |
 | Staged editing and SQL preview | ✅ | Gap: query results are read-only. |
 | Query cancellation | ✅ | `KILL QUERY`. |
@@ -122,13 +126,13 @@ Note on sizes: MySQL 8 caches table statistics (`information_schema_stats_expiry
 
 ## 5. Next phases
 
-Phases 1–9 and the filter, theme and sidebar work are done. Rough effort for one developer; each phase ends with tests and a DMG.
+Phases 1–10 and the filter, theme and sidebar work are done. Phases 11 onwards were re-planned (phpMyAdmin-style admin console first): see ROADMAP.md. Rough effort for one developer; each phase ends with tests and a DMG.
 
 | Phase | Theme | Scope | Effort |
 |---|---|---|---|
 | **8** ✅ | **Object browser completion** | Done: indexes under tables, database size, views / routines / triggers / events (definition, drop, templates), state remembered per connection, F5. Moved to Phase 11: sort, Info panel, drag into editor, alter database, collapse all, rename of routines. | done |
 | **9** ✅ | **Production Safety** | Done: environment badge and colour; server-enforced read-only; destructive-SQL review with row estimates; query timeout; confirm-on-commit. Open: backup before destructive operations, row limits. | done |
-| **10** | **Large Data Engine** | Virtualized grid; lazy fetch with a bounded cache; keyset pagination; estimated counts; exports as cancellable tasks (progress, JSON Lines, GZIP); 1M and 10M-row benchmarks. | 3–4 wk |
+| **10** ✅ | **Large Data Engine** | Done (see BENCHMARKS.md). Open: column virtualization, page cache, segmented export. | done |
 | **11** | **SQL workspace parity** | Browser leftovers (sort, Info panel, drag into editor, alter database); open / save `.sql` (new tab or current), drag-open, templates; text result mode; copy with options; **Preferences** dialog; command palette (⌘K); connection tabs (several servers at once); connection groups and environments. | 2–3 wk |
 | **12** | **Quality gates** | Tasks panel; GitHub Actions on macOS arm64 / x64; MySQL 5.7 / 8.0 / 9 and MariaDB in containers; network-drop and restart tests. | 1–2 wk |
 | **13** | **Power tools** | Data Search; schema compare with migration preview; data compare; copy database / table between connections; schema documentation (HTML). | 4–5 wk |
@@ -248,3 +252,14 @@ What this does **not** do, so nobody relies on it too much:
 * Object browser: connection root node with reset, three-level filter (databases → tables → columns), column types, table sizes.
 * New backend queries `table_stats` (one per database) and `column_details` (one per table), with a real-MySQL test.
 * Earlier in the same effort: scoped, lazy, paged tree (no hang on big servers); light, dark and system themes.
+
+## 7. Large data engine (Phase 10), summary
+
+* Keyset paging (`Cursor::After / Before / End`) with exact integer binding (a text parameter would be compared as a double and lose precision
+  above 2^53), tested against OFFSET paging on integer, huge-integer, composite and string keys, with filters, on an empty table, and on key types
+  that must fall back.
+* Row estimates (`estimate_count`): instant from table statistics, or from `EXPLAIN` when filtered; the exact count is cancellable.
+* Exports are jobs: progress every 1,000 rows, cancel (the partial file is removed), JSON Lines, gzip. Fixed on the way: the query export tab's Cancel
+  button was wired to an empty function and the export never reported progress.
+* Windowed grid: fixed row height, spacers, overscan; Cmd+Home / Cmd+End / PageUp / PageDown scroll the active row into view.
+* Measured before and after at 1M and 10M rows in release builds: BENCHMARKS.md. A first run in a debug build was misleading (14 times slower).

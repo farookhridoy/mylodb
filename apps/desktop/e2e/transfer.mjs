@@ -212,7 +212,7 @@ await page.click(".row-item.leaf:has-text('orders')", { button: "right" });
 await page.click(".ctx-label:text-is('View Data')");
 await page.waitForSelector("table.dg");
 await page.click("button:text-is('Export ▾')");
-assert.deepEqual((await page.locator(".popup button.link").allInnerTexts()).map((t) => t.replace("…", "")), ["CSV", "JSON", "SQL INSERT", "XML", "HTML table", "Excel (XLSX)"]);
+assert.deepEqual((await page.locator(".popup button.link").allInnerTexts()).map((t) => t.replace("…", "")), ["CSV", "JSON", "JSON Lines", "SQL INSERT", "XML", "HTML table", "Excel (XLSX)"]);
 await set("__nextSave", "/Users/me/orders.xml");
 await page.click(".popup button.link:has-text('XML')");
 await page.waitForSelector(".banner.ok:has-text('Exported')");

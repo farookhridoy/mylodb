@@ -478,10 +478,26 @@ async fn table_page(state: tauri::State<'_, AppState>, id: i64, db: String, tabl
 }
 
 #[tauri::command]
-async fn table_count(state: tauri::State<'_, AppState>, id: i64, db: String, table: String, filters: Vec<ColumnFilter>, where_sql: Option<String>) -> Result<u64, String> {
+async fn table_count(state: tauri::State<'_, AppState>, id: i64, db: String, table: String, filters: Vec<ColumnFilter>, where_sql: Option<String>, run_id: Option<String>) -> Result<u64, String> {
     let mut c = conn_for(&state, id).await?;
     let meta = myq_data::table_meta(&mut c, &db, &table).await.map_err(err)?;
-    myq_data::count_rows(&mut c, &meta, &filters, where_sql.as_deref()).await.map_err(err)
+    // an exact COUNT(*) can take long on a big table: with a run id it can be cancelled like a query (KILL QUERY)
+    if let Some(run) = &run_id {
+        state.running.lock().unwrap().insert(run.clone(), (id, c.id()));
+    }
+    let n = myq_data::count_rows(&mut c, &meta, &filters, where_sql.as_deref()).await.map_err(err);
+    if let Some(run) = &run_id {
+        state.running.lock().unwrap().remove(run);
+    }
+    n
+}
+
+/// A quick row estimate (table statistics, or EXPLAIN when filtered). None when the server has none.
+#[tauri::command]
+async fn table_count_estimate(state: tauri::State<'_, AppState>, id: i64, db: String, table: String, filters: Vec<ColumnFilter>, where_sql: Option<String>) -> Result<Option<u64>, String> {
+    let mut c = conn_for(&state, id).await?;
+    let meta = myq_data::table_meta(&mut c, &db, &table).await.map_err(err)?;
+    myq_data::estimate_count(&mut c, &meta, &filters, where_sql.as_deref()).await.map_err(err)
 }
 
 #[tauri::command]
@@ -539,13 +555,23 @@ struct ExportSummary {
     warnings: Vec<String>,
 }
 
-/// Export every row matching `spec` to `path`. A partial file is removed on failure.
+/// Export every row matching `spec` to `path`, as a job: progress events while it runs, and `cancel_job` stops it.
+/// A partial file is removed on failure or cancel (the error is then "cancelled").
 #[tauri::command]
-async fn export_table(state: tauri::State<'_, AppState>, id: i64, db: String, table: String, spec: PageSpec, options: ExportOptions, path: String) -> Result<ExportSummary, String> {
+async fn export_table(app: tauri::AppHandle, state: tauri::State<'_, AppState>, id: i64, job_id: String, db: String, table: String, spec: PageSpec, options: ExportOptions, path: String) -> Result<ExportSummary, String> {
     let mut c = conn_for(&state, id).await?;
     let meta = myq_data::table_meta(&mut c, &db, &table).await.map_err(err)?;
     let options = ExportOptions { name: options.name.clone().or_else(|| Some(table.clone())), ..options };
-    match myq_data::export_rows(&mut c, &meta, &spec, &options, myq_data::Dest::File(std::path::Path::new(&path))).await {
+    // the estimate only draws the progress bar; it is not used for anything that must be exact
+    let total = myq_data::estimate_count(&mut c, &meta, &spec.filters, spec.where_sql.as_deref()).await.ok().flatten();
+    let guard = JobGuard::start(&state, &job_id);
+    let mut progress = job_progress(app, job_id);
+    let flag = guard.flag.clone();
+    let mut tick = move |rows: u64| {
+        progress(myq_transfer::Progress { phase: "export".into(), done: rows, total, message: format!("{rows} rows written") });
+        !flag.load(std::sync::atomic::Ordering::Relaxed)
+    };
+    match myq_data::export_rows(&mut c, &meta, &spec, &options, myq_data::Dest::File(std::path::Path::new(&path)), &mut tick).await {
         Ok(o) => Ok(ExportSummary { rows: o.rows, warnings: o.warnings }),
         Err(e) => {
             let _ = std::fs::remove_file(&path);
@@ -554,11 +580,18 @@ async fn export_table(state: tauri::State<'_, AppState>, id: i64, db: String, ta
     }
 }
 
-/// Export the result of one SELECT to a file.
+/// Export the result of one SELECT to a file, as a job (see `export_table`).
 #[tauri::command]
-async fn export_query(state: tauri::State<'_, AppState>, id: i64, database: Option<String>, sql: String, options: ExportOptions, path: String) -> Result<ExportSummary, String> {
+async fn export_query(app: tauri::AppHandle, state: tauri::State<'_, AppState>, id: i64, job_id: String, database: Option<String>, sql: String, options: ExportOptions, path: String) -> Result<ExportSummary, String> {
     let mut c = conn_for(&state, id).await?;
-    match myq_data::export_query(&mut c, database.as_deref(), &sql, &options, myq_data::Dest::File(std::path::Path::new(&path))).await {
+    let guard = JobGuard::start(&state, &job_id);
+    let mut progress = job_progress(app, job_id);
+    let flag = guard.flag.clone();
+    let mut tick = move |rows: u64| {
+        progress(myq_transfer::Progress { phase: "export".into(), done: rows, total: None, message: format!("{rows} rows written") });
+        !flag.load(std::sync::atomic::Ordering::Relaxed)
+    };
+    match myq_data::export_query(&mut c, database.as_deref(), &sql, &options, myq_data::Dest::File(std::path::Path::new(&path)), &mut tick).await {
         Ok(o) => Ok(ExportSummary { rows: o.rows, warnings: o.warnings }),
         Err(e) => {
             let _ = std::fs::remove_file(&path);
@@ -1151,6 +1184,7 @@ pub fn run() {
             table_meta,
             table_page,
             table_count,
+            table_count_estimate,
             preview_changes,
             apply_changes,
             fetch_cell,

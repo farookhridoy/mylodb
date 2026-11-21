@@ -2822,6 +2822,7 @@ name = "myq-data"
 version = "0.0.1"
 dependencies = [
  "base64 0.22.1",
+ "flate2",
  "myq-driver",
  "myq-sql",
  "rust_xlsxwriter",

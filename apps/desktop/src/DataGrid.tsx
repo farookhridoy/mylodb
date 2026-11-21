@@ -3,7 +3,7 @@ import Select from "./Select";
 import Icon from "./Icon";
 import { save as saveDialog } from "@tauri-apps/plugin-dialog";
 import {
-  dataApi, EXPORT_FORMATS, type Assign, type CellValue, type Change, type ExportFormat, type ForeignKey, type Page, type Sort, type TableMeta,
+  dataApi, EXPORT_FORMATS, queryApi, type Assign, type Cursor, type CellValue, type Change, type ExportFormat, type ForeignKey, type Page, type Sort, type TableMeta,
 } from "./api";
 import ContextMenu, { type MenuItem } from "./ContextMenu";
 import FkPicker from "./FkPicker";
@@ -11,6 +11,7 @@ import {
   OPS, b64ToBytes, bytesToText, cellLabel, isNumericType, opInfo, toCsv, toFilter, toJson, toSqlInsert, toTsv, type FilterInput,
 } from "./gridUtil";
 import { ConfirmDialog } from "./SidePanels";
+import { newJobId, ProgressBar, useJob } from "./Jobs";
 import ValuePanel from "./ValuePanel";
 
 /** Persisted per table tab: everything the user set up that should survive a restart. */
@@ -30,6 +31,15 @@ type Staged = { edits: Record<string, Record<string, CellValue>>; deleted: strin
 const noStaged = (): Staged => ({ edits: {}, deleted: [], added: [] });
 
 let newSeq = 0;
+
+/** Fixed row height: what lets the grid draw only the rows that are on screen. */
+const ROW_H = 22;
+/** Rows drawn above and below the visible ones, so scrolling does not show blanks. */
+const OVERSCAN = 12;
+/** Pages up to this many rows are drawn whole; bigger ones are windowed. */
+const VIRTUALIZE_FROM = 150;
+/** Below this many estimated rows the exact count is taken straight away (it is quick); above it the user asks for it. */
+const AUTO_COUNT_BELOW = 200_000;
 
 export default function DataGrid(props: {
   connectionId: number;
@@ -52,7 +62,29 @@ export default function DataGrid(props: {
   const [notice, setNotice] = useState<string | null>(null);
   const [view, setView] = useState<GridView>(props.initial);
   const [whereDraft, setWhereDraft] = useState(props.initial.where);
-  const [offset, setOffset] = useState(0);
+  // Where the page is: `base` numbers the rows; `cursor` (keyset paging) replaces OFFSET when the table allows it; `approx` after a
+  // jump to the end whose row numbers come from an estimate.
+  const [pos, setPos] = useState<{ base: number; cursor: Cursor | null; approx: boolean }>({ base: 0, cursor: null, approx: false });
+  const offset = pos.base;
+  const setOffset = (n: number) => setPos({ base: n, cursor: null, approx: false });
+  const [estimate, setEstimate] = useState<number | null>(null);
+
+  const [counting, setCounting] = useState(false);
+  // After a jump to the end, row numbers count back from the total (exact once it is known, else the estimate, marked with ≈).
+  const atEnd = pos.cursor === "end";
+  useEffect(() => {
+    if (!atEnd || !page) return;
+    const n = page.rows.length;
+    setPos((cur) => (cur.cursor === "end" ? { ...cur, base: Math.max(0, (total ?? estimate ?? n) - n), approx: total === null } : cur));
+  }, [atEnd, page, total, estimate]);
+  const countRun = useRef<string | null>(null);
+  const countFor = useRef("");
+  const [gzip, setGzip] = useState(false);
+  const exportJob = useJob<{ rows: number; warnings: string[]; path: string }>();
+  const [scrollTop, setScrollTop] = useState(0);
+  const [viewH, setViewH] = useState(600);
+  const [headH, setHeadH] = useState(56);
+  const thead = useRef<HTMLTableSectionElement>(null);
   const [tick, setTick] = useState(0);
   const [staged, setStaged] = useState<Staged>(noStaged);
   const [active, setActive] = useState<{ r: number; c: number } | null>(null);
@@ -123,32 +155,57 @@ export default function DataGrid(props: {
   }, [editable, meta, page, keyIdx, longSet]);
 
   // ---------- loading ----------
-  const buildSpec = useCallback((off: number, limit = view.pageSize) => ({
-    filters: activeFilters, where_sql: view.where.trim() || null, sort: view.sort, limit, offset: off,
+  const buildSpec = useCallback((off: number, limit = view.pageSize, cursor: Cursor | null = null) => ({
+    filters: activeFilters, where_sql: view.where.trim() || null, sort: view.sort, limit, offset: off, cursor,
   }), [activeFilters, view.where, view.sort, view.pageSize]);
+  /** What identifies the page in the load effect: the cursor, or the offset when there is none. */
+  const posKey = JSON.stringify([pos.cursor, pos.cursor ? 0 : pos.base]);
 
   useEffect(() => {
     dataApi.meta(cid, db, table).then(setMeta).catch((e) => setError(String(e)));
   }, [cid, db, table, tick]);
 
+  const startCount = useCallback(async (key: string) => {
+    const run = newJobId();
+    countRun.current = run;
+    setCounting(true);
+    try {
+      const n = await dataApi.count(cid, db, table, activeFilters, view.where.trim() || null, run);
+      if (countFor.current === key) setTotal(n);
+    } catch { /* cancelled, or the server refused: the estimate stays */ }
+    finally { if (countRun.current === run) { countRun.current = null; setCounting(false); } }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cid, db, table, activeFilters, view.where]);
+  const cancelCount = () => { if (countRun.current) queryApi.cancel(countRun.current).catch(() => {}); };
+
   useEffect(() => {
     // A changed filter/sort/page size always restarts at the first page.
-    if (specKey !== lastSpec.current && offset !== 0) { lastSpec.current = specKey; setOffset(0); return; }
+    if (specKey !== lastSpec.current && (pos.base !== 0 || pos.cursor)) { lastSpec.current = specKey; setPos({ base: 0, cursor: null, approx: false }); return; }
     const first = lastSpec.current === "";
     lastSpec.current = specKey;
     const mine = ++seq.current;
     const t = setTimeout(async () => {
       setLoading(true);
       try {
-        const p = await dataApi.page(cid, db, table, buildSpec(offset));
+        const p = await dataApi.page(cid, db, table, buildSpec(pos.cursor ? 0 : pos.base, view.pageSize, pos.cursor));
         if (mine !== seq.current) return;
         setPage(p); setError(null); setActive(null); setSelected(new Set()); setEditing(null);
-        if (!p.has_more) setTotal(offset + p.rows.length);
-        else {
-          setTotal(null);
-          dataApi.count(cid, db, table, activeFilters, view.where.trim() || null)
-            .then((n) => mine === seq.current && setTotal(n)).catch(() => {});
-        }
+        // The total only changes with the filters (or a refresh), not with the page: it is looked up once per spec.
+        const countKey = `${specKey}|${tick}`;
+        if (countFor.current !== countKey) {
+          countFor.current = countKey;
+          setTotal(null); setEstimate(null);
+          if (!p.has_prev && !p.has_more) setTotal(p.rows.length);
+          else if (!pos.cursor && !p.has_more) setTotal(pos.base + p.rows.length);
+          else {
+            dataApi.estimate(cid, db, table, activeFilters, view.where.trim() || null).then((est) => {
+              if (countFor.current !== countKey) return;
+              setEstimate(est);
+              // small tables are counted exactly straight away; for big ones that is the user's call
+              if (est === null || est < AUTO_COUNT_BELOW) startCount(countKey);
+            }).catch(() => {});
+          }
+        } else if (!pos.cursor && !p.has_more) setTotal(pos.base + p.rows.length); // reached the end by paging: now exact
       } catch (e) {
         if (mine === seq.current) setError(String(e));
       } finally {
@@ -157,7 +214,18 @@ export default function DataGrid(props: {
     }, first ? 0 : 300);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [specKey, offset, tick, cid, db, table]);
+  }, [specKey, posKey, tick, cid, db, table]);
+
+  // ---------- windowing: only the rows on screen are in the page's DOM ----------
+  useEffect(() => {
+    const el = scroller.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setViewH(el.clientHeight));
+    ro.observe(el);
+    setViewH(el.clientHeight);
+    return () => ro.disconnect();
+  }, []);
+  useEffect(() => { if (thead.current) setHeadH(thead.current.offsetHeight); }, [view.filterRow, page?.columns.length]);
 
   useEffect(() => { props.onViewChange(view); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [view]);
   useEffect(() => { if (notice) { const t = setTimeout(() => setNotice(null), 5000); return () => clearTimeout(t); } }, [notice]);
@@ -355,13 +423,11 @@ export default function DataGrid(props: {
   const doExport = async (format: ExportFormat) => {
     setPopup(null);
     const ext = EXPORT_FORMATS.find((f) => f.format === format)!.ext;
-    const path = await saveDialog({ defaultPath: `${table}.${ext}` });
+    const zip = gzip && format !== "xlsx";
+    const path = await saveDialog({ defaultPath: `${table}.${ext}${zip ? ".gz" : ""}` });
     if (!path) return;
-    try {
-      setNotice(`Exporting to ${path} …`);
-      const r = await dataApi.exportTable(cid, db, table, buildSpec(0), format, "NULL", path);
-      setNotice(`Exported ${r.rows.toLocaleString()} row(s) to ${path}${r.warnings.length ? " — " + r.warnings.join("; ") : ""}`);
-    } catch (e) { setNotice(null); setError(String(e)); }
+    // a job: progress while it runs, and Cancel stops it (the partial file is removed)
+    exportJob.run(async (jobId) => ({ ...(await dataApi.exportTable(cid, jobId, db, table, buildSpec(0), format, "NULL", zip, path)), path }));
   };
 
   // ---------- foreign keys ----------
@@ -424,11 +490,15 @@ export default function DataGrid(props: {
     if (editing || !active || !page) return;
     const mod = e.metaKey || e.ctrlKey;
     const lastC = page.columns.length - 1;
-    const go = (r: number, c: number) => { e.preventDefault(); setActive({ r: Math.max(0, Math.min(rows.length - 1, r)), c: Math.max(0, Math.min(lastC, c)) }); };
+    const go = (r: number, c: number) => { e.preventDefault(); const rr = Math.max(0, Math.min(rows.length - 1, r)); setActive({ r: rr, c: Math.max(0, Math.min(lastC, c)) }); reveal(rr); };
     if (e.key === "ArrowDown") go(active.r + 1, active.c);
     else if (e.key === "ArrowUp") go(active.r - 1, active.c);
     else if (e.key === "ArrowLeft") go(active.r, active.c - 1);
     else if (e.key === "ArrowRight") go(active.r, active.c + 1);
+    else if (e.key === "PageDown") go(active.r + pageRows, active.c);
+    else if (e.key === "PageUp") go(active.r - pageRows, active.c);
+    else if (e.key === "Home" && mod) go(0, active.c);
+    else if (e.key === "End" && mod) go(rows.length - 1, active.c);
     else if (e.key === "Enter" && mod) { e.preventDefault(); if (pendingCount) requestSubmit(); }
     else if (e.key === "Enter" || e.key === "F2") { e.preventDefault(); startEdit(active.r, active.c); }
     else if (mod && e.key === "c") { e.preventDefault(); copyCell(active.r, active.c); }
@@ -451,11 +521,35 @@ export default function DataGrid(props: {
   const widthOf = (name: string, type: string) => widths[name] ?? (/INT|LONG|SHORT|TINY|DECIMAL|FLOAT|DOUBLE/.test(type) ? 110 : /DATE|TIME/.test(type) ? 170 : /BLOB/.test(type) ? 130 : 180);
 
   // ---------- render ----------
-  const range = page ? (page.rows.length ? `${offset + 1}–${offset + page.rows.length}` : "0") : "…";
+  const range = page ? (page.rows.length ? `${pos.approx ? "≈ " : ""}${(offset + 1).toLocaleString()}–${(offset + page.rows.length).toLocaleString()}` : "0") : "…";
   const lastOffset = total !== null && total > 0 ? Math.floor((total - 1) / view.pageSize) * view.pageSize : null;
+  // Keyset paging (a seek by primary key) is used when the table allows it and the user has not sorted; otherwise OFFSET.
+  const keysetOK = !!page?.keyset && view.sort.length === 0;
+  const goFirst = () => guard(() => setPos({ base: 0, cursor: null, approx: false }));
+  const goNext = () => guard(() => setPos({ base: offset + view.pageSize, cursor: keysetOK && page?.last_key ? { after: page.last_key } : null, approx: pos.approx }));
+  const goPrev = () => guard(() => setPos({ base: Math.max(0, offset - view.pageSize), cursor: keysetOK && page?.first_key ? { before: page.first_key } : null, approx: pos.approx }));
+  const goLast = () => guard(() => {
+    if (keysetOK) setPos({ base: lastOffset ?? offset, cursor: "end", approx: lastOffset === null });
+    else if (lastOffset !== null) setOffset(lastOffset);
+  });
   const activeRow = active ? rows[active.r] : undefined;
   const activeCol = active && page ? colMeta(page.columns[active.c].name) : undefined;
   const activeCell = activeRow && active ? cellOf(activeRow, active.c) : null;
+
+  const virtual = rows.length > VIRTUALIZE_FROM;
+  const bodyTop = Math.max(0, scrollTop - headH);
+  const winStart = virtual ? Math.max(0, Math.floor(bodyTop / ROW_H) - OVERSCAN) : 0;
+  const winEnd = virtual ? Math.min(rows.length, Math.ceil((bodyTop + viewH) / ROW_H) + OVERSCAN) : rows.length;
+  const pageRows = Math.max(1, Math.floor((viewH - headH) / ROW_H) - 1);
+
+  /** Scroll so that row `r` is on screen (the row may not be in the DOM). */
+  const reveal = (r: number) => {
+    const el = scroller.current;
+    if (!el) return;
+    const top = r * ROW_H, bottom = top + ROW_H;
+    if (top < el.scrollTop) el.scrollTop = top;
+    else if (bottom + headH > el.scrollTop + el.clientHeight) el.scrollTop = bottom + headH - el.clientHeight;
+  };
 
   if (error && !page && !meta) return <div className="error">{error}</div>;
 
@@ -464,11 +558,17 @@ export default function DataGrid(props: {
       <div className="dg-toolbar">
         <button title="Reload" onClick={() => guard(() => setTick((t) => t + 1))}>⟳</button>
         <span className="sep" />
-        <button disabled={offset === 0} onClick={() => guard(() => setOffset(0))} title="First page"><Icon name="first" /></button>
-        <button disabled={offset === 0} onClick={() => guard(() => setOffset(Math.max(0, offset - view.pageSize)))} title="Previous page"><Icon name="prev" /></button>
-        <span className="dim pager">{range} of {total === null ? "…" : total.toLocaleString()}</span>
-        <button disabled={!page?.has_more} onClick={() => guard(() => setOffset(offset + view.pageSize))} title="Next page"><Icon name="next" /></button>
-        <button disabled={lastOffset === null || offset >= lastOffset} onClick={() => lastOffset !== null && guard(() => setOffset(lastOffset))} title="Last page"><Icon name="last" /></button>
+        <button disabled={!page?.has_prev} onClick={goFirst} title="First page"><Icon name="first" /></button>
+        <button disabled={!page?.has_prev} onClick={goPrev} title="Previous page"><Icon name="prev" /></button>
+        <span className="dim pager" title={total === null && estimate !== null ? "An estimate from the table's statistics" : undefined}>
+          {range} of {total !== null ? total.toLocaleString() : estimate !== null ? `≈ ${estimate.toLocaleString()}` : "…"}
+        </span>
+        {total === null && !counting && estimate !== null && (
+          <button className="mini count-btn" onClick={() => startCount(countFor.current)} title="Count the rows exactly (can take a while on a big table)">Count</button>
+        )}
+        {counting && <><span className="dim">counting…</span><button className="mini" onClick={cancelCount} title="Stop counting">Stop</button></>}
+        <button disabled={!page?.has_more} onClick={goNext} title="Next page"><Icon name="next" /></button>
+        <button disabled={!page?.has_more || (!keysetOK && lastOffset === null)} onClick={goLast} title="Last page"><Icon name="last" /></button>
         <Select value={view.pageSize} onChange={(e) => patchView({ pageSize: Number(e.target.value) })} title="Rows per page">
           {[100, 250, 500, 1000, 5000].map((n) => <option key={n} value={n}>{n} rows</option>)}
         </Select>
@@ -502,6 +602,7 @@ export default function DataGrid(props: {
             <div className="popup" onMouseLeave={() => setPopup(null)}>
               <div className="dim small">All rows matching the current filters</div>
               {EXPORT_FORMATS.map((f) => <button key={f.format} className="link" onClick={() => doExport(f.format)}>{f.label}…</button>)}
+              <label className="small"><input type="checkbox" checked={gzip} onChange={(e) => setGzip(e.target.checked)} /> Compress with gzip (.gz)</label>
             </div>
           )}
         </div>
@@ -524,17 +625,21 @@ export default function DataGrid(props: {
       {props.readOnlyConnection && <div className="banner"><Icon name="lock" size={12} /> Read-only connection: rows cannot be changed here.</div>}
       {!props.readOnlyConnection && meta?.read_only_reason && <div className="banner">Read-only: {meta.read_only_reason}.</div>}
       {error && <div className="banner bad">{error} <button className="mini" onClick={() => setError(null)}><Icon name="close" size={10} /></button></div>}
+      {exportJob.running && <div className="dg-job"><ProgressBar p={exportJob.progress} running onCancel={exportJob.cancel} /></div>}
+      {exportJob.cancelled && <div className="banner">Export cancelled. The partial file was removed.</div>}
+      {exportJob.error && <div className="banner bad">{exportJob.error}</div>}
+      {exportJob.result && !exportJob.running && <div className="banner ok">Exported {exportJob.result.rows.toLocaleString()} row(s) to {exportJob.result.path}{exportJob.result.warnings.length ? " — " + exportJob.result.warnings.join("; ") : ""}</div>}
       {notice && <div className="banner ok">{notice}</div>}
 
       <div className="dg-main">
-        <div className="dg-scroll" ref={scroller} tabIndex={0} onKeyDown={onKeyDown}>
+        <div className="dg-scroll" ref={scroller} tabIndex={0} onKeyDown={onKeyDown} onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}>
           {page && (
             <table className="grid dg" style={{ width: 44 + visibleCols.reduce((n, { c }) => n + widthOf(c.name, c.type_name), 0) }}>
               <colgroup>
                 <col style={{ width: 44 }} />
                 {visibleCols.map(({ c }) => <col key={c.name} style={{ width: widthOf(c.name, c.type_name) }} />)}
               </colgroup>
-              <thead>
+              <thead ref={thead}>
                 <tr>
                   <th className="rownum" />
                   {visibleCols.map(({ c }) => {
@@ -578,7 +683,9 @@ export default function DataGrid(props: {
                 )}
               </thead>
               <tbody>
-                {rows.map((row, r) => {
+                {virtual && winStart > 0 && <tr className="vspacer" aria-hidden="true" style={{ height: winStart * ROW_H }}><td colSpan={visibleCols.length + 1} /></tr>}
+                {rows.slice(winStart, winEnd).map((row, k) => {
+                  const r = winStart + k;
                   const isDeleted = staged.deleted.includes(row.id);
                   return (
                     <tr key={row.id} className={`${row.isNew ? "row-new" : ""} ${isDeleted ? "row-deleted" : ""} ${selected.has(r) ? "row-selected" : ""}`}>
@@ -632,6 +739,7 @@ export default function DataGrid(props: {
                     </tr>
                   );
                 })}
+                {virtual && winEnd < rows.length && <tr className="vspacer" aria-hidden="true" style={{ height: (rows.length - winEnd) * ROW_H }}><td colSpan={visibleCols.length + 1} /></tr>}
               </tbody>
             </table>
           )}

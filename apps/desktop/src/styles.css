@@ -425,3 +425,10 @@ button.danger { background: var(--bad); border-color: var(--bad); color: #fff; }
 .ss-none { padding: 10px; color: var(--dim); text-align: center; }
 .conn-bar .ss-trigger { background: var(--control); border-color: var(--line); color: var(--text); font-weight: 500; }
 .conn-bar .ss-trigger:hover:not(:disabled) { background: var(--control); color: var(--text); }
+
+/* large data: fixed row height lets the grid draw only the rows on screen */
+.dg tbody tr { height: 22px; } .dg tbody td { height: 22px; padding-top: 0; padding-bottom: 0; line-height: 20px; overflow: hidden; }
+.dg tr.vspacer td { padding: 0; border: 0; } .dg tr.vspacer { height: auto; }
+.cell-edit input { height: 21px; padding: 0 8px; }
+.dg-job { padding: 6px 10px; border-bottom: 1px solid var(--line); background: var(--panel); }
+.count-btn { color: var(--accent); }

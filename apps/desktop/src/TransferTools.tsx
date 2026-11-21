@@ -7,54 +7,13 @@ import {
   type ImportResult, type InferredColumn, type JobProgress, type Node, type RunResult,
 } from "./api";
 import { ConfirmDialog } from "./SidePanels";
+import { newJobId, ProgressBar, useJob } from "./Jobs";
 
 export type TransferTab = "backup" | "restore" | "import" | "export";
 export interface TransferPreset { tab?: TransferTab; db?: string; table?: string }
 
-let jobSeq = 0;
-const newJobId = () => `job-${Date.now().toString(36)}-${jobSeq++}`;
 const fmtBytes = (n: number) => (n >= 1 << 30 ? `${(n / (1 << 30)).toFixed(2)} GB` : n >= 1 << 20 ? `${(n / (1 << 20)).toFixed(1)} MB` : n >= 1024 ? `${(n / 1024).toFixed(1)} KB` : `${n} B`);
 const fmtMs = (ms: number) => (ms >= 60000 ? `${(ms / 60000).toFixed(1)} min` : ms >= 1000 ? `${(ms / 1000).toFixed(1)} s` : `${ms} ms`);
-
-/** Run one long operation: tracks its id, live progress, and lets the user cancel it. */
-function useJob<T>() {
-  const [running, setRunning] = useState(false);
-  const [progress, setProgress] = useState<JobProgress | null>(null);
-  const [result, setResult] = useState<T | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [cancelled, setCancelled] = useState(false);
-  const jobId = useRef<string | null>(null);
-
-  const run = useCallback(async (fn: (jobId: string) => Promise<T>) => {
-    const id = newJobId();
-    jobId.current = id;
-    setRunning(true); setProgress(null); setResult(null); setError(null); setCancelled(false);
-    const stop = await onJobProgress(id, setProgress);
-    try {
-      setResult(await fn(id));
-    } catch (e) {
-      const msg = String(e);
-      if (msg === "cancelled") setCancelled(true); else setError(msg);
-    } finally {
-      stop();
-      setRunning(false);
-      jobId.current = null;
-    }
-  }, []);
-  const cancel = () => { if (jobId.current) transferApi.cancel(jobId.current); };
-  return { running, progress, result, error, cancelled, run, cancel };
-}
-
-function ProgressBar({ p, running, onCancel }: { p: JobProgress | null; running: boolean; onCancel(): void }) {
-  if (!running) return null;
-  const pct = p?.total ? Math.min(100, (p.done / p.total) * 100) : null;
-  return (
-    <div className="job-progress">
-      <div className="bar"><div style={{ width: pct === null ? "30%" : `${pct}%` }} className={pct === null ? "indeterminate" : ""} /></div>
-      <div className="job-line"><span>{p ? `${p.phase}${pct !== null ? ` · ${pct.toFixed(0)}%` : ""} · ${p.message}` : "Starting…"}</span><span className="grow" /><button onClick={onCancel}>Cancel</button></div>
-    </div>
-  );
-}
 
 export default function TransferTools(props: { connectionId: number; nodes: Node[]; preset: TransferPreset; onSchemaChanged(): void; ensureColumns(db: string): Promise<unknown> }) {
   const [tab, setTab] = useState<TransferTab>(props.preset.tab ?? "backup");
@@ -392,12 +351,14 @@ function ExportQuery({ connectionId, nodes }: { connectionId: number; nodes: Nod
   const [db, setDb] = useState("");
   const [format, setFormat] = useState<ExportFormat>("csv");
   const [nullText, setNullText] = useState("");
+  const [gzip, setGzip] = useState(false);
   const job = useJob<{ rows: number; warnings: string[]; path: string }>();
   const go = async () => {
     const f = EXPORT_FORMATS.find((x) => x.format === format)!;
-    const path = await savePath({ defaultPath: `query.${f.ext}` });
+    const zip = gzip && format !== "xlsx";
+    const path = await savePath({ defaultPath: `query.${f.ext}${zip ? ".gz" : ""}` });
     if (!path) return;
-    job.run(async () => ({ ...(await transferApi.exportQuery(connectionId, db || null, sql, format, nullText, path)), path }));
+    job.run(async (jobId) => ({ ...(await transferApi.exportQuery(connectionId, jobId, db || null, sql, format, nullText, zip, path)), path }));
   };
   const r = job.result;
   return (
@@ -412,11 +373,13 @@ function ExportQuery({ connectionId, nodes }: { connectionId: number; nodes: Nod
           <label>Database<Select value={db} onChange={(e) => setDb(e.target.value)}><option value="">(none)</option>{dbs.map((d) => <option key={d}>{d}</option>)}</Select></label>
           <label>Format<Select value={format} onChange={(e) => setFormat(e.target.value as ExportFormat)}>{EXPORT_FORMATS.map((f) => <option key={f.format} value={f.format}>{f.label}</option>)}</Select></label>
           {format === "csv" && <label>Text for NULL<input className="cell-input" value={nullText} placeholder="(empty)" onChange={(e) => setNullText(e.target.value)} /></label>}
+          <label className="check"><input type="checkbox" checked={gzip && format !== "xlsx"} disabled={format === "xlsx"} onChange={(e) => setGzip(e.target.checked)} /> Compress with gzip (.gz)</label>
           <button className="primary" disabled={job.running || !sql.trim()} onClick={go}>Export…</button>
           <div className="dim small">Only a single SELECT is exported. Every row is streamed to the file, however many there are.</div>
         </section>
       </div>
-      <ProgressBar p={null} running={job.running} onCancel={() => {}} />
+      <ProgressBar p={job.progress} running={job.running} onCancel={job.cancel} />
+      {job.cancelled && <div className="banner">Export cancelled. The partial file was removed.</div>}
       {job.error && <div className="banner bad">{job.error}</div>}
       {r && <div className="banner ok result-card"><b>Exported {r.rows.toLocaleString()} row(s)</b><div><code>{r.path}</code></div>{r.warnings.map((w) => <div key={w} className="dim"><Icon name="warn" size={12} /> {w}</div>)}</div>}
     </div>

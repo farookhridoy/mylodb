@@ -51,6 +51,7 @@ const nodes = () => {
     { database: "shop", kind: "function", name: "f_tax", parent: null },
     { database: "shop", kind: "trigger", name: "trg_orders_bi", parent: "orders" },
     { database: "shop", kind: "event", name: "ev_nightly", parent: null },
+    ...(window.__bigRows ? [{ database: "shop", kind: "table", name: "events", parent: null }] : []),
   ];
   const big = window.__bigServer;
   if (big) {
@@ -368,3 +369,39 @@ Object.assign(handlers, {
 
 // history of what ran in this page (most recent first)
 handlers.history_list = () => window.__calls.filter((c) => c.cmd === "run_query").map((c, i) => ({ id: i + 1, sql: c.args.sql, ran_at: "2026-01-02 10:00:00", duration_ms: 1, ok: true })).reverse();
+
+
+// ---- large tables: `window.__bigRows = N` adds a table `events` with N rows; paging by OFFSET or by keyset cursor ----
+if (window.__bigRows) {
+  meta.events = { columns: [["id", "int", 1, 0], ["kind", "varchar", 0, 0], ["note", "varchar", 0, 1]], pk: ["id"], fks: [] };
+  data.events = Array.from({ length: window.__bigRows }, (_, i) => [String(i + 1), ["click", "view", "buy", "share"][i % 4], "event " + (i + 1)]);
+}
+Object.assign(handlers, {
+  table_page: (a) => {
+    window.__pageSpecs = (window.__pageSpecs || []).concat([JSON.parse(JSON.stringify(a.spec))]);
+    const rows = filtered(a.table, a.spec), lim = a.spec.limit, c = a.spec.cursor;
+    const keyset = a.spec.sort.length === 0 && meta[a.table].pk.length === 1;
+    let page, hasMore, hasPrev;
+    if (c && c.after) { const rest = rows.filter((r) => Number(r[0]) > Number(c.after[0])); page = rest.slice(0, lim); hasMore = rest.length > lim; hasPrev = true; }
+    else if (c && c.before) { const rest = rows.filter((r) => Number(r[0]) < Number(c.before[0])); page = rest.slice(-lim); hasPrev = rest.length > lim; hasMore = true; }
+    else if (c === "end") { page = rows.slice(-lim); hasPrev = rows.length > lim; hasMore = false; }
+    else { page = rows.slice(a.spec.offset, a.spec.offset + lim); hasMore = a.spec.offset + lim < rows.length; hasPrev = a.spec.offset > 0; }
+    return { columns: colsOf(a.table), rows: page, long_cells: [], has_more: hasMore, has_prev: hasPrev, keyset,
+             first_key: keyset && page.length ? [page[0][0]] : null, last_key: keyset && page.length ? [page.at(-1)[0]] : null, elapsed_ms: 1, sql: `SELECT * FROM shop.${a.table}` };
+  },
+  table_count_estimate: (a) => { window.__estimateCalls = (window.__estimateCalls || 0) + 1; return window.__estimate !== undefined ? window.__estimate : filtered(a.table, { filters: a.filters, sort: [] }).length; },
+  table_count: async (a) => {
+    window.__countCalls = (window.__countCalls || []).concat([a.runId]);
+    if (window.__slowCount) { while (!(window.__cancelledRuns || []).includes(a.runId)) await wait(20); throw "Query execution was interrupted"; }
+    return filtered(a.table, { filters: a.filters, sort: [] }).length;
+  },
+  export_table: async (a) => {
+    window.__exportTable = JSON.parse(JSON.stringify(a));
+    await job(a.jobId, "export", "120,000 rows written", window.__jobMs ?? 400);
+    return { rows: window.__bigRows ?? 3, warnings: window.__bigRows ? [] : ["1 cell(s) longer than 32767 characters were cut to Excel's limit"] };
+  },
+});
+{
+  const cancel = handlers.cancel_query;
+  handlers.cancel_query = (a) => { window.__cancelledRuns = (window.__cancelledRuns || []).concat([a.runId]); return cancel ? cancel(a) : null; };
+}

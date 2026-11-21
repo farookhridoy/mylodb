@@ -1,7 +1,7 @@
 //! Exporting rows to files. Every format is a `RowSink`; the table export and the "export this query"
 //! export both stream rows into one, so a new format is written once.
 
-use crate::{meta::TableMeta, query::{select_sql, PageSpec}, q, Error, Result};
+use crate::{meta::TableMeta, query::{select_sql, PageSpec, Select}, q, Error, Result};
 use myq_driver::mysql_async::prelude::Queryable;
 use myq_driver::{is_binary, is_numeric, row_cells, Conn};
 use myq_driver::mysql_async::Column;
@@ -11,11 +11,14 @@ use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::Path;
 
-#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ExportFormat {
+    #[default]
     Csv,
     Json,
+    /// One JSON object per line: streams, appends and loads into other tools without parsing the whole file.
+    JsonLines,
     SqlInsert,
     Xml,
     Html,
@@ -27,6 +30,7 @@ impl ExportFormat {
         match self {
             ExportFormat::Csv => "csv",
             ExportFormat::Json => "json",
+            ExportFormat::JsonLines => "jsonl",
             ExportFormat::SqlInsert => "sql",
             ExportFormat::Xml => "xml",
             ExportFormat::Html => "html",
@@ -35,9 +39,12 @@ impl ExportFormat {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 pub struct ExportOptions {
     pub format: ExportFormat,
+    /// Compress the output with gzip (the file name should end in `.gz`). Not for XLSX, which is a zip container already.
+    #[serde(default)]
+    pub gzip: bool,
     /// Text written for SQL NULL in CSV (JSON, SQL and XML always have their own null).
     #[serde(default)]
     pub null_text: String,
@@ -58,6 +65,17 @@ pub struct ExportOutcome {
     /// Things the user should know (cells cut to fit a format's limit, characters XML cannot hold).
     pub warnings: Vec<String>,
 }
+
+/// Called every 1,000 rows and at the end with the number of rows written so far. Return false to cancel the export.
+pub type Tick<'a> = &'a mut (dyn FnMut(u64) -> bool + Send);
+
+/// A `Tick` that never cancels and reports nothing.
+pub fn no_progress(_rows: u64) -> bool {
+    true
+}
+
+/// How often the tick is called (and so how quickly a cancel takes effect).
+const TICK_EVERY: u64 = 1_000;
 
 #[derive(Debug, Clone)]
 pub struct ExportColumn {
@@ -118,6 +136,21 @@ fn html_escape(s: &str) -> String {
 struct CsvSink<'a> {
     out: Box<dyn Write + Send + 'a>,
     null_text: String,
+    /// One reusable line buffer: a row is built here and written once, without a String per cell.
+    line: String,
+}
+
+fn push_csv(buf: &mut String, s: &str) {
+    if s.contains([',', '"', '\n', '\r']) {
+        buf.push('"');
+        for c in s.chars() {
+            if c == '"' { buf.push('"'); }
+            buf.push(c);
+        }
+        buf.push('"');
+    } else {
+        buf.push_str(s);
+    }
 }
 
 impl RowSink for CsvSink<'_> {
@@ -126,8 +159,15 @@ impl RowSink for CsvSink<'_> {
         Ok(())
     }
     fn row(&mut self, cells: &[Option<String>]) -> Result<()> {
-        let line: Vec<String> = cells.iter().map(|c| c.as_deref().map_or_else(|| csv_field(&self.null_text), csv_field)).collect();
-        writeln!(self.out, "{}", line.join(","))?;
+        self.line.clear();
+        for (i, c) in cells.iter().enumerate() {
+            if i > 0 {
+                self.line.push(',');
+            }
+            push_csv(&mut self.line, c.as_deref().unwrap_or(&self.null_text));
+        }
+        self.line.push('\n');
+        self.out.write_all(self.line.as_bytes())?;
         Ok(())
     }
     fn finish(&mut self) -> Result<Vec<String>> {
@@ -139,35 +179,79 @@ impl RowSink for CsvSink<'_> {
 struct JsonSink<'a> {
     out: Box<dyn Write + Send + 'a>,
     cols: Vec<ExportColumn>,
+    names: Vec<String>,
+    line: String,
     rows: u64,
 }
 
 impl RowSink for JsonSink<'_> {
     fn start(&mut self, cols: &[ExportColumn]) -> Result<()> {
         self.cols = cols.to_vec();
+        self.names = cols.iter().map(|c| json_string(&c.name)).collect();
         write!(self.out, "[")?;
         Ok(())
     }
     fn row(&mut self, cells: &[Option<String>]) -> Result<()> {
-        write!(self.out, "{}\n  {{", if self.rows == 0 { "" } else { "," })?;
-        let fields: Vec<String> = cells
-            .iter()
-            .zip(&self.cols)
-            .map(|(c, col)| {
-                let v = match c {
-                    None => "null".to_string(),
-                    Some(s) if col.numeric && s.parse::<f64>().is_ok() => s.clone(),
-                    Some(s) => json_string(s),
-                };
-                format!("{}: {v}", json_string(&col.name))
-            })
-            .collect();
-        write!(self.out, "{}}}", fields.join(", "))?;
+        self.line.clear();
+        self.line.push_str(if self.rows == 0 { "\n  {" } else { ",\n  {" });
+        for (i, (c, col)) in cells.iter().zip(&self.cols).enumerate() {
+            if i > 0 {
+                self.line.push_str(", ");
+            }
+            self.line.push_str(&self.names[i]);
+            self.line.push_str(": ");
+            push_json_cell(&mut self.line, c, col);
+        }
+        self.line.push('}');
+        self.out.write_all(self.line.as_bytes())?;
         self.rows += 1;
         Ok(())
     }
     fn finish(&mut self) -> Result<Vec<String>> {
         writeln!(self.out, "{}]", if self.rows == 0 { "" } else { "\n" })?;
+        self.out.flush()?;
+        Ok(vec![])
+    }
+}
+
+/// The cell as a JSON value: numbers stay numbers, everything else is a string.
+fn push_json_cell(buf: &mut String, c: &Option<String>, col: &ExportColumn) {
+    match c {
+        None => buf.push_str("null"),
+        Some(s) if col.numeric && s.parse::<f64>().is_ok() => buf.push_str(s),
+        Some(s) => buf.push_str(&json_string(s)),
+    }
+}
+
+struct JsonLinesSink<'a> {
+    out: Box<dyn Write + Send + 'a>,
+    cols: Vec<ExportColumn>,
+    names: Vec<String>,
+    line: String,
+}
+
+impl RowSink for JsonLinesSink<'_> {
+    fn start(&mut self, cols: &[ExportColumn]) -> Result<()> {
+        self.cols = cols.to_vec();
+        self.names = cols.iter().map(|c| json_string(&c.name)).collect();
+        Ok(())
+    }
+    fn row(&mut self, cells: &[Option<String>]) -> Result<()> {
+        self.line.clear();
+        self.line.push('{');
+        for (i, (c, col)) in cells.iter().zip(&self.cols).enumerate() {
+            if i > 0 {
+                self.line.push(',');
+            }
+            self.line.push_str(&self.names[i]);
+            self.line.push(':');
+            push_json_cell(&mut self.line, c, col);
+        }
+        self.line.push_str("}\n");
+        self.out.write_all(self.line.as_bytes())?;
+        Ok(())
+    }
+    fn finish(&mut self) -> Result<Vec<String>> {
         self.out.flush()?;
         Ok(vec![])
     }
@@ -366,20 +450,42 @@ impl RowSink for XlsxSink {
 
 // ---------- driving a sink ----------
 
+/// gzip on top of a writer. The stream is finished (its trailer written) when the sink flushes, which every sink does once, at the end.
+struct GzWriter<W: Write> {
+    inner: flate2::write::GzEncoder<W>,
+}
+
+impl<W: Write> Write for GzWriter<W> {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.inner.write(buf)
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        // finish the gzip stream (its trailer), then flush what is under it; the encoder itself must not be flushed after finishing
+        self.inner.try_finish()?;
+        self.inner.get_mut().flush()
+    }
+}
+
 /// The sink for `opts.format`, writing to `dest`.
 fn make_sink<'a>(opts: &ExportOptions, dest: Dest<'a>, default_name: &str) -> Result<Box<dyn RowSink + Send + 'a>> {
     let name = opts.name.clone().unwrap_or_else(|| default_name.to_string());
     if opts.format == ExportFormat::Xlsx {
+        if opts.gzip {
+            return Err(Error::Invalid("XLSX is already a compressed file; leave gzip off".into()));
+        }
         let Dest::File(path) = dest else { return Err(Error::Invalid("XLSX needs a file destination".into())) };
         return Ok(Box::new(XlsxSink::new(path, &name)));
     }
     let out: Box<dyn Write + Send + 'a> = match dest {
         Dest::Writer(w) => Box::new(w), // `&mut dyn Write` is itself a Write
-        Dest::File(p) => Box::new(BufWriter::new(File::create(p)?)),
+        Dest::File(p) => Box::new(BufWriter::with_capacity(256 * 1024, File::create(p)?)),
     };
+    // a buffer above the encoder: the compressor gets 256 KB chunks instead of one small write per row
+    let out: Box<dyn Write + Send + 'a> = if opts.gzip { Box::new(BufWriter::with_capacity(256 * 1024, GzWriter { inner: flate2::write::GzEncoder::new(out, flate2::Compression::fast()) })) } else { out };
     Ok(match opts.format {
-        ExportFormat::Csv => Box::new(CsvSink { out, null_text: opts.null_text.clone() }),
-        ExportFormat::Json => Box::new(JsonSink { out, cols: vec![], rows: 0 }),
+        ExportFormat::Csv => Box::new(CsvSink { out, null_text: opts.null_text.clone(), line: String::new() }),
+        ExportFormat::Json => Box::new(JsonSink { out, cols: vec![], names: vec![], line: String::new(), rows: 0 }),
+        ExportFormat::JsonLines => Box::new(JsonLinesSink { out, cols: vec![], names: vec![], line: String::new() }),
         ExportFormat::SqlInsert => Box::new(SqlSink { out, table: name, cols: vec![], head: String::new(), rows: 0 }),
         ExportFormat::Xml => Box::new(XmlSink { out, name, cols: vec![], stripped: 0 }),
         ExportFormat::Html => Box::new(HtmlSink { out, name, cols: vec![] }),
@@ -388,9 +494,9 @@ fn make_sink<'a>(opts: &ExportOptions, dest: Dest<'a>, default_name: &str) -> Re
 }
 
 /// Stream every row matching the filters/sort of `spec` (paging is ignored) to `dest`.
-pub async fn export_rows(conn: &mut Conn, meta: &TableMeta, spec: &PageSpec, opts: &ExportOptions, dest: Dest<'_>) -> Result<ExportOutcome> {
+pub async fn export_rows(conn: &mut Conn, meta: &TableMeta, spec: &PageSpec, opts: &ExportOptions, dest: Dest<'_>, tick: Tick<'_>) -> Result<ExportOutcome> {
     let all = PageSpec { limit: u32::MAX, offset: 0, ..spec.clone() };
-    let (sql, params, _) = select_sql(meta, &all)?;
+    let Select { sql, params, .. } = select_sql(meta, &all)?;
     // `select_sql` appends LIMIT/OFFSET for paging; exports want everything, so drop that tail.
     let sql = sql.rsplit_once(" LIMIT ").map(|(head, _)| head.to_string()).unwrap_or(sql);
     let mut sink = make_sink(opts, dest, &meta.table)?;
@@ -401,12 +507,16 @@ pub async fn export_rows(conn: &mut Conn, meta: &TableMeta, spec: &PageSpec, opt
     while let Some(row) = qr.next().await? {
         sink.row(&row_cells(row, None).0)?;
         rows += 1;
+        if rows % TICK_EVERY == 0 && !tick(rows) {
+            return Err(Error::Cancelled);
+        }
     }
+    tick(rows);
     Ok(ExportOutcome { rows, warnings: sink.finish()? })
 }
 
 /// Export the result of a read-only statement.
-pub async fn export_query(conn: &mut Conn, database: Option<&str>, sql: &str, opts: &ExportOptions, dest: Dest<'_>) -> Result<ExportOutcome> {
+pub async fn export_query(conn: &mut Conn, database: Option<&str>, sql: &str, opts: &ExportOptions, dest: Dest<'_>, tick: Tick<'_>) -> Result<ExportOutcome> {
     let stmts = myq_sql::split_statements(sql);
     let [stmt] = stmts.as_slice() else { return Err(Error::Invalid("export one statement at a time".into())) };
     if myq_sql::statement_kind(&stmt.text) != myq_sql::StatementKind::Read {
@@ -424,7 +534,11 @@ pub async fn export_query(conn: &mut Conn, database: Option<&str>, sql: &str, op
     while let Some(row) = qr.next().await? {
         sink.row(&row_cells(row, None).0)?;
         rows += 1;
+        if rows % TICK_EVERY == 0 && !tick(rows) {
+            return Err(Error::Cancelled);
+        }
     }
+    tick(rows);
     Ok(ExportOutcome { rows, warnings: sink.finish()? })
 }
 
@@ -466,5 +580,29 @@ mod tests {
         assert_eq!(exact_number("0.5"), Some(0.5));
         assert_eq!(exact_number("12abc"), None);
         assert_eq!(exact_number(""), None);
+    }
+
+    /// Writer speed without a database: `cargo test -p myq-data --lib --release writer_speed -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn writer_speed() {
+        let cols: Vec<ExportColumn> = ["id", "customer_id", "status", "amount", "note", "created_at"].iter().enumerate()
+            .map(|(i, n)| ExportColumn { name: n.to_string(), numeric: i < 2 || i == 3, binary: false }).collect();
+        let rows: Vec<Vec<Option<String>>> = (0..200_000u64)
+            .map(|i| vec![Some(i.to_string()), Some((i * 7919 % 100000).to_string()), Some("shipped".into()), Some(format!("{:.2}", i as f64 / 7.0)), Some(format!("order note {i}")), Some("2020-03-04 05:06:07".into())])
+            .collect();
+        for (name, mut sink) in [
+            ("csv", Box::new(CsvSink { out: Box::new(std::io::sink()), null_text: String::new(), line: String::new() }) as Box<dyn RowSink>),
+            ("jsonl", Box::new(JsonLinesSink { out: Box::new(std::io::sink()), cols: vec![], names: vec![], line: String::new() })),
+        ] {
+            sink.start(&cols).unwrap();
+            let t = std::time::Instant::now();
+            for r in &rows {
+                sink.row(r).unwrap();
+            }
+            sink.finish().unwrap();
+            let s = t.elapsed().as_secs_f64();
+            println!("{name:<8} {:>7.1} ms for {} rows  ({:.0} rows/s)", s * 1000.0, rows.len(), rows.len() as f64 / s);
+        }
     }
 }

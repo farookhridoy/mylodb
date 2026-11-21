@@ -17,7 +17,7 @@ fn cfg() -> ConnConfig {
 }
 
 fn opts(format: ExportFormat) -> ExportOptions {
-    ExportOptions { format, null_text: "NULL".into(), name: None }
+    ExportOptions { format, null_text: "NULL".into(), ..Default::default() }
 }
 
 #[tokio::test]
@@ -47,7 +47,7 @@ async fn body(pool: Pool, db: String) {
 
     // ---- XML ----
     let mut xml = Vec::new();
-    let out = export_rows(&mut c, &meta, &spec, &opts(ExportFormat::Xml), Dest::Writer(&mut xml)).await.unwrap();
+    let out = export_rows(&mut c, &meta, &spec, &opts(ExportFormat::Xml), Dest::Writer(&mut xml), &mut no_progress).await.unwrap();
     assert_eq!(out.rows, 3);
     let xml = String::from_utf8(xml).unwrap();
     assert!(xml.starts_with("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<resultset name=\"t\">"));
@@ -59,7 +59,7 @@ async fn body(pool: Pool, db: String) {
 
     // ---- HTML ----
     let mut html = Vec::new();
-    export_rows(&mut c, &meta, &spec, &ExportOptions { name: Some("My <report>".into()), ..opts(ExportFormat::Html) }, Dest::Writer(&mut html)).await.unwrap();
+    export_rows(&mut c, &meta, &spec, &ExportOptions { name: Some("My <report>".into()), ..opts(ExportFormat::Html) }, Dest::Writer(&mut html), &mut no_progress).await.unwrap();
     let html = String::from_utf8(html).unwrap();
     assert!(html.contains("<title>My &lt;report&gt;</title>") && html.contains("<th>price</th>"), "{html}");
     assert!(html.contains("<td>A &lt;b&gt; &amp; &quot;q&quot;</td>") && html.contains("<td class=\"null\">NULL</td>"));
@@ -68,7 +68,7 @@ async fn body(pool: Pool, db: String) {
 
     // ---- XLSX: a real file; open it and check the cells ----
     let path = file("xlsx");
-    let out = export_rows(&mut c, &meta, &spec, &opts(ExportFormat::Xlsx), Dest::File(&path)).await.unwrap();
+    let out = export_rows(&mut c, &meta, &spec, &opts(ExportFormat::Xlsx), Dest::File(&path), &mut no_progress).await.unwrap();
     assert_eq!(out.rows, 3);
     let mut zip = zip::ZipArchive::new(std::fs::File::open(&path).unwrap()).unwrap();
     let mut sheet = String::new();
@@ -85,34 +85,34 @@ async fn body(pool: Pool, db: String) {
     assert!(zip.by_name("xl/workbook.xml").is_ok());
     // XLSX cannot go to a plain writer
     let mut sink = Vec::new();
-    assert!(matches!(export_rows(&mut c, &meta, &spec, &opts(ExportFormat::Xlsx), Dest::Writer(&mut sink)).await, Err(Error::Invalid(_))));
+    assert!(matches!(export_rows(&mut c, &meta, &spec, &opts(ExportFormat::Xlsx), Dest::Writer(&mut sink), &mut no_progress).await, Err(Error::Invalid(_))));
     let _ = std::fs::remove_file(&path);
 
     // ---- export a query ----
     let mut csv = Vec::new();
-    let out = export_query(&mut c, Some(db), "SELECT id, price, name FROM t WHERE id <> 2 ORDER BY id", &opts(ExportFormat::Csv), Dest::Writer(&mut csv)).await.unwrap();
+    let out = export_query(&mut c, Some(db), "SELECT id, price, name FROM t WHERE id <> 2 ORDER BY id", &opts(ExportFormat::Csv), Dest::Writer(&mut csv), &mut no_progress).await.unwrap();
     assert_eq!(out.rows, 2);
     assert_eq!(String::from_utf8(csv).unwrap(), "id,price,name\n1,10.50,\"A <b> & \"\"q\"\"\"\n3,3.00,é日本😀\n");
     let mut json = Vec::new();
-    export_query(&mut c, Some(db), "SELECT id, price FROM t WHERE id = 1", &opts(ExportFormat::Json), Dest::Writer(&mut json)).await.unwrap();
+    export_query(&mut c, Some(db), "SELECT id, price FROM t WHERE id = 1", &opts(ExportFormat::Json), Dest::Writer(&mut json), &mut no_progress).await.unwrap();
     assert_eq!(serde_json::from_slice::<serde_json::Value>(&json).unwrap(), serde_json::json!([{"id": 1, "price": 10.5}]));
     // computed columns and an empty result
     let mut empty = Vec::new();
-    let out = export_query(&mut c, Some(db), "SELECT COUNT(*) AS n FROM t WHERE id > 99", &opts(ExportFormat::Csv), Dest::Writer(&mut empty)).await.unwrap();
+    let out = export_query(&mut c, Some(db), "SELECT COUNT(*) AS n FROM t WHERE id > 99", &opts(ExportFormat::Csv), Dest::Writer(&mut empty), &mut no_progress).await.unwrap();
     assert_eq!((out.rows, String::from_utf8(empty).unwrap()), (1, "n\n0\n".to_string()));
     let path = file("xlsx");
-    export_query(&mut c, Some(db), "SELECT id FROM t WHERE id > 99", &opts(ExportFormat::Xlsx), Dest::File(&path)).await.unwrap();
+    export_query(&mut c, Some(db), "SELECT id FROM t WHERE id > 99", &opts(ExportFormat::Xlsx), Dest::File(&path), &mut no_progress).await.unwrap();
     assert!(path.exists(), "a header-only workbook is still written");
     let _ = std::fs::remove_file(&path);
 
     // only a single, read-only statement is accepted
     for bad in ["DELETE FROM t", "DROP TABLE t", "SELECT 1; SELECT 2", "UPDATE t SET id = id"] {
         let mut sink = Vec::new();
-        assert!(matches!(export_query(&mut c, Some(db), bad, &opts(ExportFormat::Csv), Dest::Writer(&mut sink)).await, Err(Error::Invalid(_))), "{bad}");
+        assert!(matches!(export_query(&mut c, Some(db), bad, &opts(ExportFormat::Csv), Dest::Writer(&mut sink), &mut no_progress).await, Err(Error::Invalid(_))), "{bad}");
     }
     let n: Option<i64> = c.query_first("SELECT COUNT(*) FROM t").await.unwrap();
     assert_eq!(n, Some(3), "rejected statements did not run");
     // a server error is reported, with nothing half-written to a file
     let mut sink = Vec::new();
-    assert!(export_query(&mut c, Some(db), "SELECT * FROM nope", &opts(ExportFormat::Csv), Dest::Writer(&mut sink)).await.is_err());
+    assert!(export_query(&mut c, Some(db), "SELECT * FROM nope", &opts(ExportFormat::Csv), Dest::Writer(&mut sink), &mut no_progress).await.is_err());
 }

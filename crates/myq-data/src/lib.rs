@@ -8,9 +8,9 @@ mod query;
 
 pub use cells::{fetch_cell, lookup, CellData, LookupItem, FETCH_CELL_MAX};
 pub use edit::{apply_changes, preview_changes, ApplyOutcome, Assign, CellValue, Change};
-pub use export::{export_query, export_rows, Dest, ExportFormat, ExportOptions, ExportOutcome};
+pub use export::{export_query, export_rows, no_progress, Dest, ExportFormat, ExportOptions, ExportOutcome, Tick};
 pub use meta::{table_meta, ColumnMeta, ForeignKey, TableMeta};
-pub use query::{count_rows, fetch_page, ColumnFilter, Op, Page, PageSpec, Sort, MAX_PAGE, CELL_PREVIEW};
+pub use query::{count_rows, estimate_count, fetch_page, ColumnFilter, Cursor, Op, Page, PageSpec, Sort, MAX_PAGE, CELL_PREVIEW};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -28,6 +28,8 @@ pub enum Error {
     Change { index: usize, message: String },
     #[error("io: {0}")]
     Io(#[from] std::io::Error),
+    #[error("cancelled")]
+    Cancelled,
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

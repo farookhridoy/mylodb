@@ -224,18 +224,18 @@ async fn body(pool: Pool, db: String) {
     // ---- export ----
     let sorted = PageSpec { sort: vec![Sort { column: "id".into(), desc: false }], ..Default::default() };
     let mut csv = Vec::new();
-    let n = export_rows(&mut c, &customers, &sorted, &ExportOptions { format: ExportFormat::Csv, null_text: "NULL".into(), name: None }, Dest::Writer(&mut csv)).await.unwrap().rows;
+    let n = export_rows(&mut c, &customers, &sorted, &ExportOptions { format: ExportFormat::Csv, null_text: "NULL".into(), ..Default::default() }, Dest::Writer(&mut csv), &mut myq_data::no_progress).await.unwrap().rows;
     assert_eq!(n, 4);
     assert_eq!(String::from_utf8(csv).unwrap(), "id,name,email\n1,Ann,\n2,Bob,ann@x.io\n3,50%_Off Co,NULL\n4,Dee,dee@y.io\n".replace("2,Bob,ann@x.io", "2,Bob,NULL"));
     let mut json = Vec::new();
-    export_rows(&mut c, &customers, &PageSpec { filters: vec![filter("id", Op::Le, &["2"])], ..sorted.clone() }, &ExportOptions { format: ExportFormat::Json, null_text: String::new(), name: None }, Dest::Writer(&mut json)).await.unwrap();
+    export_rows(&mut c, &customers, &PageSpec { filters: vec![filter("id", Op::Le, &["2"])], ..sorted.clone() }, &ExportOptions { format: ExportFormat::Json, null_text: String::new(), ..Default::default() }, Dest::Writer(&mut json), &mut myq_data::no_progress).await.unwrap();
     let parsed: serde_json::Value = serde_json::from_slice(&json).unwrap();
     assert_eq!(parsed, serde_json::json!([{"id": 1, "name": "Ann", "email": ""}, {"id": 2, "name": "Bob", "email": null}]));
     let mut sql = Vec::new();
-    export_rows(&mut c, &customers, &PageSpec { filters: vec![filter("id", Op::Le, &["2"])], ..sorted }, &ExportOptions { format: ExportFormat::SqlInsert, null_text: String::new(), name: None }, Dest::Writer(&mut sql)).await.unwrap();
+    export_rows(&mut c, &customers, &PageSpec { filters: vec![filter("id", Op::Le, &["2"])], ..sorted }, &ExportOptions { format: ExportFormat::SqlInsert, null_text: String::new(), ..Default::default() }, Dest::Writer(&mut sql), &mut myq_data::no_progress).await.unwrap();
     assert_eq!(String::from_utf8(sql).unwrap(), "INSERT INTO `customers` (`id`, `name`, `email`) VALUES\n(1, 'Ann', ''),\n(2, 'Bob', NULL);\n");
     let mut empty = Vec::new();
-    export_rows(&mut c, &customers, &PageSpec { filters: vec![filter("id", Op::Gt, &["99"])], ..Default::default() }, &ExportOptions { format: ExportFormat::Json, null_text: String::new(), name: None }, Dest::Writer(&mut empty)).await.unwrap();
+    export_rows(&mut c, &customers, &PageSpec { filters: vec![filter("id", Op::Gt, &["99"])], ..Default::default() }, &ExportOptions { format: ExportFormat::Json, null_text: String::new(), ..Default::default() }, Dest::Writer(&mut empty), &mut myq_data::no_progress).await.unwrap();
     assert_eq!(serde_json::from_slice::<serde_json::Value>(&empty).unwrap(), serde_json::json!([]));
 }
 

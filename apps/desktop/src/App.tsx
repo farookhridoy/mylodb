@@ -48,8 +48,7 @@ import { ConfirmDialog, FavoritesPanel, HistoryPanel, SaveFavoriteDialog } from 
 /** A SQL editor tab, or a table data tab (`kind: "table"`). Tabs saved before table tabs existed have no kind. */
 interface QueryTab {
   id: string; title: string; sql: string; database: string | null;
-  kind?: "sql" | "table" | "designer" | "users" | "server" | "transfer" | "databases" | "structure" | "home" | "catalog" | "compare" | "search";
-  kind?: "sql" | "table" | "designer" | "users" | "server" | "transfer" | "databases" | "structure" | "home" | "catalog" | "compare" | "advisor";
+  kind?: "sql" | "table" | "designer" | "users" | "server" | "transfer" | "databases" | "structure" | "home" | "catalog" | "compare" | "search" | "advisor";
   /// For `transfer` tabs: which tool to show and what it is about.
   transfer?: TransferPreset;
   /// For query tabs opened from or saved to a .sql file: its path.
@@ -624,6 +623,10 @@ export default function App() {
     const existing = tabs.find((t) => t.kind === "search");
     if (existing) return setActiveTab(existing.id);
     const t: QueryTab = { id: uid(), title: "Data search", sql: "", database: target, kind: "search", table: { db: target, name: null } };
+    setTabs([...tabs, t]);
+    setActiveTab(t.id);
+  };
+
   const openAdvisor = (db: string) => {
     const w = caps?.writes;
     if (w && !w.available) return setStatus(w.reason ?? "Not available for this connection");
@@ -1258,8 +1261,7 @@ export default function App() {
       )}
       {paletteOpen && (
         <CommandPalette onClose={() => setPaletteOpen(false)} commands={[
-          ...([["new_query", "New query tab"], ["home", "Server home"], ["databases", "Databases"], ["search_data", "Search data in a database"], ["compare", "Compare schemas of the selected database"], ["structure", "Tables of the selected database"], ["new_table", "New table"], ["export", "Export data"], ["import", "Import data"],
-          ...([["new_query", "New query tab"], ["home", "Server home"], ["databases", "Databases"], ["advisor", "Index advisor for the selected database"], ["structure", "Tables of the selected database"], ["new_table", "New table"], ["export", "Export data"], ["import", "Import data"],
+          ...([["new_query", "New query tab"], ["home", "Server home"], ["databases", "Databases"], ["search_data", "Search data in a database"], ["compare", "Compare schemas of the selected database"], ["advisor", "Index advisor for the selected database"], ["structure", "Tables of the selected database"], ["new_table", "New table"], ["export", "Export data"], ["import", "Import data"],
               ["backup", "Backup / restore"], ["users", "Users and privileges"], ["server_tools", "Server tools"], ["catalog", "Engines, charsets, replication"], ["refresh_tree", "Refresh object tree"],
               ["theme_dark", "Theme: dark"], ["theme_light", "Theme: light"], ["theme_system", "Theme: system"], ["preferences", "Preferences"], ["manual", "User manual"], ["tour", "Quick tour"], ["about", "About MyLoDB"], ["new_connection", "New connection"], ["edit_connection", "Edit connection"]] as const)
             .map(([id, label]): Command => ({ id, label, hint: "action", run: () => menuHandler.current(id) })),

@@ -6,7 +6,7 @@ import AnalysisPane, { type Analysis } from "./AnalysisPane";
 import ConnectionDialog from "./ConnectionDialog";
 import ContextMenu, { type MenuItem } from "./ContextMenu";
 import DataGrid, { defaultView, type GridView } from "./DataGrid";
-import { PromptDialog, TypeConfirmDialog } from "./Dialogs";
+import { AlterDatabaseDialog, PromptDialog, TypeConfirmDialog } from "./Dialogs";
 import PreviewDialog from "./PreviewDialog";
 import DatabasesPage from "./DatabasesPage";
 import StructurePage from "./StructurePage";
@@ -149,6 +149,7 @@ export default function App() {
   const filterSeq = useRef(0);
   const runIds = useRef<Record<string, string>>({});
 
+  const [alterDb, setAlterDb] = useState<string | null>(null);
   const pendingSave = useRef<{ id: number; payload: string } | null>(null);
   const connectionsRef = useRef(connections);
   connectionsRef.current = connections;
@@ -799,6 +800,7 @@ export default function App() {
     items.push({ label: "Databases (list, bulk drop)", icon: "database", onClick: openDatabases });
     items.push({ label: "Create database…", icon: "database", disabled: readOnly, onClick: () => setPrompt({ title: "Create database", label: "Database name", confirmLabel: "Create",
       onCancel: () => setPrompt(null), onSubmit: async (name) => { setPrompt(null); try { await schemaApi.databaseOp(activeId!, { op: "create", name, charset: "utf8mb4", collation: null }); await reloadIndex(); } catch (err) { setStatus(`Error: ${err}`); } } }) });
+    if (d) items.push({ label: "Alter database…", icon: "edit", disabled: readOnly, onClick: () => setAlterDb(d) });
     if (d) items.push({ label: "Drop database…", icon: "trash", danger: true, disabled: readOnly, onClick: () => openPlan({ op: "drop_databases", names: [d] }, { title: `Drop database ${d}`, confirmLabel: "Drop database", summary: `The database ${d} with all its tables and data will be permanently deleted.`, after: () => setTabs((prev) => { const rest = prev.filter((t) => t.table?.db !== d || t.kind === "sql"); return rest.length ? rest : [newTab(1)]; }) }) });
     items.push({ separator: true }, { label: "Refresh", icon: "refresh", shortcut: "F5", onClick: () => reloadIndex() });
     setTreeMenu({ x: e.clientX, y: e.clientY, items });
@@ -1168,6 +1170,10 @@ export default function App() {
       )}
       {pendingReview && <ReviewDialog review={pendingReview.review} onCancel={() => setPendingReview(null)} onRun={pendingReview.go} />}
       {prompt && <PromptDialog {...prompt} />}
+      {alterDb && activeId !== null && (
+        <AlterDatabaseDialog connectionId={activeId} database={alterDb} onCancel={() => setAlterDb(null)}
+          onNext={(collation) => { const name = alterDb; setAlterDb(null); openPlan({ op: "alter_database", name, charset: null, collation }, { title: `Alter database ${name}`, confirmLabel: "Alter", summary: "Applies to tables created later. Existing tables keep their own collation.", after: () => setDbRefresh((n) => n + 1) }); }} />
+      )}
       {paletteOpen && (
         <CommandPalette onClose={() => setPaletteOpen(false)} commands={[
           ...([["new_query", "New query tab"], ["home", "Server home"], ["databases", "Databases"], ["structure", "Tables of the selected database"], ["new_table", "New table"], ["export", "Export data"], ["import", "Import data"],

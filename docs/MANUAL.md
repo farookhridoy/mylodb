@@ -116,6 +116,10 @@ Choose **Database type → SQLite file (read-only)** in the connection dialog, p
 Right-click a database → **Search data…** (or **Search → Search Data in Database…**) finds a value anywhere in the database. Type the text, choose *contains* or *whole value*, optionally include numbers and dates, and press **Search**.
 Every base table is read once (one `COUNT(*)` over its searchable columns), and only the tables that match get a second query for the per-column counts, so a miss costs one scan. Results list each matching table with its row count and the columns that matched; click a column to open the table filtered to it.
 `%` and `_` in the text are taken literally, matching follows each column's collation (usually case-insensitive), BLOB columns are never searched, views are not searched. **Cancel** stops between tables and kills the running statement; what was found so far is kept.
+### Index advisor
+
+Right-click a database → **Index advisor…** analyses the index definitions of every table: **duplicate** indexes (same columns in the same order, or a plain index repeating the primary key or a unique index), **redundant** ones (a plain index that is only the start of another index), and **foreign keys without an index** that starts with their columns. Unique indexes are never called redundant, full-text and spatial indexes are left alone, and an index with a prefix length is only matched with an identical one.
+Drops are pre-selected, adding an index is not (it costs write speed and space). **Preview and apply…** opens Preview SQL with exactly the chosen `DROP INDEX` / `CREATE INDEX` statements. A second list shows indexes the server reports as unused since it started (`sys.schema_unused_indexes`): check the uptime before dropping one.
 
 ### Compare schemas
 

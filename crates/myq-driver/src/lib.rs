@@ -20,7 +20,7 @@ pub use values::{cell_text, hex, is_binary, is_numeric, row_cells};
 pub use myq_core::{ColumnDetail, ColumnInfo, DatabaseRow, IndexDetail, ResultSet, StatementResult, TableRow};
 pub use myq_sql::{split_statements, Statement};
 pub use backend::MySqlBackend;
-pub use session::{capabilities, probe, query_grid, restore_foreign_key_checks, server_options, session_facts, set_foreign_key_checks, Grid, Probe, ServerOptions, SessionFacts};
+pub use session::{capabilities, unused_indexes, probe, query_grid, restore_foreign_key_checks, server_options, session_facts, set_foreign_key_checks, Grid, Probe, ServerOptions, SessionFacts};
 pub use script::{execute_script, kill_query, MAX_ROWS, execute_script_with_timeout};
 
 #[derive(Debug, thiserror::Error)]

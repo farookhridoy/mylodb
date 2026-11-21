@@ -21,6 +21,11 @@ pub async fn capabilities(conn: &mut Conn) -> Result<myq_core::Capabilities> {
     Ok(myq_core::Capabilities::mysql_family(&version.unwrap_or_default()))
 }
 
+/// Indexes the server reports as unused since it started, as `(table, index)` (`sys.schema_unused_indexes`, which needs performance_schema).
+pub async fn unused_indexes(conn: &mut Conn, database: &str) -> Result<Vec<(String, String)>> {
+    Ok(conn.exec("SELECT object_name, index_name FROM sys.schema_unused_indexes WHERE object_schema = ? ORDER BY 1, 2", (database,)).await?)
+}
+
 /// What a throwaway connection learned about the server.
 #[derive(Debug, Serialize)]
 pub struct Probe {

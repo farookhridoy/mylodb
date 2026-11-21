@@ -285,6 +285,31 @@ async fn read_defs(state: &tauri::State<'_, AppState>, id: i64, db: &str) -> Res
     Ok((defs, warnings))
 }
 
+#[derive(serde::Serialize)]
+struct IndexAdvice {
+    findings: Vec<myq_schema::advisor::Finding>,
+    /// Indexes the server has not used since it started (from `sys.schema_unused_indexes`): (table, index).
+    unused: Vec<(String, String)>,
+    /// Why `unused` is empty or how to read it.
+    unused_note: String,
+    tables: usize,
+}
+
+/// Index findings for a database: duplicates, redundant prefixes and foreign keys without an index (from the definitions), plus the
+/// indexes the server reports as unused. Nothing is changed.
+#[tauri::command]
+async fn index_advice(state: tauri::State<'_, AppState>, id: i64, db: String) -> Result<IndexAdvice, String> {
+    let (defs, _) = read_defs(&state, id, &db).await?;
+    let findings = myq_schema::advisor::analyze(&db, &defs);
+    let mut c = conn_for(&state, id).await?;
+    let unused = myq_driver::unused_indexes(&mut c, &db).await;
+    let (unused, unused_note) = match unused {
+        Ok(rows) => (rows, "Unused means: no query has used the index since the server started (performance_schema). Check the uptime before dropping: a rarely used index may serve a monthly report.".to_string()),
+        Err(e) => (vec![], format!("Unused indexes are not available on this server: {e}")),
+    };
+    Ok(IndexAdvice { findings, unused, unused_note, tables: defs.len() })
+}
+
 /// What has to change in the target database so that its tables match the source database's. Nothing is changed; the UI previews the
 /// statements and runs them through `run_plan` on the target connection.
 #[tauri::command]
@@ -1580,6 +1605,7 @@ fn build_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::
         .item(&with_icon("structure", "Tables of Selected Database", icon!("table"))?)
         .item(&with_icon("new_table", "New Table…", icon!("plus"))?)
         .item(&with_icon("compare", "Compare Schemas…", icon!("transfer"))?)
+        .item(&with_icon("advisor", "Index Advisor…", icon!("table"))?)
         .separator()
         .item(&SubmenuBuilder::new(app, "Tools")
             .item(&with_icon("users", "Users and Privileges", icon!("user"))?)
@@ -1622,6 +1648,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             open_url,
+            index_advice,
             schema_compare,
             search_data,
             capabilities,

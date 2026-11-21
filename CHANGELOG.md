@@ -4,6 +4,7 @@
 
 **Added**
 * **Data search** (database context menu, Search menu): find a value in any table of a database, with per-column counts, cancel and progress; click a column to open the table filtered to it.
+* **Index advisor** (database context menu, Database menu): duplicate, redundant and missing foreign key indexes found from the definitions, unused indexes from the server, fixes through Preview SQL.
 * **Compare schemas** (database context menu): make a database's tables match another database's, on the same or another open connection. Differences are listed per table with their SQL; drops are never pre-selected; Preview SQL shows the exact script.
 
 ## 0.2.0 (2026-11-21)

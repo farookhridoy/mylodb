@@ -23,7 +23,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/images/query.png" alt="MyLoDB: object tree with an Info panel, a SQL editor and its results" width="900">
+  <img src="docs/images/query.png" alt="MyLoDB: object tree, a SQL editor and its results" width="900">
 </p>
 
 > [!IMPORTANT]
@@ -38,7 +38,7 @@ MyLoDB is for people who miss SQLyog on the Mac. It connects to MySQL and MariaD
 
 | | |
 |---|---|
-| **Object browser** | Databases, tables, views, routines, triggers and events with sizes. Filter with `ord*`, `/regex/`, `type:view`, `db:shop`, `col:email`. An Info panel for the selected object. Drag a name into the editor. |
+| **Object browser** | Databases, tables, views, routines, triggers and events with sizes. Filter with `ord*`, `/regex/`, `type:view`, `db:shop`, `col:email`. The Info tab shows facts about the selected object. Drag a name into the editor. |
 | **SQL editor** | MySQL-aware autocomplete (tables, columns, aliases), formatter, run selection (⌘↵), cancel, multi-result tabs, Explain and profiler, history, favorites, your own snippets, `.sql` files. |
 | **Data grid** | Server-side paging, filter row, multi-column sort, staged inline edits in one transaction, foreign-key picker, BLOB viewer, copy as TSV / CSV / JSON / Markdown / INSERT. |
 | **Table designer** | Columns, indexes, foreign keys, options, with the exact `ALTER TABLE` previewed. Renames keep data. |

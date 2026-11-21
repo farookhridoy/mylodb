@@ -501,13 +501,6 @@ table.kv th { text-align: left; font-weight: 500; color: var(--dim); width: 170p
 .tasks-head { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; } .tasks-pop ul { list-style: none; margin: 0; padding: 0; } .task { padding: 5px 0; border-top: 1px solid var(--line); } .task-line { display: flex; align-items: center; gap: 6px; } .task-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 220px; }
 .task.failed .task-label { color: var(--bad-text); }
 
-/* Info panel under the object tree */
-.object-info { flex: none; max-height: 40%; overflow: auto; border-top: 1px solid var(--line); background: var(--panel); }
-.object-info-head { display: flex; width: 100%; gap: 8px; justify-content: space-between; align-items: center; background: transparent; border: 0; border-radius: 0; padding: 4px 8px; text-align: left; font-weight: 600; }
-.object-info-head .clip { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 400; }
-.object-info .info.kv { margin: 0 8px 8px; width: calc(100% - 16px); }
-.object-info .empty, .object-info .error { padding: 2px 8px 8px; }
-
 /* About, manual and the first-run tour */
 .dialog.about { width: 460px; }
 .about-head { display: flex; gap: 14px; align-items: center; margin-bottom: 8px; }

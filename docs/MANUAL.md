@@ -53,13 +53,13 @@ Several connections can be open at once; each is a tab above the workspace. Clos
 
 ## 3. Browse objects
 
-![The object tree with the Info panel](images/browser-info.png)
+![The Info tab shows facts about the object selected in the tree](images/browser-info.png)
 
 * The tree shows databases, tables, views, procedures, functions, triggers and events, with sizes. **Click** a database to lock the filter to it; click a table to see its columns and indexes.
 * **Filter** (⇧⌘B): type part of a name. Operators: `/regex/`, `type:view`, `db:shop`, `col:email`. The filter icon switches which object kinds are searched.
 * **Double-click** a table to open it. **Right-click** for data, properties, SELECT/INSERT/UPDATE/DELETE samples, rename, duplicate, drop. On a database: Structure, Databases, Create, **Alter database…**, Drop. On a procedure or function: show or edit the definition, **Rename…**, drop.
 * **Drag** a database, table or column into the editor to insert its quoted name.
-* The **Info** panel under the tree shows facts about the selected table (engine, rows, size, collation, auto-increment, created, columns, indexes, foreign keys) or database (object counts, size, rows). Click its header to collapse it.
+* The **Info** tab under the editor shows facts about what is selected in the tree: for a table the engine, rows, size, collation, auto-increment, created, columns, indexes and foreign keys; for a database the object counts, size and rows. (It sits there, not in the sidebar, so the tree keeps its space.)
 * The sort button orders tables by name or by size. **F5** refreshes.
 
 ## 4. Run SQL

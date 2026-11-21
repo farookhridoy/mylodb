@@ -24,7 +24,7 @@ const SECTIONS: Section[] = [
         <li><b>Filter box</b> (<K>⇧⌘B</K>): type part of a name. Use <code>/regex/</code>, <code>type:view</code>, <code>db:shop</code> or <code>col:email</code>.</li>
         <li><b>Double-click</b> a table to open it. Right-click for the menu: data, properties, SELECT/INSERT/UPDATE/DELETE samples, rename, duplicate, drop.</li>
         <li><b>Drag</b> a database, table or column name into the editor to insert it, quoted.</li>
-        <li>The <b>Info</b> panel under the tree shows facts about what is selected.</li>
+        <li>The <b>Info</b> tab under the editor shows facts about what is selected in the tree.</li>
         <li><K>F5</K> refreshes the tree.</li>
       </ul>
     </>) },

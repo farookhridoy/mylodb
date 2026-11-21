@@ -6,7 +6,7 @@ First public release. macOS, Apple Silicon, unsigned.
 
 **Added**
 * Connection manager with Keychain passwords, SSH tunnels, SSL modes, connect by URL, connection groups, several connections open at once.
-* Object browser with a fast filter, sizes, an Info panel, drag a name into the editor, alter database, rename procedures and functions.
+* Object browser with a fast filter, sizes, facts about the selected object in the Info tab, drag a name into the editor, alter database, rename procedures and functions.
 * SQL editor with autocomplete, formatter, Explain and profiler, history, favorites, personal snippets, `.sql` files, text results and Copy as.
 * Editable data grid with staged edits, filter row, foreign-key picker, BLOB viewer and exports; keyset paging and a windowed grid for very large tables.
 * Table designer with a live `ALTER TABLE` preview, users and privileges, server tools, backup, restore and CSV import.

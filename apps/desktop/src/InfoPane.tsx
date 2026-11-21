@@ -1,5 +1,6 @@
 import { formatBytes } from "./browserMeta";
-import type { StatementResult } from "./api";
+import ObjectInfo from "./ObjectInfo";
+import type { Node, StatementResult, TableStat } from "./api";
 import type { RunState } from "./ResultsPane";
 import { useTableOverview } from "./tableOverview";
 
@@ -13,6 +14,8 @@ export interface InfoContext {
   /** For a table tab: the table, so its summary can be shown. */
   table?: { db: string; name: string };
   onOpenProperties?(): void;
+  /** What is selected in the object tree. */
+  selection?: { db: string | null; table: string | null; index: Node[]; stats: Record<string, Record<string, TableStat>> };
 }
 
 const oneLine = (sql: string) => sql.replace(/\s+/g, " ").trim();
@@ -29,6 +32,12 @@ export default function InfoPane({ run, ctx }: { run: RunState | undefined; ctx:
           <tr><th>Database</th><td>{ctx.database ?? <span className="dim">(none selected)</span>}</td></tr>
         </tbody>
       </table>
+      {ctx.selection && (
+        <>
+          <h4>Selected in the tree{ctx.selection.db ? `: ${ctx.selection.table ? `${ctx.selection.db}.${ctx.selection.table}` : ctx.selection.db}` : ""}</h4>
+          <ObjectInfo connectionId={ctx.connectionId} {...ctx.selection} />
+        </>
+      )}
       {ctx.table && <TableSummary connectionId={ctx.connectionId} db={ctx.table.db} table={ctx.table.name} onOpenProperties={ctx.onOpenProperties} />}
       <h4>Last run</h4>
       {!run || (!run.results && !run.error) ? <div className="empty small">Nothing has been run in this console yet.</div> : (

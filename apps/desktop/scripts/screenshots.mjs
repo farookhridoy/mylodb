@@ -34,6 +34,8 @@ await page.waitForSelector(".tree .db");
 await page.click(".tree .db:has-text('shop')");
 await page.waitForSelector(".row-item.leaf");
 await page.click(".row-item.leaf:has-text('customers')");
+await page.click("button:has-text('Info')");
+await page.waitForSelector(".info-pane");
 await shot("browser-info");
 
 // 3. a table: console + grid

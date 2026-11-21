@@ -6,7 +6,6 @@ import AnalysisPane, { type Analysis } from "./AnalysisPane";
 import ConnectionDialog from "./ConnectionDialog";
 import ContextMenu, { type MenuItem } from "./ContextMenu";
 import DataGrid, { defaultView, type GridView } from "./DataGrid";
-import ObjectInfo from "./ObjectInfo";
 import AboutDialog from "./AboutDialog";
 import Manual from "./Manual";
 import Tour, { tourSeen } from "./Tour";
@@ -991,7 +990,6 @@ export default function App() {
                 : <ObjectTree key={activeId} sortBy={treeSort} index={index} matches={matches} scope={matchScope} terms={terms} selectedDb={selectedDb} onSelectDb={selectDb} selectedTable={selectedTable} onSelectTable={selectTable} lockedTable={lockedTable} onLockTable={lockTable} onUnlockTable={unlock} onPick={pickName} rootLabel={active ? `${active.user}@${active.host}` : ""} onResetRoot={resetBrowser} columnQuery={lockedTable ? query : ""} stats={meta.stats} ensureStats={meta.ensureStats} details={meta.details} ensureDetails={meta.ensureDetails}
                     columnsLoaded={columnsLoaded} ensureColumns={ensureColumns} onOpenTable={(d, t) => openTable(d, t)} onObjectMenu={objectMenu} onOpenObject={showDefinition} indexes={meta.indexes} initialOpen={browserState.open} onOpenChange={(keys) => saveBrowser({ open: keys })} onDatabaseMenu={databaseMenu} />}
             </div>
-            {activeId !== null && <ObjectInfo connectionId={activeId} db={selectedDb} table={selectedTable} index={index} stats={meta.stats} />}
           </>
         )}
         {side === "history" && activeId !== null && (
@@ -1094,7 +1092,7 @@ export default function App() {
                   run={runs[editorTab.id]}
                   analysis={analyses[editorTab.id]}
                   onProfile={() => analyse("profile")}
-                  info={{ connectionId: activeId, who: active ? `${active.user}@${active.host}` : "", environment: env, readOnly, database: editorTab.database,
+                  info={{ connectionId: activeId, who: active ? `${active.user}@${active.host}` : "", environment: env, readOnly, database: editorTab.database, selection: { db: selectedDb, table: selectedTable, index, stats: meta.stats },
                           ...(isTable(editorTab) && editorTab.table?.name ? { table: { db: editorTab.table.db, name: editorTab.table.name }, onOpenProperties: () => patchTab(editorTab.id, { view: "properties" }) } : {}) }}
                   history={<HistoryPanel connectionId={activeId} refreshKey={panelKey} onInsert={insertIntoEditor} onOpen={(sql) => addTab(sql, editorTab.database)} />}
                   data={isTable(editorTab) && editorTab.id === tab.id && (tab.view ?? "data") === "data" && editorTab.table?.name ? (

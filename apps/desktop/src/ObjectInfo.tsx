@@ -1,23 +1,15 @@
-import { useState } from "react";
 import { formatBytes } from "./browserMeta";
 import type { Node, TableStat } from "./api";
 import { useTableOverview } from "./tableOverview";
 
 const KINDS: [Node["kind"], string][] = [["table", "Tables"], ["view", "Views"], ["procedure", "Procedures"], ["function", "Functions"], ["trigger", "Triggers"], ["event", "Events"]];
 
-/** The Info panel under the object tree: facts about the selected table, or about the selected database. */
+/** Facts about what is selected in the object tree: shown in the Info tab of the results pane (not in the sidebar, which is for the tree). */
 export default function ObjectInfo(props: { connectionId: number; db: string | null; table: string | null; index: Node[]; stats: Record<string, Record<string, TableStat>> }) {
-  const [open, setOpen] = useState(() => localStorage.getItem("mylodb.infoPanel") !== "closed");
-  const toggle = () => setOpen((o) => { localStorage.setItem("mylodb.infoPanel", o ? "closed" : "open"); return !o; });
-  const title = props.table ? `${props.db}.${props.table}` : props.db ?? "Nothing selected";
-  return (
-    <div className="object-info" aria-label="Info">
-      <button className="object-info-head" aria-expanded={open} onClick={toggle}><span>Info</span><span className="dim small clip">{title}</span></button>
-      {open && (props.db === null ? <div className="empty small">Select a database or table.</div>
-        : props.table ? <TableFacts connectionId={props.connectionId} db={props.db} table={props.table} />
-        : <DatabaseFacts db={props.db} index={props.index} stats={props.stats[props.db]} />)}
-    </div>
-  );
+  if (props.db === null) return <div className="empty small">Select a database or table in the tree.</div>;
+  return props.table
+    ? <TableFacts connectionId={props.connectionId} db={props.db} table={props.table} />
+    : <DatabaseFacts db={props.db} index={props.index} stats={props.stats[props.db]} />;
 }
 
 function DatabaseFacts({ db, index, stats }: { db: string; index: Node[]; stats?: Record<string, TableStat> }) {

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Icon from "./Icon";
 import AnalysisPane, { type Analysis } from "./AnalysisPane";
 import type { StatementResult } from "./api";
@@ -18,6 +18,14 @@ export default function ResultsPane({ run, analysis, data, dataLabel = "Table Da
   const sets = (run?.results ?? []).flatMap((s) => s.sets.map((set) => ({ sql: s.sql, set })));
   const hasData = data !== undefined;
   const [tab, setTab] = useState<number | "messages" | "analysis" | "data">(hasData ? "data" : "messages");
+  // The grid can appear after the pane was first shown (the table tab was on Properties or Diagram meanwhile): show it then,
+  // unless a query result is what the user was looking at.
+  const hadData = useRef(hasData);
+  useEffect(() => {
+    if (hasData && !hadData.current) setTab((cur) => (cur === "messages" && !run ? "data" : cur));
+    hadData.current = hasData;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasData]);
   // a new analysis takes focus
   useEffect(() => { if (analysis) setTab("analysis"); }, [analysis]);
 

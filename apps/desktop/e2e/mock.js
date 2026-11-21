@@ -312,3 +312,25 @@ Object.assign(handlers, {
     return `DROP ${a.kind.toUpperCase()} \`${a.db}\`.\`${a.name}\``;
   },
 });
+
+// ---- table overview (Properties and Diagram views) ----
+const fkRel = { name: "fk1", schema: "shop", table: "orders", columns: ["customer_id"], ref_schema: "shop", ref_table: "customers", ref_columns: ["id"], on_update: "RESTRICT", on_delete: "CASCADE" };
+Object.assign(handlers, {
+  table_overview: (a) => {
+    window.__overviewCalls = (window.__overviewCalls || []).concat([`${a.db}.${a.table}`]);
+    const m = meta[a.table];
+    if (a.db !== "shop" || !m) return { info: { is_view: false, engine: null, collation: null, charset: null, auto_increment: null, comment: "", partitioned: false, row_format: null, rows: null, avg_row_length: null, data_length: null, index_length: null, data_free: null, created: null, updated: null }, columns: [], indexes: [], constraints: [], outgoing: [], incoming: [], triggers: [], partitions: [], ddl: null };
+    const isOrders = a.table === "orders";
+    return {
+      info: { is_view: false, engine: "InnoDB", collation: "utf8mb4_unicode_ci", charset: "utf8mb4", auto_increment: 4, comment: isOrders ? "customer orders" : "", partitioned: false, row_format: "Dynamic", rows: 3, avg_row_length: 5461, data_length: 16384, index_length: 32768, data_free: 0, created: "2026-01-02 10:00:00", updated: null },
+      columns: m.columns.map((c, i) => ({ name: c[0], ordinal: i + 1, column_type: typeOf(c), nullable: !!c[3], key: m.pk.includes(c[0]) ? "PRI" : c[0] === "customer_id" ? "MUL" : "", default: null, extra: c[2] ? "auto_increment" : "", comment: "" })),
+      indexes: [{ name: "PRIMARY", unique: true, kind: "BTREE", columns: ["id"] }, ...(isOrders ? [{ name: "idx_customer_total", unique: false, kind: "BTREE", columns: ["customer_id", "total"] }] : [])],
+      constraints: [{ name: "PRIMARY", kind: "PRIMARY KEY", columns: ["id"] }, ...(isOrders ? [{ name: "fk1", kind: "FOREIGN KEY", columns: ["customer_id"] }] : [])],
+      outgoing: isOrders ? [fkRel] : [],
+      incoming: isOrders ? [] : [fkRel],
+      triggers: isOrders ? [{ name: "trg_orders_bi", timing: "BEFORE", event: "INSERT", statement: "SET NEW.note = 'x'" }] : [],
+      partitions: [],
+      ddl: `CREATE TABLE \`${a.table}\` (\n  \`id\` bigint unsigned NOT NULL AUTO_INCREMENT,\n  PRIMARY KEY (\`id\`)\n) ENGINE=InnoDB`,
+    };
+  },
+});

@@ -294,6 +294,12 @@ async fn table_index_details(state: tauri::State<'_, AppState>, id: i64, db: Str
     myq_driver::index_details(&session_pool(&state, id)?, &db, &table).await.map_err(err)
 }
 
+/// Everything the table Properties and Diagram views show.
+#[tauri::command]
+async fn table_overview(state: tauri::State<'_, AppState>, id: i64, db: String, table: String) -> Result<myq_driver::TableOverview, String> {
+    myq_driver::table_overview(&session_pool(&state, id)?, &db, &table).await.map_err(err)
+}
+
 /// The CREATE statement of a view, routine, trigger or event.
 #[tauri::command]
 async fn object_definition(state: tauri::State<'_, AppState>, id: i64, kind: Kind, db: String, name: String) -> Result<String, String> {
@@ -1018,6 +1024,7 @@ pub fn run() {
             load_columns,
             db_table_stats,
             table_index_details,
+            table_overview,
             object_definition,
             drop_object,
             table_column_details,

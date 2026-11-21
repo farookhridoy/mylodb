@@ -54,6 +54,7 @@ export const api = {
   indexDetails: (id: number, db: string, table: string) => invoke<IndexDetail[]>("table_index_details", { id, db, table }),
   objectDefinition: (id: number, kind: Kind, db: string, name: string) => invoke<string>("object_definition", { id, kind, db, name }),
   dropObject: (id: number, kind: Kind, db: string, name: string) => invoke<string>("drop_object", { id, kind, db, name }),
+  tableOverview: (id: number, db: string, table: string) => invoke<TableOverview>("table_overview", { id, db, table }),
   loadColumns: (id: number, db: string) => invoke<{ start: number; nodes: Node[] }>("load_columns", { id, db }),
 };
 
@@ -202,6 +203,21 @@ export interface Hint { severity: "warning" | "info" | "good"; message: string; 
 export interface ExplainResult { plan: ResultSet; json: string | null; tree: string | null; hints: Hint[] }
 /** Size (data + index bytes) and row estimate of a table; views have none. */
 export interface TableStat { name: string; bytes: number | null; rows: number | null }
+export interface TableInfo {
+  is_view: boolean; engine: string | null; collation: string | null; charset: string | null; auto_increment: number | null; comment: string; partitioned: boolean;
+  row_format: string | null; rows: number | null; avg_row_length: number | null; data_length: number | null; index_length: number | null; data_free: number | null;
+  created: string | null; updated: string | null;
+}
+export interface ColumnFull { name: string; ordinal: number; column_type: string; nullable: boolean; key: string; default: string | null; extra: string; comment: string }
+export interface ConstraintInfo { name: string; kind: string; columns: string[] }
+/** `schema`/`table`/`columns` are the referencing side; `ref_*` the referenced side. */
+export interface ForeignKeyInfo { name: string; schema: string; table: string; columns: string[]; ref_schema: string; ref_table: string; ref_columns: string[]; on_update: string; on_delete: string }
+export interface TriggerInfo { name: string; timing: string; event: string; statement: string }
+export interface PartitionInfo { name: string; method: string | null; expression: string | null; rows: number | null; data_length: number | null }
+export interface TableOverview {
+  info: TableInfo; columns: ColumnFull[]; indexes: IndexDetail[]; constraints: ConstraintInfo[]; outgoing: ForeignKeyInfo[]; incoming: ForeignKeyInfo[];
+  triggers: TriggerInfo[]; partitions: PartitionInfo[]; ddl: string | null;
+}
 export interface IndexDetail { name: string; unique: boolean; kind: string; columns: string[] }
 export interface ColumnDetail { name: string; column_type: string; nullable: boolean; key: string; extra: string }
 

@@ -66,7 +66,7 @@ Note on sizes: MySQL 8 caches table statistics (`information_schema_stats_expiry
 | Rename, truncate, drop table | ✅ | Typed confirmation for destructive ones. |
 | Views, routines, triggers, events: browse, create, alter | ✅ | Closed in Phase 8, through the SQL editor. |
 | Query Builder | ❌ | |
-| Schema Designer / ER diagram | ❌ | The plan suggests a read-only ER view first. |
+| Schema Designer / ER diagram | 🟡 | Per-table Diagram view (the table and its direct neighbours, read-only). A whole-database ER designer is still open. |
 | Data Search across tables | ❌ | |
 | Import: CSV | ✅ | ❌ ODBC (not planned). |
 | Export: CSV, JSON, SQL, XML, HTML, XLSX | ✅ | Constant-memory writers. |
@@ -139,6 +139,20 @@ Phases 1–8 and the filter, theme and sidebar work are done. Rough effort for o
 **Why this order.** Phase 8 is done. Phases 9 and 10 are the plan's
 "defining" features and must land before the visual tools. Phase 11 removes daily friction. Phase 12 should run alongside 9–11 so the
 version matrix catches MariaDB and 5.7 differences before the power tools depend on them.
+
+## 6b. Table views and the stacking bug
+
+* **Three views per table** (the DBeaver idea): **Properties**, **Data** (console on top, grid below; the default) and **Diagram**. Each table tab
+  remembers its own view.
+* **Properties**: table name, engine, collation, charset, auto increment, comment, partitioned; sections Columns, Constraints, Foreign Keys
+  (with ON DELETE / ON UPDATE), References (tables that point at this one), Triggers, Indexes, Partitions, Statistics and DDL (copy, or open in
+  the console). Read-only; "Design table…" opens the designer, which previews the SQL before applying anything.
+* **Diagram**: the table in the middle, tables that reference it on the left, tables it references on the right, with the relation drawn between
+  the actual columns. Drag boxes, zoom, reset layout, double-click a box to open that table. Up to 12 neighbours per side.
+* **Backend**: one `table_overview` call (information_schema only, tested on a real server with self-references, triggers, partitions, views).
+* **Fixed: dialogs under other layers.** The modal overlay had no z-index, so anything with its own (the sidebar splitter, sticky grid headers,
+  popups) was painted over the "New connection" dialog. Overlays are now above every in-page layer, with a test that fails without the fix.
+* **Fixed: grid missing after returning to Data** from Properties/Diagram.
 
 ## 6a. Done after that: the SQLyog-style workspace
 

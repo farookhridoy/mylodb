@@ -14,6 +14,8 @@ import Editor, { type EditorHandle } from "./Editor";
 import ObjectTree from "./ObjectTree";
 import { useBrowserMeta } from "./browserMeta";
 import Icon from "./Icon";
+import TableProperties from "./TableProperties";
+import TableDiagram from "./TableDiagram";
 import Splitter, { useSize } from "./Splitter";
 import { sampleQuery, type SampleKind } from "./sqlTemplates";
 import type { Pick } from "./ObjectTree";
@@ -29,6 +31,8 @@ interface QueryTab {
   /// For `table` tabs: the table shown. For `designer` tabs: the table edited (`name: null` = a new table).
   table?: { db: string; name: string | null };
   grid?: GridView;
+  /// For `table` tabs: which view is shown. Data is the default.
+  view?: "properties" | "data" | "diagram";
 }
 const isTable = (t: QueryTab | undefined) => t?.kind === "table";
 /** Tabs that have the SQL console: query tabs, and table tabs (console on top, the table's data below). */
@@ -643,9 +647,28 @@ export default function App() {
               ))}
               <button className="mini plus" title="New query tab (⌘T)" onClick={() => addTab("", tab.database)}><Icon name="plus" size={12} /></button>
             </div>
+            {isTable(tab) && tab.table?.name && (
+              <div className="subtabs" role="tablist" aria-label="Table views">
+                {([["properties", "Properties", "info"], ["data", "Data", "table"], ["diagram", "Diagram", "link"]] as const).map(([v, label, icon]) => (
+                  <button key={v} role="tab" aria-selected={(tab.view ?? "data") === v} className={(tab.view ?? "data") === v ? "active" : ""} onClick={() => patchTab(tab.id, { view: v })}>
+                    <Icon name={icon} size={13} /> {label}
+                  </button>
+                ))}
+                <span className="grow" />
+                <span className="dim crumb">{tab.table.db} › {tab.table.name}</span>
+              </div>
+            )}
+            {isTable(tab) && tab.table?.name && tab.view === "properties" && (
+              <TableProperties key={`${activeId}:${tab.id}:p`} connectionId={activeId} db={tab.table.db} table={tab.table.name}
+                onOpenTable={(d, t) => openTable(d, t)} onDesign={() => openDesigner(tab.table!.db, tab.table!.name)}
+                onOpenInConsole={(sql) => { patchTab(tab.id, { view: "data" }); setTimeout(() => editor.current?.insert(sql + "\n"), 0); }} />
+            )}
+            {isTable(tab) && tab.table?.name && tab.view === "diagram" && (
+              <TableDiagram key={`${activeId}:${tab.id}:d`} connectionId={activeId} db={tab.table.db} table={tab.table.name} onOpenTable={(d, t) => openTable(d, t)} />
+            )}
             {/* The editor stays mounted while a table tab is shown so each SQL tab keeps its undo history. */}
             {editorTab && (
-              <div className="sql-pane" style={{ display: isSql(tab) ? "flex" : "none" }}>
+              <div className="sql-pane" style={{ display: isSql(tab) && (!isTable(tab) || (tab.view ?? "data") === "data") ? "flex" : "none" }}>
                 <div className="toolbar">
                   <button className="primary" disabled={running} onClick={run} title="Run selection or all (⌘↵)">▶ Run</button>
                   <button disabled={!running} onClick={cancel} title="Cancel running query">■ Cancel</button>
@@ -693,7 +716,7 @@ export default function App() {
                   key={editorTab.id}
                   run={runs[editorTab.id]}
                   analysis={analyses[editorTab.id]}
-                  data={isTable(editorTab) && editorTab.id === tab.id && editorTab.table?.name ? (
+                  data={isTable(editorTab) && editorTab.id === tab.id && (tab.view ?? "data") === "data" && editorTab.table?.name ? (
                     <DataGrid key={`${activeId}:${editorTab.id}`} connectionId={activeId} db={editorTab.table.db} table={editorTab.table.name}
                       initial={editorTab.grid ?? defaultView()} onViewChange={(grid) => patchTab(editorTab.id, { grid })}
                       onOpenTable={(d, t, f) => openTable(d, t, f)} />

@@ -1,6 +1,6 @@
 # MyLoDB roadmap: what is done, what must be done, what would be nice
 
-Status of 2026-11-21. This is the single page for "where are we": phases, what is done, what is left, and (sections 5 to 8) the
+Status of 2026-11-21 (version 0.3.0). This is the single page for "where are we": phases, what is done, what is left, and (sections 5 to 8) the
 coverage of the SQLyog reference and the product plan. It replaces the former `PLAN_VS_CURRENT.md`. Other docs: `ANALYSIS.md` (original
 scope, stack, architecture), `BENCHMARKS.md` (Phase 10 measurements), `PHPMYADMIN_AND_ENGINES.md` (analysis behind phases 11 to 15),
 `SERVER_COMPATIBILITY.md` (MySQL / MariaDB results).
@@ -115,9 +115,9 @@ The analysis, screen mapping and design of these items are in `PHPMYADMIN_AND_EN
 | 12 ✅ | **Shell and preferences** (done) | top menu bar and toolbar, Preferences (fonts per area, themes), command palette | 2 to 3 wk |
 | 13 ✅ | **Workspace parity** (done, small leftovers in the nice-to-have list) | `.sql` files, snippets, text results, connection tabs and groups, Info panel, alter database, drag into editor | 2 to 3 wk |
 | 14 🟡 | **Quality gates** (built; first green CI run on GitHub still to confirm) | CI, Tasks panel, MySQL 5.7 / 8.0 / 8.4 / 9 and MariaDB matrix, network-drop tests | 1 to 2 wk |
-| 15 ❌ | **Database engines** | driver abstraction; PostgreSQL, SQLite, SQL Server; Oracle only on demand | 8 to 12 wk |
-| 16 ❌ | **Power tools** | compare and sync, Data Search, import formats, charts, inspections | 4 to 5 wk |
-| 17 ❌ | **Visual tools** | query builder, whole-database ER designer | 4 to 5 wk |
+| 15 🟡 | **Database engines** | done: `myq-core`, the `Backend` trait, SQLite read-only (see ENGINE_ABSTRACTION.md). Open: SQLite writes, PostgreSQL, SQL Server; Oracle only on demand | 8 to 12 wk |
+| 16 🟡 | **Power tools** | done in 0.3.0: schema compare, data search, index advisor, server charts, JSON import. Open: data compare and sync, copying a database between connections, saved transfer configurations, XLSX / XML import, SQL inspections | 4 to 5 wk |
+| 17 🟡 | **Visual tools** | done in 0.3.0: visual query builder, whole-database ER diagram (reverse engineering). Open: forward design, i.e. editing the diagram to generate DDL | 4 to 5 wk |
 | 18 ❌ | **Beta release** | signing, Intel build, Homebrew cask, documentation | 1 to 2 wk |
 
 Why this order: phase 11 is what you asked for next and what makes MyLoDB usable the way phpMyAdmin is. Phase 14 sits before the extra engines

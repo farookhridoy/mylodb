@@ -62,7 +62,7 @@ await page.waitForFunction((q) => (document.querySelector(".palette li")?.innerT
 await page.keyboard.press("Enter");
 await page.waitForSelector("[aria-label='About MyLoDB']");
 const about = await page.locator("[aria-label='About MyLoDB']").innerText();
-assert.match(about, /Version 0\.2\.0/);
+assert.match(about, /Version 0\.3\.0/);
 assert.match(about, /farookhridoy\.com/);
 assert.match(about, /thelarasoft\.com/);
 await page.click("[aria-label='About MyLoDB'] a:has-text('thelarasoft.com')");

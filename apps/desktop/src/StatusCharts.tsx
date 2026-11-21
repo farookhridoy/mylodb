@@ -32,13 +32,18 @@ const fmt = (v: number, unit: ChartDef["unit"]) => {
 
 const POINTS = 150; // 5 minutes at 2 s
 
+const windowLabel = (s: number) => (s >= 90 ? `${Math.round(s / 60 * 10) / 10} min` : `${Math.round(s)} s`);
+
 function Chart({ def, data, seconds }: { def: ChartDef; data: Record<string, (number | null)[]>; seconds: number }) {
   const present = def.series.filter((x) => data[x.key]?.some((v) => v !== null));
   const [hover, setHover] = useState<number | null>(null);
   const W = 560, H = 130, L = 46, R = 8, T = 8, B = 18;
   const all = present.flatMap((x) => data[x.key].filter((v): v is number => v !== null));
-  const max = Math.max(1e-9, ...all) * 1.1;
-  const x = (i: number, len: number) => L + ((POINTS - len + i) / (POINTS - 1)) * (W - L - R);
+  // a flat zero series still gets a sensible 0..1 scale instead of ticks that all read 0.0
+  const max = Math.max(1, ...all) * 1.1;
+  // the line fills the width from the first two samples on; once POINTS samples exist the oldest scroll off the left
+  const span = Math.min(POINTS, Math.max(...present.map((p) => data[p.key].length), 2)) - 1;
+  const x = (i: number, len: number) => L + (i / span) * (W - L - R);
   const y = (v: number) => T + (1 - v / max) * (H - T - B);
   return (
     <div className="chart" data-chart={def.id}>
@@ -46,9 +51,9 @@ function Chart({ def, data, seconds }: { def: ChartDef; data: Record<string, (nu
       {present.length === 0 ? <div className="dim small">This server does not report {def.series.map((x) => x.key).join(", ")}.</div> : (
         <>
           <svg viewBox={`0 0 ${W} ${H}`} width="100%" onMouseLeave={() => setHover(null)}
-               onMouseMove={(e) => { const r = e.currentTarget.getBoundingClientRect(); const rel = ((e.clientX - r.left) / r.width) * W; const len = Math.max(...present.map((p) => data[p.key].length)); const i = Math.round(((rel - L) / (W - L - R)) * (POINTS - 1)) - (POINTS - len); setHover(i >= 0 && i < len ? i : null); }}>
+               onMouseMove={(e) => { const r = e.currentTarget.getBoundingClientRect(); const rel = ((e.clientX - r.left) / r.width) * W; const len = Math.max(...present.map((p) => data[p.key].length)); const sp = Math.min(POINTS, Math.max(len, 2)) - 1; const i = Math.round(((rel - L) / (W - L - R)) * sp); setHover(i >= 0 && i < len ? i : null); }}>
             {[0, 0.5, 1].map((f) => <g key={f}><line x1={L} x2={W - R} y1={y(max * f / 1.1)} y2={y(max * f / 1.1)} className="chart-grid" /><text x={L - 4} y={y(max * f / 1.1) + 3} textAnchor="end" className="chart-axis">{fmt(max / 1.1 * f, def.unit)}</text></g>)}
-            <text x={L} y={H - 3} className="chart-axis">−{Math.round(POINTS * seconds / 60 * 10) / 10} min</text>
+            <text x={L} y={H - 3} className="chart-axis">−{windowLabel(span * seconds)}</text>
             <text x={W - R} y={H - 3} textAnchor="end" className="chart-axis">now</text>
             {present.map((p) => {
               const vals = data[p.key];
@@ -60,7 +65,7 @@ function Chart({ def, data, seconds }: { def: ChartDef; data: Record<string, (nu
           <div className="chart-legend">
             {present.map((p) => {
               const vals = data[p.key];
-              const v = hover !== null ? vals[hover - (Math.max(...present.map((q) => data[q.key].length)) - vals.length)] : vals[vals.length - 1];
+              const v = hover !== null ? vals[hover] : vals[vals.length - 1];
               return <span key={p.key}><i style={{ background: p.color }} /> {p.label} <b data-legend={p.key}>{v === null || v === undefined ? "–" : fmt(v, def.unit)}</b></span>;
             })}
           </div>

@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 (2026-11-21)
 
 **Added**
 <<<<<<< HEAD
@@ -13,6 +13,16 @@
 * **ER diagram** of a whole database (database context menu, SQL Editor menu): tables by foreign-key depth, drag, zoom, filter, open a table, copy as Mermaid.
 * **Visual query builder** (database context menu, SQL Editor menu): tables, joins from foreign keys, columns with functions, conditions, order and limit, with the SQL built by the backend and opened or run in a query tab.
 * **Compare schemas** (database context menu): make a database's tables match another database's, on the same or another open connection. Differences are listed per table with their SQL; drops are never pre-selected; Preview SQL shows the exact script.
+
+**Fixed**
+* Server charts draw across the whole width from the first samples and show a sensible scale for a flat zero series.
+
+**Internal**
+* A check (`npm run check:e2e-list`) fails when a UI suite is not part of `npm run e2e`; two suites were not running in CI before.
+
+**Known limits**
+* Not done from the roadmap's Phase 16: comparing the *data* of two tables, copying a database between connections, saved and re-runnable transfer configurations, XLSX and XML import, SQL inspections (the index advisor is the first of these). The ER diagram and the server charts need a MySQL or MariaDB connection (not a SQLite file) and were only checked on small demo data.
+* SQLite is still read-only. Unsigned and not notarised; Apple Silicon only. MySQL 5.7 is unsupported.
 
 ## 0.2.0 (2026-11-21)
 

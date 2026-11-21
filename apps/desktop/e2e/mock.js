@@ -461,3 +461,8 @@ handlers.database_list = () => [
   { name: "old_2019", collation: "latin1_swedish_ci", charset: "latin1", system: false },
 ].filter((d) => !(window.__droppedDbs || new Set()).has(d.name));
 handlers.database_sizes = () => [["shop", 5, 3145728], ["blog", 2, 16384], ["old_2019", 12, 52428800], ["mysql", 40, 9000000]];
+handlers.database_tables = (a) => a.db !== "shop" ? [] : [
+  { name: "customers", is_view: false, engine: "InnoDB", rows: 1200, collation: "utf8mb4_0900_ai_ci", bytes: 114688, overhead: 0, comment: "people" },
+  { name: "orders", is_view: false, engine: "InnoDB", rows: 5400, collation: "utf8mb4_0900_ai_ci", bytes: 1048576, overhead: 4194304, comment: "" },
+  { name: "v_orders", is_view: true, engine: null, rows: null, collation: null, bytes: null, overhead: null, comment: "" },
+].filter((t) => !(window.__droppedObjects || new Set()).has(`${t.is_view ? "view" : "table"}:${t.name}`));

@@ -446,3 +446,6 @@ button.danger { background: var(--bad); border-color: var(--bad); color: #fff; }
 .admin-table { max-width: 920px; } .admin-table th.sortable { cursor: pointer; user-select: none; } .admin-table tr.picked td { background: var(--row-selected); }
 .admin-table tfoot td { border-top: 2px solid var(--line); background: var(--panel); }
 .admin-table button.link { padding: 0; min-height: 0; border: 0; background: none; color: var(--accent); }
+.admin-table.structure { max-width: none; } .row-actions { white-space: nowrap; } .row-actions button.link { margin-right: 8px; font-size: 11.5px; }
+.row-actions button.link.danger { color: var(--danger, #d14343); } .row-actions button.link:disabled { opacity: .4; cursor: default; }
+.plan-set { margin: 4px 0 4px 18px; font-size: 11px; }

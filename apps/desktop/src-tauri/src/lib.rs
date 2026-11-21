@@ -378,6 +378,8 @@ async fn run_query(
     run_id: String,
     database: Option<String>,
     sql: String,
+    // `Some(false)` runs the script with foreign key checks off, `Some(true)` forces them on; `None` leaves the server's setting.
+    foreign_key_checks: Option<bool>,
 ) -> Result<Vec<StatementResult>, String> {
     let (pool, safety) = state.sessions.lock().unwrap().get(&id).map(|s| (s.pool.clone(), s.safety)).ok_or("not connected")?;
     // A read-only connection is read-only on the server (the session). This check refuses the obvious writes, and attempts to switch the
@@ -388,11 +390,20 @@ async fn run_query(
         }
     }
     let mut conn = pool.get_conn().await.map_err(err)?;
+    if let Some(on) = foreign_key_checks {
+        use myq_driver::mysql_async::prelude::Queryable;
+        conn.query_drop(format!("SET SESSION foreign_key_checks = {}", on as u8)).await.map_err(err)?;
+    }
     state.running.lock().unwrap().insert(run_id.clone(), (id, conn.id()));
     // The query timeout: the whole run may take this long, then the running statement is killed (like the Cancel button).
     let started = std::time::Instant::now();
     let (results, _timed_out) = myq_driver::execute_script_with_timeout(&pool, &mut conn, database.as_deref(), &sql, safety.timeout_secs).await;
     state.running.lock().unwrap().remove(&run_id);
+    if foreign_key_checks.is_some() {
+        // the connection goes back to the pool: leave it as the next caller expects
+        use myq_driver::mysql_async::prelude::Queryable;
+        let _ = conn.query_drop("SET SESSION foreign_key_checks = 1").await;
+    }
     let ok = results.iter().all(|r| r.error.is_none());
     // History is best-effort: a logging failure must not hide the query result.
     let _ = state.store.lock().unwrap().add_history(id, sql.trim(), started.elapsed().as_millis() as u64, ok);

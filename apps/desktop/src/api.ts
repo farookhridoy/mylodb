@@ -84,8 +84,9 @@ export interface HistoryEntry { id: number; sql: string; ran_at: string; duratio
 export interface Favorite { id: number | null; folder: string; name: string; sql: string }
 
 export const queryApi = {
-  run: (id: number, runId: string, database: string | null, sql: string) =>
-    invoke<StatementResult[]>("run_query", { id, runId, database, sql }),
+  /** `foreignKeyChecks`: false runs the script with foreign key checks off, true forces them on, null keeps the server's setting. */
+  run: (id: number, runId: string, database: string | null, sql: string, foreignKeyChecks: boolean | null = null) =>
+    invoke<StatementResult[]>("run_query", { id, runId, database, sql, foreignKeyChecks }),
   cancel: (runId: string) => invoke<void>("cancel_query", { runId }),
   /** Advisory review of a script before it runs (destructive statements, estimated rows). */
   review: (id: number, database: string | null, sql: string) => invoke<Review>("review_sql", { id, database, sql }),

@@ -73,7 +73,7 @@ ok("Format sends the document with the default options and replaces it");
 await page.click("button[title='Formatting options']");
 await page.locator(".popup label:has-text('Indent') select").selectOption("tab");
 await page.locator(".popup label:has-text('Keywords') select").selectOption("lower");
-await page.mouse.move(900, 600);
+await page.locator(".popup").hover(); await page.mouse.move(900, 600);
 assert.deepEqual(JSON.parse(await page.evaluate(() => localStorage.getItem("mylodb.formatOptions"))).indent, { style: "tab" });
 await clear();
 await page.keyboard.type("SELECT 1 FROM t");

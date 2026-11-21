@@ -64,7 +64,11 @@ export default function PreviewDialog(props: {
         )}
         {results && (
           <ul className="plan-results">
-            {results.map((r, i) => <li key={i} className={r.error ? "bad" : ""}><Icon name={r.error ? "warn" : "check"} size={12} /> <code>{r.sql.length > 90 ? r.sql.slice(0, 90) + "…" : r.sql}</code>{r.error ? <div className="error small">{r.error}</div> : <span className="dim"> · {r.elapsed_ms} ms</span>}</li>)}
+            {results.map((r, i) => <li key={i} className={r.error ? "bad" : ""}><Icon name={r.error ? "warn" : "check"} size={12} /> <code>{r.sql.length > 90 ? r.sql.slice(0, 90) + "…" : r.sql}</code>{r.error ? <div className="error small">{r.error}</div> : <span className="dim"> · {r.elapsed_ms} ms</span>}
+              {r.sets.map((set, k) => (
+                <table key={k} className="info plan-set"><thead><tr>{set.columns.map((c, j) => <th key={j}>{c.name}</th>)}</tr></thead>
+                  <tbody>{set.rows.slice(0, 50).map((row, ri) => <tr key={ri}>{row.map((v, j) => <td key={j} className="mono">{v ?? "NULL"}</td>)}</tr>)}</tbody></table>
+              ))}</li>)}
           </ul>
         )}
         {error && <div className="banner bad">{error}</div>}

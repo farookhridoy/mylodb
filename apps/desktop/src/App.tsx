@@ -8,6 +8,7 @@ import DataGrid, { defaultView, type GridView } from "./DataGrid";
 import { PromptDialog, TypeConfirmDialog } from "./Dialogs";
 import PreviewDialog from "./PreviewDialog";
 import DatabasesPage from "./DatabasesPage";
+import StructurePage from "./StructurePage";
 import TableDesigner from "./TableDesigner";
 import ServerTools from "./ServerTools";
 import { useTheme, type ThemePref } from "./theme";
@@ -32,9 +33,11 @@ import { ConfirmDialog, FavoritesPanel, HistoryPanel, SaveFavoriteDialog } from 
 /** A SQL editor tab, or a table data tab (`kind: "table"`). Tabs saved before table tabs existed have no kind. */
 interface QueryTab {
   id: string; title: string; sql: string; database: string | null;
-  kind?: "sql" | "table" | "designer" | "users" | "server" | "transfer" | "databases";
+  kind?: "sql" | "table" | "designer" | "users" | "server" | "transfer" | "databases" | "structure";
   /// For `transfer` tabs: which tool to show and what it is about.
   transfer?: TransferPreset;
+  /// For a new-table `designer` tab: the name and column count asked for on the Structure page.
+  initialTable?: { name: string; columns: number };
   /// For `table` tabs: the table shown. For `designer` tabs: the table edited (`name: null` = a new table).
   table?: { db: string; name: string | null };
   grid?: GridView;
@@ -342,6 +345,11 @@ export default function App() {
   const patchTab = (id: string, patch: Partial<QueryTab>) =>
     setTabs((ts) => ts.map((t) => (t.id === id ? { ...t, ...patch } : t)));
 
+  // Foreign key checks for the console's Run, per tab: null = leave the server's setting.
+  const [fkByTab, setFkByTab] = useState<Record<string, boolean | null>>({});
+  const fkRef = useRef(fkByTab);
+  fkRef.current = fkByTab;
+
   // ---- run / cancel ----
   const runSql = useCallback(async (tabId: string, sql: string, database: string | null) => {
     if (activeId === null || !sql.trim()) return;
@@ -351,7 +359,7 @@ export default function App() {
     setRuns((r) => ({ ...r, [tabId]: { running: true, results: null, error: null, totalMs: 0 } }));
     let state: RunState;
     try {
-      const results = await queryApi.run(activeId, runId, database, sql);
+      const results = await queryApi.run(activeId, runId, database, sql, fkRef.current[tabId] ?? null);
       state = { running: false, results, error: null, totalMs: Math.round(performance.now() - started) };
     } catch (e) {
       state = { running: false, results: null, error: String(e), totalMs: Math.round(performance.now() - started) };
@@ -408,6 +416,11 @@ export default function App() {
   // ---- schema tools ----
   const reloadIndex = async () => { if (activeId !== null) { meta.reset(); setIndex(await schemaApi.refreshIndex(activeId)); } };
 
+  const openNewTable = (database: string, name: string, columns: number) => {
+    const t: QueryTab = { id: uid(), title: name, sql: "", database, kind: "designer", table: { db: database, name: null }, initialTable: { name, columns } };
+    setTabs([...tabs, t]);
+    setActiveTab(t.id);
+  };
   const openDesigner = (database: string, table: string | null) => {
     const existing = tabs.find((t) => t.kind === "designer" && t.table?.db === database && t.table.name === table && table !== null);
     if (existing) return setActiveTab(existing.id);
@@ -433,6 +446,14 @@ export default function App() {
     const existing = tabs.find((t) => t.kind === "databases");
     if (existing) return setActiveTab(existing.id);
     const t: QueryTab = { id: uid(), title: "Databases", sql: "", database: null, kind: "databases" };
+    setTabs([...tabs, t]);
+    setActiveTab(t.id);
+  };
+
+  const openStructure = (db: string) => {
+    const existing = tabs.find((t) => t.kind === "structure" && t.table?.db === db);
+    if (existing) return setActiveTab(existing.id);
+    const t: QueryTab = { id: uid(), title: `${db}: Structure`, sql: "", database: db, kind: "structure", table: { db, name: null } };
     setTabs([...tabs, t]);
     setActiveTab(t.id);
   };
@@ -627,6 +648,7 @@ export default function App() {
       { label: "New query console", icon: "terminal", onClick: () => addTab("", d) },
       { separator: true },
     );
+    if (d) items.push({ label: "Structure (all tables)", icon: "table", onClick: () => openStructure(d) });
     items.push({ label: "Databases (list, bulk drop)", icon: "database", onClick: openDatabases });
     items.push({ label: "Create database…", icon: "database", disabled: readOnly, onClick: () => setPrompt({ title: "Create database", label: "Database name", confirmLabel: "Create",
       onCancel: () => setPrompt(null), onSubmit: async (name) => { setPrompt(null); try { await schemaApi.databaseOp(activeId!, { op: "create", name, charset: "utf8mb4", collation: null }); await reloadIndex(); } catch (err) { setStatus(`Error: ${err}`); } } }) });
@@ -819,6 +841,12 @@ export default function App() {
                 <div className="toolbar">
                   <button className="primary" disabled={running} onClick={run} title="Run selection or all (⌘↵)">▶ Run</button>
                   <button disabled={!running} onClick={cancel} title="Cancel running query">■ Cancel</button>
+                  <Select aria-label="Foreign key checks" title="Foreign key checks while this tab runs" value={fkByTab[tab.id] === undefined || fkByTab[tab.id] === null ? "default" : fkByTab[tab.id] ? "on" : "off"}
+                          onChange={(e) => setFkByTab({ ...fkByTab, [tab.id]: e.target.value === "default" ? null : e.target.value === "on" })}>
+                    <option value="default">FK checks: server default</option>
+                    <option value="on">FK checks: on</option>
+                    <option value="off">FK checks: off</option>
+                  </Select>
                   <button onClick={openFavDialog} title="Save to favorites"><Icon name="star" /></button>
                   <span className="sep" />
                   <button onClick={formatSql} title="Format the selection or the whole script (⇧⌘F)">Format</button>
@@ -877,17 +905,25 @@ export default function App() {
               </div>
             )}
             {tab.kind === "designer" && tab.table && (
-              <TableDesigner key={`${activeId}:${tab.id}`} connectionId={activeId} db={tab.table.db} table={tab.table.name} nodes={index} ensureColumns={ensureColumns}
+              <TableDesigner key={`${activeId}:${tab.id}`} connectionId={activeId} db={tab.table.db} table={tab.table.name} initial={tab.initialTable} nodes={index} ensureColumns={ensureColumns}
                 onOpenData={(d, t) => openTable(d, t)}
                 readOnly={readOnly} onApplied={async (name) => { await reloadIndex(); patchTab(tab.id, { title: name, table: { db: tab.table!.db, name } }); }} />
             )}
             {tab.kind === "transfer" && <TransferTools key={`${activeId}:${tab.id}`} connectionId={activeId} nodes={index} ensureColumns={ensureColumns} preset={tab.transfer ?? {}} onSchemaChanged={() => reloadIndex()} />}
             {tab.kind === "databases" && (
               <DatabasesPage key={`${activeId}:${tab.id}`} connectionId={activeId} readOnly={readOnly} refreshKey={dbRefresh}
-                onOpenDatabase={(d) => { setSelectedDb(d); addTab("", d, d); }}
+                onOpenDatabase={(d) => { setSelectedDb(d); openStructure(d); }}
                 onCreate={(name, collation) => openPlan({ op: "create_database", name, collation }, { title: `Create database ${name}`, confirmLabel: "Create", after: () => setDbRefresh((n) => n + 1) })}
                 onDrop={(names, summary) => openPlan({ op: "drop_databases", names }, { title: `Drop ${names.length} database${names.length === 1 ? "" : "s"}`, confirmLabel: "Drop", summary,
                   after: () => { setDbRefresh((n) => n + 1); setTabs((prev) => { const rest = prev.filter((t) => !(t.table && names.includes(t.table.db))); return rest.length ? rest : [newTab(1)]; }); } })} />
+            )}
+            {tab.kind === "structure" && tab.table && (
+              <StructurePage key={`${activeId}:${tab.id}`} connectionId={activeId} db={tab.table.db} readOnly={readOnly} refreshKey={dbRefresh}
+                onBrowse={(t) => openTable(tab.table!.db, t)} onDesign={(t) => openDesigner(tab.table!.db, t)}
+                onSearch={(t) => openTable(tab.table!.db, t)}
+                onNewTable={(name, columns) => openNewTable(tab.table!.db, name, columns)}
+                onExport={(tables) => openTransfer({ tab: "export", db: tab.table!.db, table: tables[0] })}
+                onPlan={(op, o) => openPlan(op, o)} />
             )}
             {tab.kind === "server" && <ServerTools key={`${activeId}:${tab.id}`} connectionId={activeId} nodes={index} />}
             {tab.kind === "users" && <UsersManager key={`${activeId}:${tab.id}`} connectionId={activeId} nodes={index} ensureColumns={ensureColumns} />}
@@ -930,7 +966,7 @@ export default function App() {
       {planDlg && activeId !== null && (
         <PreviewDialog title={planDlg.title} summary={planDlg.summary} statements={planDlg.statements} environment={env} confirmLabel={planDlg.confirmLabel}
           onCancel={() => setPlanDlg(null)} onRun={(st) => planApi.run(activeId, st)}
-          onDone={() => { reloadIndex(); planDlg.after?.(); setStatus(`${planDlg.title}: done`); }}
+          onDone={() => { reloadIndex(); setDbRefresh((n) => n + 1); planDlg.after?.(); setStatus(`${planDlg.title}: done`); }}
           onOpenConsole={(sql) => addTab(sql, selectedDb)} />
       )}
       {treeMenu && <ContextMenu x={treeMenu.x} y={treeMenu.y} items={treeMenu.items} onClose={() => setTreeMenu(null)} />}

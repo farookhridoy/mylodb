@@ -1,39 +1,166 @@
-# MyLoDB
+<h1 align="center">MyLoDB</h1>
 
-Open-source MySQL/MariaDB manager for macOS, written in Rust (Tauri + React).
+<p align="center">
+  <b>An open-source MySQL and MariaDB manager for macOS, written in Rust and React.</b><br>
+  Browse, query, edit, design and administer your databases in one fast native window.
+</p>
 
-See [docs/ROADMAP.md](docs/ROADMAP.md) for what is done and what is left, and [docs/ANALYSIS.md](docs/ANALYSIS.md) for the original analysis and architecture.
+<p align="center">
+  <a href="https://github.com/farookhridoy/mylodb/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/farookhridoy/mylodb?color=3794ff"></a>
+  <img alt="macOS" src="https://img.shields.io/badge/macOS-Apple%20Silicon-lightgrey">
+  <img alt="MySQL and MariaDB" src="https://img.shields.io/badge/MySQL%20%7C%20MariaDB-4479a1">
+  <a href="LICENSE"><img alt="Apache-2.0 license" src="https://img.shields.io/badge/license-Apache--2.0-green"></a>
+</p>
 
-## Develop
+<p align="center">
+  <a href="#download-and-install">Download</a> ·
+  <a href="#quick-start">Quick start</a> ·
+  <a href="#features">Features</a> ·
+  <a href="#performance">Performance</a> ·
+  <a href="docs/MANUAL.md">Full manual</a> ·
+  <a href="docs/ROADMAP.md">Roadmap</a> ·
+  <a href="#about-the-author">Author</a>
+</p>
+
+<p align="center">
+  <img src="docs/images/query.png" alt="MyLoDB: object tree with an Info panel, a SQL editor and its results" width="900">
+</p>
+
+> [!IMPORTANT]
+> **The first time you open MyLoDB, macOS shows a warning. That is expected.** The app is not signed with a paid Apple Developer certificate.
+> Click **Done** (not *Move to Trash*), then **System Settings → Privacy & Security → Open Anyway**. [Step-by-step](#how-to-install-and-open-mylodb).
+
+MyLoDB is for people who miss SQLyog on the Mac. It connects to MySQL and MariaDB and gives you a tree of your objects with a fast filter, a SQL editor with autocomplete, an editable data grid, a table designer, user and privilege management, server tools, and backup and import. It is built for safety (production colouring, server-enforced read-only, a review before destructive SQL) and for big tables (keyset paging, windowed grid, streamed exports).
+
+*Screenshots show the real interface running on demo data, not a real server.*
+
+## Features
+
+| | |
+|---|---|
+| **Object browser** | Databases, tables, views, routines, triggers and events with sizes. Filter with `ord*`, `/regex/`, `type:view`, `db:shop`, `col:email`. An Info panel for the selected object. Drag a name into the editor. |
+| **SQL editor** | MySQL-aware autocomplete (tables, columns, aliases), formatter, run selection (⌘↵), cancel, multi-result tabs, Explain and profiler, history, favorites, your own snippets, `.sql` files. |
+| **Data grid** | Server-side paging, filter row, multi-column sort, staged inline edits in one transaction, foreign-key picker, BLOB viewer, copy as TSV / CSV / JSON / Markdown / INSERT. |
+| **Table designer** | Columns, indexes, foreign keys, options, with the exact `ALTER TABLE` previewed. Renames keep data. |
+| **Admin pages** | Databases list with sizes and bulk drop, per-database Structure page with a **With selected** menu, Operations, Data dictionary, Engines / charsets / replication. Every destructive action shows **Preview SQL** first. |
+| **Users and privileges** | Create, rename, lock, drop; global, database, table and column privileges shown as the exact GRANT / REVOKE diff. |
+| **Server tools** | Live overview, process list (kill), variables, status, maintenance (CHECK / OPTIMIZE / REPAIR), logs. |
+| **Backup and import** | Consistent SQL backup (one file or per table, optional zip), restore with a script preview, CSV import with column mapping, export to CSV, JSON, JSON Lines, SQL, XML, HTML, Excel. |
+| **Connections** | Passwords in the macOS Keychain. SSH tunnels (host key confirmation), SSL modes, connect by URL, groups, several connections open at once. |
+| **Safe by default** | Environment badge and colour, server-enforced read-only, query time limit, row-estimate review of destructive SQL, type-to-confirm on production. No telemetry. |
+| **Comfortable** | Light, dark and system themes, per-area fonts, four editor colour schemes, command palette (⌘K), native macOS menus, a built-in manual and a first-run tour. |
+
+## Download and install
+
+Get the installer from the **[Releases page](https://github.com/farookhridoy/mylodb/releases/latest)**:
+
+| Your computer | File |
+|---|---|
+| Mac with Apple Silicon (M1 and later) | `MyLoDB_0.1.0_aarch64.dmg` |
+
+An Intel build and a signed build are on the [roadmap](docs/ROADMAP.md). Not sure which Mac you have? Apple menu → **About This Mac**.
+
+### How to install and open MyLoDB
+
+1. **Install.** Open the `.dmg` and drag **MyLoDB** into **Applications**.
+2. **Open it once.** When macOS shows *"Apple could not verify MyLoDB is free of malware"*, click **Done**. *Do not click Move to Trash.*
+3. **Allow it.** Open **System Settings → Privacy & Security**, scroll to **Security**, click **Open Anyway** next to MyLoDB and enter your password.
+4. **Use it.** Open MyLoDB again and click **Open**. A short tour starts by itself.
+
+**Prefer Terminal?** Run this once, then open the app normally:
+
+```
+xattr -dr com.apple.quarantine /Applications/MyLoDB.app
+```
+
+### Verify your download
+
+Each release lists a SHA-256 checksum. Compare it with your file's:
+
+```
+shasum -a 256 ~/Downloads/MyLoDB_*.dmg
+```
+
+The two values must match exactly. The source is open, so you can also [build it yourself](#build-it-yourself).
+
+## Quick start
+
+1. Click **+** above the object tree and enter the host, user and password (or paste a `mysql://` URL). Press **Test**, then save.
+2. Pick the **Environment** on the Safety tab: Production connections get a red band and extra confirmations.
+3. Click a database to filter the tree to it, double-click a table to open it, press **⌘T** for a SQL script and **⌘↵** to run it.
+4. Press **⌘K** for the command palette, and open **Help → User Manual** for everything else.
+
+<p align="center">
+  <img src="docs/images/tour.png" alt="The first-run tour highlighting the Add a connection button" width="520">
+</p>
+
+## A tour in pictures
+
+<p align="center">
+  <img src="docs/images/table-data.png" alt="A table opened as a console and an editable data grid" width="440">
+  <img src="docs/images/structure.png" alt="The database Structure page with a With selected menu" width="440">
+</p>
+<p align="center">
+  <img src="docs/images/databases.png" alt="The Databases page with sizes and bulk drop" width="440">
+  <img src="docs/images/dark-theme.png" alt="The dark theme" width="440">
+</p>
+
+More screenshots are in the [manual](docs/MANUAL.md).
+
+## Performance
+
+Measured on a local MySQL 9.7.2 with a **10-million-row** table (about 1 GB, larger than the 128 MB buffer pool):
+
+| Operation | Result |
+|---|---:|
+| First page (500 rows) | 6 ms |
+| Jump to the middle of the table (keyset paging) | 3.3 ms (OFFSET: 1,190 ms) |
+| Jump to the last page (keyset) | 2.0 ms (OFFSET: 2,336 ms) |
+| Estimated row count | 0.9 ms (exact `COUNT(*)`: 820 ms) |
+| Export to CSV | 9.4 s, about 1.06 million rows/s |
+| Export to CSV + gzip | 12.8 s, 204 MB |
+| Memory during a 1.4 GB export | 5 to 11 MB |
+
+Single runs on one machine, so treat them as indications. The method, the limits and what was not measured (wide tables, other server versions, the real desktop window) are in [docs/BENCHMARKS.md](docs/BENCHMARKS.md).
+
+## Status
+
+Version **0.1.0** is the first public release. Phases 1 to 13 of the [roadmap](docs/ROADMAP.md) are done: connection manager, object browser, SQL editor, data grid, table designer, users, server tools, backup and import, production safety, large-table engine, admin console, shell and preferences, workspace features. The Rust suite passes on MySQL 9.7 (it also passed on MariaDB 13 when last run, before the 0.1.0 changes); the CI workflow targets MySQL 5.7 to 9 and MariaDB 10.11 / 11.4 but had not run on GitHub before this release. Not yet: PostgreSQL / SQLite / SQL Server (design in [docs/ENGINE_ABSTRACTION.md](docs/ENGINE_ABSTRACTION.md)), schema compare, visual query builder, Windows and Linux builds, and a signed and notarised build.
+
+## Build it yourself
+
+You need Rust, Node.js 20 or later, and the Tauri prerequisites for macOS.
 
 ```sh
 cd apps/desktop
 npm install
-npm run tauri dev      # launches the app with hot reload
-cargo test             # from the repo root: Rust unit + MySQL integration tests
-npm run e2e            # UI tests of the grid, designer, users manager, editor, server tools, transfers, tree, object browser, objects, console, table views and theme (needs `npm run dev` running and CHROME_PATH set)
+npm run tauri dev                   # the app with hot reload
+npm run tauri build -- --bundles dmg   # an unsigned .dmg
+cargo test                          # from the repo root: unit tests and MySQL integration tests
+npm run e2e                         # UI tests (needs `npm run dev` running and CHROME_PATH set)
+node scripts/screenshots.mjs        # regenerate docs/images
 ```
 
-Integration tests use a local MySQL (`MYLODB_TEST_HOST/PORT/USER/PASSWORD`) and create/drop only their own `mylodb_itest_*` database.
+Integration tests use a local MySQL (`MYLODB_TEST_HOST/PORT/USER/PASSWORD`) and create and drop only their own `mylodb_itest_*` databases. See [docs/RELEASING.md](docs/RELEASING.md) for how a release is made.
 
-## Status
+## Documentation
 
-- Phase 1 (done): connection manager (passwords in macOS Keychain), object tree, and the left-menu filter (`ord*`, `/regex/`, `type:view`, `db:shop`, `col:email`).
-- Phase 2 (done): SQL editor (CodeMirror, MySQL dialect), query tabs, run selection or all (⌘↵), cancel (`KILL QUERY`), multi-result tabs and messages, `DELIMITER` support, history with search, favorites with folders, and tab session restore. Double-click a table to open it.
-- Phase 3 (done): table data grid — server-side paging, per-column filter row (contains, =, ≠, starts/ends with, <, ≤, >, ≥, between, in, regexp, NULL, empty), free-form WHERE, multi-column sort, staged inline edits (update/insert/delete in one transaction, rows keyed by primary/unique key, read-only otherwise), duplicate row, form view, value viewer (text/JSON/hex/image, upload/save BLOBs), foreign-key picker and ⌘-click navigation, copy rows as TSV/CSV/JSON/INSERT, export to CSV/JSON/SQL, "View queries".
-- Phase 4 (done): table designer (columns, types, defaults, generated columns, indexes, foreign keys, engine/charset/collation, live SQL preview, reads `information_schema`, diffs the original against your edit into a minimal ordered `ALTER TABLE` sequence, renames/moves keep data), table operations (duplicate, rename, truncate and drop with type-to-confirm), create/drop database, and a user and privilege manager (create/rename/lock/drop users, global, database, table and column privileges, shown as the exact `GRANT`/`REVOKE` diff with passwords masked).
-- Phase 5 (done): context-aware autocomplete (tables, columns, aliases, `db.` qualifiers, functions, keywords; quoting of reserved/special names; works from the in-memory object index, so no server round trip), SQL formatter (indent, keyword case; selection or whole script; ⇧⌘F), Explain / Explain Analyze with plain-language hints and a collapsible JSON plan, and a query profiler (stage timings from `SHOW PROFILE` plus the rows read, sorts and temp tables the statement caused). Autocomplete rebuilds after DDL and from the tree's ⟳ button.
-- Phase 6 (done): SSH tunnelling (password or private key; the host key is shown for confirmation on first use and a changed key blocks the connection), SSL modes (verify, verify CA only, skip verify) with CA and client certificate files, a *Test connection* button, and a Server tab: overview with live queries/s and connections, process list (stop query / kill connection), global variables (edit with confirmation, server warnings shown), status with per-second rates, CHECK / ANALYZE / OPTIMIZE / REPAIR for many tables at once, and logs (error log, slow queries, binary logs and events, log settings).
-- Phase 7 (done): backup to SQL (structure, data, views, routines, triggers, events; one consistent snapshot; one file or a file per table; optional .zip; timestamped names; cancellable, partial output removed), restore from a .sql file, a .zip or a folder (streamed from disk, errors listed with line numbers), CSV import (delimiter detection, preview, encodings, column mapping, insert/skip/update/replace, all-or-nothing or continue-on-error, create a table from the file), and export of tables or any SELECT to CSV, JSON, SQL INSERT, XML, HTML or Excel.
-- Tree and theme update: the object-tree filter is scoped to the selected database ("Filter tables in …") and database names only when none is selected; columns load per database on demand and groups are paged, so very large servers stay fast; ⇧⌘B focuses the filter. Light, dark and system themes.
-- Object browser: the connection (`user@host`) is the root node; click it to reset. Filter databases, then click one to filter its tables, then click a table to filter its columns (by name or type). Columns show their type (`bigint unsigned`, `char(255)`) and tables their size.
-- Remote servers: connect by host or paste a JDBC / mysql:// URL; "Show all databases" off lists only the default database (shared hosting). Result tabs: Results, Profile, Messages, Table Data, Info, History. All dropdowns are searchable.
-- Large tables (Phase 10): keyset paging, instant estimated counts with a cancellable exact count, a windowed grid, exports as cancellable jobs with JSON Lines and gzip. Measured at 10 million rows: [docs/BENCHMARKS.md](docs/BENCHMARKS.md).
-- Roadmap and what is still to do (mandatory / nice to have / optional): [docs/ROADMAP.md](docs/ROADMAP.md). phpMyAdmin parity, menu bar, preferences and more database engines: [docs/PHPMYADMIN_AND_ENGINES.md](docs/PHPMYADMIN_AND_ENGINES.md).
-- Production safety (connection dialog → Safety): environment badge and colour, server-enforced read-only, review of destructive SQL with row estimates, query timeout, confirmation before saving grid changes on production.
-- Filter options (filter icon): search tables only, or also views, routines, triggers, events and columns. DBeaver-style context menus with icons, sections, shortcuts and submenus.
-- Table views: every table has Properties (settings, columns, constraints, foreign keys, references, triggers, indexes, partitions, statistics, DDL), Data (console + grid) and Diagram (the table and the tables it is related to).
-- Workspace: a table opens as a SQL console (top) and its data grid (bottom); sidebar and console are resizable; arrows open and close nodes; clicking a table, column or database name pastes it into the query being written; the table menu has SELECT / INSERT / UPDATE / DELETE samples; the locked database is the console's database.
-- Browser lock: clicking a database locks the filter and the tree to it (a chip in the filter box; ✕, Backspace or Esc releases it), clicking a table locks to its columns. Flat IDE-style look with one set of line icons.
-- Phase 8: views, procedures, functions, triggers and events have menus (show / edit definition as a runnable script, drop, new-object templates); tables list their indexes; databases show their size; expansion and selection are remembered per connection; F5 refreshes.
-- Next: see [docs/ROADMAP.md](docs/ROADMAP.md) for the phase list, the comparison with the product plan and the SQLyog reference (phases 1 to 13 are done; engines, power tools, visual tools and the beta release are open).
+* [User manual](docs/MANUAL.md) (also inside the app: **Help → User Manual**)
+* [Benchmarks](docs/BENCHMARKS.md) · [Roadmap](docs/ROADMAP.md) · [Analysis and architecture](docs/ANALYSIS.md)
+* [Server compatibility](docs/SERVER_COMPATIBILITY.md) · [Engine abstraction design](docs/ENGINE_ABSTRACTION.md)
+* [Changelog](CHANGELOG.md)
+
+## About the author
+
+MyLoDB is written by **Omar Farook Hridoy**.
+
+* Website: [farookhridoy.com](https://farookhridoy.com)
+* Company: [thelarasoft.com](https://thelarasoft.com)
+* GitHub: [@farookhridoy](https://github.com/farookhridoy)
+* Also by the author: [Tavrix](https://github.com/farookhridoy/tavrix), an SSH terminal, file manager and editor.
+
+MyLoDB is independent and is not affiliated with SQLyog or Webyog. Bug reports and ideas are welcome in [Issues](https://github.com/farookhridoy/mylodb/issues).
+
+## Licence
+
+[Apache-2.0](LICENSE).

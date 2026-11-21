@@ -1,0 +1,173 @@
+# MyLoDB user manual
+
+Version 0.1.0. The same text is inside the app: **Help → User Manual**. Screenshots show the real interface running on demo data (a fake `shop` database), not a real server.
+
+## Contents
+
+1. [Install and first launch](#1-install-and-first-launch)
+2. [Add a connection](#2-add-a-connection)
+3. [Browse objects](#3-browse-objects)
+4. [Run SQL](#4-run-sql)
+5. [Work with table data](#5-work-with-table-data)
+6. [Design tables and administer a database](#6-design-tables-and-administer-a-database)
+7. [Stay safe on production](#7-stay-safe-on-production)
+8. [Backup, restore, import and export](#8-backup-restore-import-and-export)
+9. [Preferences and themes](#9-preferences-and-themes)
+10. [Performance and large tables](#10-performance-and-large-tables)
+11. [Keyboard shortcuts](#11-keyboard-shortcuts)
+12. [Troubleshooting](#12-troubleshooting)
+
+## 1. Install and first launch
+
+Download `MyLoDB_0.1.0_aarch64.dmg` from the [Releases page](https://github.com/farookhridoy/mylodb/releases/latest) (Mac with Apple Silicon) and drag **MyLoDB** into **Applications**.
+
+MyLoDB is not signed with a paid Apple Developer certificate, so macOS warns you the first time. This is expected, and you do it once:
+
+1. Open MyLoDB. When macOS says it could not verify the app, click **Done** (not *Move to Trash*).
+2. Open **System Settings → Privacy & Security**, scroll to **Security**, click **Open Anyway** next to MyLoDB and enter your password.
+3. Open MyLoDB again and click **Open**.
+
+Or, in Terminal: `xattr -dr com.apple.quarantine /Applications/MyLoDB.app`.
+
+The first time it starts, a **quick tour** points at the main controls. Replay it any time from **Help → Quick Tour**.
+
+![The quick tour](images/tour.png)
+
+## 2. Add a connection
+
+Click **+** above the object tree (or **Database → New Database Connection…**).
+
+![The new connection dialog](images/connection-dialog.png)
+
+* **Name, host, port, user, password.** You can also paste a `mysql://user@host/db` or JDBC URL under *Connect by URL*. Passwords are stored in the macOS Keychain, never in the app's database or in logs.
+* **Group (folder).** Connections with the same group name are listed together in the picker.
+* **Test** connects once and shows the server version and the TLS cipher, or the server's exact error.
+* **SSH tunnel** (password or private key; the host key is shown for confirmation and a changed key blocks the connection) and **SSL** modes (verify, verify CA, skip verify, client certificates).
+* **Show all databases** off lists only the default database: for shared hosting where you own one database.
+
+![The Safety tab](images/connection-safety.png)
+
+The **Safety** tab sets the **Environment** (Development, Staging, Production), a server-enforced **Read-only** session, a **query time limit**, and whether destructive SQL is reviewed first.
+
+Several connections can be open at once; each is a tab above the workspace. Closing a tab disconnects only that connection. Each connection remembers its own open tabs and tree state.
+
+## 3. Browse objects
+
+![The object tree with the Info panel](images/browser-info.png)
+
+* The tree shows databases, tables, views, procedures, functions, triggers and events, with sizes. **Click** a database to lock the filter to it; click a table to see its columns and indexes.
+* **Filter** (⇧⌘B): type part of a name. Operators: `/regex/`, `type:view`, `db:shop`, `col:email`. The filter icon switches which object kinds are searched.
+* **Double-click** a table to open it. **Right-click** for data, properties, SELECT/INSERT/UPDATE/DELETE samples, rename, duplicate, drop. On a database: Structure, Databases, Create, **Alter database…**, Drop. On a procedure or function: show or edit the definition, **Rename…**, drop.
+* **Drag** a database, table or column into the editor to insert its quoted name.
+* The **Info** panel under the tree shows facts about the selected table (engine, rows, size, collation, auto-increment, created, columns, indexes, foreign keys) or database (object counts, size, rows). Click its header to collapse it.
+* The sort button orders tables by name or by size. **F5** refreshes.
+
+## 4. Run SQL
+
+![A query and its results](images/query.png)
+
+* **⌘T** opens a script. **⌘↵** runs the selection, or the whole script if nothing is selected. `DELIMITER` is supported.
+* **Preview** shows the statements and a risk review before anything runs. **Cancel** stops the running statement. **FK checks** can be switched off for a run.
+* Autocomplete knows tables, columns, aliases, functions and keywords, and works from the in-memory object index, so it needs no server round trip. **⇧⌘F** formats. **Explain**, **Analyze** and **Profile** show how a query ran.
+* Result tabs: **Results**, **Profile**, **Messages**, **Table Data**, **Info**, **History**. Switch to **Text** for a mysql-client style output, or **Copy as** TSV, CSV, JSON, Markdown or INSERT.
+* **History** and **Favorites** (with folders) are tabs in the sidebar. File → **Open SQL File…** and **Save** work with `.sql` files.
+
+![The command palette](images/command-palette.png)
+
+**⌘K** is the command palette: every action, every table, built-in SQL snippets, and your own. To save a snippet, write or select SQL and choose **Save editor text as my snippet…**; later type its name to insert it, or "delete my snippet" to remove it.
+
+## 5. Work with table data
+
+![A table: console above, data grid below](images/table-data.png)
+
+* The grid pages through the data on the server. Edit a cell by double-clicking; edits are **staged** and written together in one transaction when you save. Rows are matched by primary or unique key; a table without one is read-only.
+* Filter row (contains, =, ≠, starts/ends with, <, ≤, >, ≥, between, in, regexp, NULL, empty), a free-form WHERE, and multi-column sort.
+* Foreign-key cells open a picker; ⌘-click jumps to the referenced row. The value panel shows text, JSON, hex and images, and uploads or saves BLOBs.
+* Export the table or any SELECT to CSV, JSON, JSON Lines (optionally gzip), SQL, XML, HTML or Excel, as a cancellable background job with progress. Running jobs appear under **Tasks** in the footer.
+
+## 6. Design tables and administer a database
+
+* **Table designer:** columns, types, defaults, generated columns, indexes, foreign keys, engine, charset and collation. It shows the exact `ALTER TABLE` before it runs, and renames keep data.
+* **Databases page** (Database → Databases…): sizes, table counts, collation, check all, **bulk drop**, create with a collation.
+
+![The Databases page](images/databases.png)
+
+* **Structure page** of a database: every table with rows, engine, collation, size and overhead, a filter, row actions, and a **With selected** menu: copy, show create, export, empty, drop, analyze, check, checksum, optimize, repair, add or replace a prefix, copy with a prefix. Also **Operations** (rename by copy, copy, collation) and a printable **Data dictionary**.
+
+![The Structure page](images/structure.png)
+
+* **Preview SQL, then run:** every drop, empty, rename, copy and bulk operation shows the exact statements first, with a switch for foreign key checks. On production you type the name to confirm.
+* **Users and Privileges:** create, rename, lock and drop accounts, and global, database, table and column privileges, shown as the exact GRANT / REVOKE changes with passwords masked.
+* **Server Tools:** overview with live queries per second, process list (stop query, kill connection), variables (edit with confirmation), status with rates, CHECK / ANALYZE / OPTIMIZE / REPAIR for many tables, and logs. **Engines, charsets, replication** is under Tools.
+
+## 7. Stay safe on production
+
+* The **Environment** sets a colour band and badge. Production asks you to type a name before destructive operations, and saving grid changes asks for confirmation.
+* **Read-only** is enforced by the server for the session, not just by the app.
+* A **query time limit** kills runaway statements.
+* Destructive statements (DROP, TRUNCATE, DELETE or UPDATE without WHERE) are reviewed with an estimate of the rows affected before they run.
+
+## 8. Backup, restore, import and export
+
+File → **Backup / Restore…** and **Import Data… / Export Data…**.
+
+* **Backup** writes one consistent snapshot as SQL (structure, data, views, routines, triggers, events), as one file or a file per table, optionally zipped. A cancelled backup removes its partial output.
+* **Restore** runs a `.sql` file, a zip or a folder, streamed from disk, and lists errors with line numbers. **Preview script** shows the counts and the first statements first.
+* **CSV import** detects the delimiter, previews rows, handles encodings, maps columns, and can insert, skip, update or replace; all-or-nothing or continue on error. It can also create a table from the file.
+
+## 9. Preferences and themes
+
+![Preferences](images/preferences.png)
+
+**⌘,** opens Preferences: theme (light, dark, system), and font family, size and weight for the interface, sidebar, data grid and query editor, editor line height, and four editor colour schemes (default, multi-colour, Solarized, high contrast), previewed live.
+
+![The dark theme](images/dark-theme.png)
+
+## 10. Performance and large tables
+
+Measured on 2026-11-21 against a local MySQL 9.7.2 with a 10-million-row table of about 1 GB (larger than the 128 MB buffer pool). Single runs on one machine; full method and limits are in [BENCHMARKS.md](BENCHMARKS.md).
+
+| Operation | 10M rows |
+|---|---:|
+| First page (500 rows) | 6 ms |
+| Page at 50 % by keyset paging | 3.3 ms (OFFSET: 1,190 ms) |
+| Last page by keyset | 2.0 ms (OFFSET: 2,336 ms) |
+| Estimated row count | 0.9 ms (exact `COUNT(*)`: 820 ms) |
+| Export to CSV | 9.4 s, about 1.06 million rows/s, 638 MB |
+| Export to JSON | 15.0 s |
+| Export to CSV + gzip | 12.8 s, 204 MB |
+
+* Memory stays flat (5 to 11 MB) during a 1.4 GB export.
+* The grid draws only visible rows: a page of 5,000 rows draws 32.
+* Filtered row estimates can be far off, so the grid shows "≈" and offers a cancellable **Count** button.
+* Keyset paging needs a primary key of integer, text or date columns; other tables fall back to OFFSET automatically.
+* Not measured: wide tables (hundreds of columns), MySQL 5.7 / 8.0 / 8.4 and MariaDB timings, network drops, and the real desktop window (only a headless browser with a mock was measured for the grid).
+
+## 11. Keyboard shortcuts
+
+| Shortcut | Action |
+|---|---|
+| ⌘T | New SQL script |
+| ⌘W | Close tab |
+| ⌘↵ | Run selection or script |
+| ⇧⌘F | Format SQL |
+| ⇧⌘B | Search objects |
+| ⌘K | Command palette |
+| ⌘, | Preferences |
+| F5 | Refresh the object tree |
+
+## 12. Troubleshooting
+
+| Problem | What to do |
+|---|---|
+| "Apple could not verify MyLoDB" or "damaged" | See [section 1](#1-install-and-first-launch): **Open Anyway**, or the `xattr` command. |
+| Cannot connect | Check host, port, the account's allowed host and the SSL mode. **Test** shows the server's exact message. |
+| Only one database is listed | Turn on **Show all databases** in the connection dialog. |
+| A table is read-only in the grid | It has no primary or unique key. |
+| Preview or Run is refused on a connection | The connection is read-only. Edit the connection to change that. |
+
+Found a bug? [Open an issue](https://github.com/farookhridoy/mylodb/issues). Please leave out passwords and customer data.
+
+## About
+
+MyLoDB is open source under the Apache-2.0 licence. Author: Omar Farook Hridoy ([farookhridoy.com](https://farookhridoy.com)), [thelarasoft.com](https://thelarasoft.com). MyLoDB is independent and is not affiliated with SQLyog or Webyog. It sends no telemetry.

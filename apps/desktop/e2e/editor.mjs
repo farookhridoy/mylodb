@@ -77,7 +77,7 @@ await page.locator(".popup").hover(); await page.mouse.move(900, 600);
 assert.deepEqual(JSON.parse(await page.evaluate(() => localStorage.getItem("mylodb.formatOptions"))).indent, { style: "tab" });
 await clear();
 await page.keyboard.type("SELECT 1 FROM t");
-await page.keyboard.press("ControlOrMeta+Shift+f");
+await page.click("button:text-is('Format')"); // the shortcut itself is covered by the menu bar suite
 await settle();
 fmt = await last("format_sql");
 assert.equal(fmt.options.keyword_case, "lower");

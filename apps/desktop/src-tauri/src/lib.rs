@@ -600,6 +600,92 @@ async fn export_query(app: tauri::AppHandle, state: tauri::State<'_, AppState>, 
     }
 }
 
+// ---- plans: the SQL a bulk or destructive operation will run, shown before it runs ----
+
+/// An operation the UI wants to preview. Building the statements is pure (see `myq_schema::plan`); nothing here touches the server.
+#[derive(serde::Deserialize)]
+#[serde(tag = "op", rename_all = "snake_case")]
+enum PlanOp {
+    DropDatabases { names: Vec<String> },
+    DropTables { db: String, objects: Vec<(String, bool)> },
+    EmptyTables { db: String, objects: Vec<(String, bool)> },
+    CopyTables { db: String, copies: Vec<(String, String)>, with_data: bool },
+    AddPrefix { db: String, tables: Vec<String>, prefix: String },
+    ReplacePrefix { db: String, tables: Vec<String>, old: String, new: String },
+    CopyWithPrefix { db: String, tables: Vec<String>, prefix: String, with_data: bool },
+    Checksum { db: String, tables: Vec<String> },
+    AlterDatabase { name: String, charset: Option<String>, collation: Option<String> },
+    CopyDatabase { src: String, dst: String, with_data: bool, collation: Option<String> },
+    RenameDatabase { old: String, new: String, collation: Option<String> },
+    DropObject { db: String, kind: Kind, name: String },
+    RenameTable { db: String, from: String, to: String },
+}
+
+/// The statements for `op`, or the reason it cannot be done.
+#[tauri::command]
+fn build_plan(state: tauri::State<AppState>, id: i64, op: PlanOp) -> Result<Vec<String>, String> {
+    use myq_schema::plan as p;
+    // table names and the number of other objects of a database come from the session's index
+    let tables_of = |db: &str| -> Result<(Vec<String>, usize), String> {
+        let sessions = state.sessions.lock().unwrap();
+        let s = sessions.get(&id).ok_or("not connected")?;
+        let nodes = s.by_db.get(db).map(|v| v.iter().map(|&i| &s.index[i]).collect::<Vec<_>>()).unwrap_or_default();
+        let tables = nodes.iter().filter(|n| n.kind == Kind::Table).map(|n| n.name.clone()).collect();
+        let other = nodes.iter().filter(|n| matches!(n.kind, Kind::View | Kind::Procedure | Kind::Function | Kind::Trigger | Kind::Event)).count();
+        Ok((tables, other))
+    };
+    match op {
+        PlanOp::DropDatabases { names } => p::drop_databases(&names),
+        PlanOp::DropTables { db, objects } => p::drop_tables(&db, &objects),
+        PlanOp::EmptyTables { db, objects } => p::empty_tables(&db, &objects),
+        PlanOp::CopyTables { db, copies, with_data } => p::copy_tables(&db, &copies, with_data),
+        PlanOp::AddPrefix { db, tables, prefix } => p::add_prefix(&db, &tables, &prefix),
+        PlanOp::ReplacePrefix { db, tables, old, new } => p::replace_prefix(&db, &tables, &old, &new),
+        PlanOp::CopyWithPrefix { db, tables, prefix, with_data } => p::copy_with_prefix(&db, &tables, &prefix, with_data),
+        PlanOp::Checksum { db, tables } => p::checksum_tables(&db, &tables),
+        PlanOp::AlterDatabase { name, charset, collation } => p::alter_database(&name, charset.as_deref(), collation.as_deref()),
+        PlanOp::CopyDatabase { src, dst, with_data, collation } => {
+            let (tables, _) = tables_of(&src)?;
+            p::copy_database(&src, &dst, &tables, with_data, collation.as_deref())
+        }
+        PlanOp::DropObject { db, kind, name } => myq_schema::ddl::drop_object_sql(kind, &db, &name).map(|sql| vec![format!("{sql};")]).ok_or_else(|| format!("{kind:?} cannot be dropped this way")),
+        PlanOp::RenameTable { db, from, to } => {
+            if to.trim().is_empty() || to == from {
+                Err("choose a different, non-empty name".into())
+            } else {
+                Ok(vec![format!("{};", myq_schema::ddl::rename_table_sql(&db, &from, &to))])
+            }
+        }
+        PlanOp::RenameDatabase { old, new, collation } => {
+            let (tables, other) = tables_of(&old)?;
+            p::rename_database(&old, &new, &tables, other, collation.as_deref())
+        }
+    }
+}
+
+/// Run a plan exactly as shown, on one connection, stopping at the first error. The foreign key switch is part of the statements
+/// (see `myq_schema::plan::with_fk_checks`); it is also put back afterwards, so a failed run cannot leave checks off on a pooled connection.
+#[tauri::command]
+async fn run_plan(state: tauri::State<'_, AppState>, id: i64, statements: Vec<String>) -> Result<Vec<StatementResult>, String> {
+    guard_writable(&state, id, "running this operation")?;
+    if statements.is_empty() {
+        return Err("there is nothing to run".into());
+    }
+    let (pool, safety) = state.sessions.lock().unwrap().get(&id).map(|s| (s.pool.clone(), s.safety)).ok_or("not connected")?;
+    let mut conn = pool.get_conn().await.map_err(err)?;
+    let sql = statements.join("\n");
+    let started = std::time::Instant::now();
+    let (results, _) = myq_driver::execute_script_with_timeout(&pool, &mut conn, None, &sql, safety.timeout_secs).await;
+    {
+        use myq_driver::mysql_async::prelude::Queryable;
+        let _ = conn.query_drop("SET SESSION foreign_key_checks = 1").await;
+    }
+    let ok = results.iter().all(|r| r.error.is_none());
+    let _ = state.store.lock().unwrap().add_history(id, sql.trim(), started.elapsed().as_millis() as u64, ok);
+    let _ = reindex(&state, id).await;
+    Ok(results)
+}
+
 // ---- backup, restore and import jobs ----
 
 /// What the UI hears while a job runs. At most one event per 100 ms, plus the first and the last.
@@ -1171,6 +1257,8 @@ pub fn run() {
             drop_object,
             table_column_details,
             run_query,
+            build_plan,
+            run_plan,
             review_sql,
             cancel_query,
             list_databases,

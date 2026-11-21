@@ -432,3 +432,8 @@ button.danger { background: var(--bad); border-color: var(--bad); color: #fff; }
 .cell-edit input { height: 21px; padding: 0 8px; }
 .dg-job { padding: 6px 10px; border-bottom: 1px solid var(--line); background: var(--panel); }
 .count-btn { color: var(--accent); }
+
+/* preview SQL, then run */
+.preview-dialog { width: 680px; max-height: 88vh; overflow: auto; } .preview-dialog h3 { display: flex; align-items: center; gap: 8px; }
+.preview-sql { margin: 0; padding: 10px 12px; background: var(--inset); border: 1px solid var(--line); border-radius: 4px; font: 12px/1.5 "SF Mono", Menlo, monospace; white-space: pre-wrap; word-break: break-all; max-height: 36vh; overflow: auto; user-select: text; }
+.plan-results { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; max-height: 24vh; overflow: auto; } .plan-results li.bad { color: var(--bad-text); }

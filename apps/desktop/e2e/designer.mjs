@@ -113,30 +113,39 @@ ok("new table starts with an id primary key and is created from a blank definiti
 // ---------- table operations ----------
 await page.click(".row-item.leaf:has-text('customers')", { button: "right" });
 await page.click(".ctx-label:text-is('Drop…')");
-assert.equal(await page.locator("button.danger:text-is('Drop table')").isDisabled(), true);
-await page.fill(".dialog input", "wrong");
-assert.equal(await page.locator("button.danger:text-is('Drop table')").isDisabled(), true);
-await page.fill(".dialog input", "customers");
+await page.waitForSelector(".preview-dialog");
+assert.equal(await page.locator(".preview-sql").innerText(), "DROP TABLE `shop`.`customers`;", "the exact statement is shown before anything runs");
+assert.equal(await g("__runPlans"), undefined, "nothing ran yet");
 await page.click("button.danger:text-is('Drop table')");
+await page.waitForSelector(".plan-results li");
+assert.deepEqual((await g("__runPlans")).at(-1), ["DROP TABLE `shop`.`customers`;"]);
+await page.click(".preview-dialog button:text-is('Done')");
 await settle();
-assert.deepEqual((await g("__tableOps")).at(-1), { table: "customers", operation: { op: "drop" } });
-ok("drop requires typing the table name");
+assert.equal(await page.locator(".row-item.leaf:has-text('customers')").count(), 0, "the table is gone from the tree");
+ok("drop shows the exact SQL first, runs it on Run, and refreshes the tree");
 
 await page.click(".row-item.leaf:has-text('orders')", { button: "right" });
 await page.click(".ctx-label:text-is('Duplicate…')");
 await page.fill(".dialog input:not([type=checkbox])", "orders_bak");
 await page.check(".dialog input[type=checkbox]");
 await page.click(".dialog button.primary");
-await settle();
-assert.deepEqual((await g("__tableOps")).at(-1), { table: "orders", operation: { op: "duplicate", to: "orders_bak", with_data: true } });
+await page.waitForSelector(".preview-dialog");
+assert.equal(await page.locator(".preview-sql").innerText(), "CREATE TABLE `shop`.`orders_bak` LIKE `shop`.`orders`;\nINSERT INTO `shop`.`orders_bak` SELECT * FROM `shop`.`orders`;");
+await page.click("button.danger:text-is('Duplicate')");
+await page.waitForSelector(".plan-results li");
+await page.click(".preview-dialog button:text-is('Done')");
 await page.click(".row-item.leaf:has-text('orders')", { button: "right" });
 await page.click(".ctx-label:text-is('Rename…')");
 await page.fill(".dialog input", "orders2");
 await page.click(".dialog button.primary");
+await page.waitForSelector(".preview-dialog");
+assert.equal(await page.locator(".preview-sql").innerText(), "RENAME TABLE `shop`.`orders` TO `shop`.`orders2`;");
+await page.click("button.danger:text-is('Rename')");
+await page.waitForSelector(".plan-results li");
+await page.click(".preview-dialog button:text-is('Done')");
 await settle();
-assert.deepEqual((await g("__tableOps")).at(-1), { table: "orders", operation: { op: "rename", to: "orders2" } });
 assert.equal(await page.locator(".qtab:has-text('orders2')").count() > 0, true, "open tabs are retitled after a rename");
-ok("duplicate (with data) and rename send the right operations");
+ok("duplicate (with data) and rename are previewed as SQL, then run");
 
 // create / drop database
 await page.click(".tree .db", { button: "right" });

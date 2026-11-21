@@ -345,3 +345,26 @@ export const transferApi = {
   exportQuery: (id: number, jobId: string, database: string | null, sql: string, format: ExportFormat, nullText: string, gzip: boolean, path: string) =>
     invoke<{ rows: number; warnings: string[] }>("export_query", { id, jobId, database, sql, options: { format, null_text: nullText, gzip }, path }),
 };
+
+// ---- plans: the SQL of a bulk or destructive operation, shown before it runs ----
+export type PlanOp =
+  | { op: "drop_databases"; names: string[] }
+  | { op: "drop_tables"; db: string; objects: [string, boolean][] }
+  | { op: "empty_tables"; db: string; objects: [string, boolean][] }
+  | { op: "copy_tables"; db: string; copies: [string, string][]; with_data: boolean }
+  | { op: "add_prefix"; db: string; tables: string[]; prefix: string }
+  | { op: "replace_prefix"; db: string; tables: string[]; old: string; new: string }
+  | { op: "copy_with_prefix"; db: string; tables: string[]; prefix: string; with_data: boolean }
+  | { op: "checksum"; db: string; tables: string[] }
+  | { op: "alter_database"; name: string; charset: string | null; collation: string | null }
+  | { op: "copy_database"; src: string; dst: string; with_data: boolean; collation: string | null }
+  | { op: "rename_database"; old: string; new: string; collation: string | null }
+  | { op: "drop_object"; db: string; kind: Kind; name: string }
+  | { op: "rename_table"; db: string; from: string; to: string };
+
+export const planApi = {
+  /** The statements for an operation (nothing runs). Rejects with the reason when it cannot be done. */
+  build: (id: number, op: PlanOp) => invoke<string[]>("build_plan", { id, op }),
+  /** Run statements exactly as shown, stopping at the first error. */
+  run: (id: number, statements: string[]) => invoke<StatementResult[]>("run_plan", { id, statements }),
+};

@@ -71,19 +71,18 @@ for (const [group, name] of [["Triggers", "trg_orders_bi"], ["Events", "ev_night
 }
 ok("functions, triggers and events have the definition menu too");
 
-// ---- drop a view: typed confirmation, then it disappears
+// ---- drop a view: the SQL is shown first, then it runs and disappears
 await page.click(".row-item.leaf:has-text('v_orders')", { button: "right" });
 await page.click(".ctx >> text=Drop…");
-const confirm = page.locator("input[type=text], .dialog input").last();
-await confirm.waitFor();
-const dropBtn = page.locator("button", { hasText: /^Drop view$/ });
-assert.equal(await dropBtn.isDisabled(), true, "the button waits for the typed name");
-await confirm.fill("v_orders");
-await dropBtn.click();
-await page.waitForFunction(() => window.__dropCalls?.length === 1);
-assert.deepEqual(await g("__dropCalls"), ["view:shop.v_orders"]);
+await page.waitForSelector(".preview-dialog");
+assert.equal(await page.locator(".preview-sql").innerText(), "DROP VIEW `shop`.`v_orders`;");
+assert.equal(await g("__runPlans"), undefined, "nothing ran yet");
+await page.click("button.danger:text-is('Drop view')");
+await page.waitForSelector(".plan-results li");
+assert.deepEqual((await g("__runPlans")).at(-1), ["DROP VIEW `shop`.`v_orders`;"]);
+await page.click(".preview-dialog button:text-is('Done')");
 await page.waitForFunction(() => ![...document.querySelectorAll(".row-item.leaf")].some((e) => e.innerText.includes("v_orders")));
-ok("dropping a view needs its name typed, runs once, and removes it from the tree");
+ok("dropping a view shows its SQL first, runs once, and removes it from the tree");
 
 // ---- new object templates from the database menu
 await page.click(".tree .db:has-text('shop')", { button: "right" });

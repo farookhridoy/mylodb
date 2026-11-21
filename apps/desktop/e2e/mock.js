@@ -62,7 +62,8 @@ const nodes = () => {
     }
     if (big.hugeDb) for (let t = 0; t < big.hugeDb; t++) out.push({ database: "db0000", kind: "table", name: "huge_" + t, parent: null });
   }
-  return out;
+  const gone = window.__droppedObjects || new Set();
+  return out.filter((n) => !gone.has(`${n.kind}:${n.name}`) && !(window.__droppedDbs || new Set()).has(n.database));
 };
 window.__loaded = new Set();
 const currentIndex = () => [...nodes(), ...[...window.__loaded].flatMap(colNodes)];
@@ -404,4 +405,49 @@ Object.assign(handlers, {
 {
   const cancel = handlers.cancel_query;
   handlers.cancel_query = (a) => { window.__cancelledRuns = (window.__cancelledRuns || []).concat([a.runId]); return cancel ? cancel(a) : null; };
+}
+
+
+// ---- plans: the SQL of bulk / destructive operations (mirrors myq_schema::plan), and running it ----
+{
+  const qn = (x) => "`" + x.replace(/`/g, "``") + "`";
+  const t = (db, n) => `${qn(db)}.${qn(n)}`;
+  handlers.build_plan = (a) => {
+    const o = a.op;
+    window.__plans = (window.__plans || []).concat([JSON.parse(JSON.stringify(o))]);
+    if (window.__planRefuse) throw window.__planRefuse;
+    switch (o.op) {
+      case "drop_tables": {
+        const tb = o.objects.filter((x) => !x[1]).map((x) => t(o.db, x[0])).join(", "), vw = o.objects.filter((x) => x[1]).map((x) => t(o.db, x[0])).join(", ");
+        return [tb && `DROP TABLE ${tb};`, vw && `DROP VIEW ${vw};`].filter(Boolean);
+      }
+      case "empty_tables": return o.objects.map((x) => `TRUNCATE TABLE ${t(o.db, x[0])};`);
+      case "copy_tables": return o.copies.flatMap(([f, to]) => [`CREATE TABLE ${t(o.db, to)} LIKE ${t(o.db, f)};`, ...(o.with_data ? [`INSERT INTO ${t(o.db, to)} SELECT * FROM ${t(o.db, f)};`] : [])]);
+      case "rename_table": return [`RENAME TABLE ${t(o.db, o.from)} TO ${t(o.db, o.to)};`];
+      case "drop_object": return [`DROP ${o.kind.toUpperCase()} ${t(o.db, o.name)};`];
+      case "drop_databases": return o.names.map((n) => `DROP DATABASE ${qn(n)};`);
+      case "add_prefix": return [`RENAME TABLE ${o.tables.map((x) => `${t(o.db, x)} TO ${t(o.db, o.prefix + x)}`).join(", ")};`];
+      case "replace_prefix": { const ps = o.tables.filter((x) => x.startsWith(o.old)); if (!ps.length) throw `none of the chosen tables starts with \`${o.old}\``; return [`RENAME TABLE ${ps.map((x) => `${t(o.db, x)} TO ${t(o.db, o.new + x.slice(o.old.length))}`).join(", ")};`]; }
+      case "copy_with_prefix": return o.tables.flatMap((x) => [`CREATE TABLE ${t(o.db, o.prefix + x)} LIKE ${t(o.db, x)};`, ...(o.with_data ? [`INSERT INTO ${t(o.db, o.prefix + x)} SELECT * FROM ${t(o.db, x)};`] : [])]);
+      case "checksum": return [`CHECKSUM TABLE ${o.tables.map((x) => t(o.db, x)).join(", ")};`];
+      case "alter_database": return [`ALTER DATABASE ${qn(o.name)}${o.charset ? " CHARACTER SET " + o.charset : ""}${o.collation ? " COLLATE " + o.collation : ""};`];
+      case "copy_database": return [`CREATE DATABASE ${qn(o.dst)};`, `CREATE TABLE ${t(o.dst, "customers")} LIKE ${t(o.src, "customers")};`, `CREATE TABLE ${t(o.dst, "orders")} LIKE ${t(o.src, "orders")};`];
+      case "rename_database": return [`CREATE DATABASE ${qn(o.new)};`, `RENAME TABLE ${t(o.old, "customers")} TO ${t(o.new, "customers")}, ${t(o.old, "orders")} TO ${t(o.new, "orders")};`, `DROP DATABASE ${qn(o.old)};`];
+      default: throw "mock: unsupported plan " + o.op;
+    }
+  };
+  handlers.run_plan = (a) => {
+    window.__runPlans = (window.__runPlans || []).concat([a.statements.slice()]);
+    const out = [];
+    for (const sql of a.statements) {
+      const err = window.__planError && /DROP|TRUNCATE|RENAME/i.test(sql) ? window.__planError : null;
+      out.push({ sql, sets: [], affected_rows: 0, last_insert_id: null, warnings: 0, elapsed_ms: 1, error: err });
+      if (err) break;
+      const m = /^DROP (TABLE|VIEW|PROCEDURE|FUNCTION|TRIGGER|EVENT) (.+);$/.exec(sql);
+      if (m) for (const part of m[2].split(", ")) { const name = part.split(".").pop().replace(/`/g, ""); window.__droppedObjects = (window.__droppedObjects || new Set()).add(`${m[1].toLowerCase()}:${name}`); }
+      const d = /^DROP DATABASE `(.+)`;$/.exec(sql);
+      if (d) window.__droppedDbs = (window.__droppedDbs || new Set()).add(d[1]);
+    }
+    return out;
+  };
 }

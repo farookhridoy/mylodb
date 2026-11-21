@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Select from "./Select";
-import { api, describeError, editorApi, queryApi, schemaApi, serverApi, type ConnectError, type Favorite, type FormatOptions, type Kind, type Environment, type Maintenance, type Review, type Node, type SavedConnection, type TableOp } from "./api";
+import { api, describeError, editorApi, planApi, queryApi, schemaApi, serverApi, type PlanOp, type ConnectError, type Favorite, type FormatOptions, type Kind, type Environment, type Maintenance, type Review, type Node, type SavedConnection, type TableOp } from "./api";
 import AnalysisPane, { type Analysis } from "./AnalysisPane";
 import ConnectionDialog from "./ConnectionDialog";
 import ContextMenu, { type MenuItem } from "./ContextMenu";
 import DataGrid, { defaultView, type GridView } from "./DataGrid";
 import { PromptDialog, TypeConfirmDialog } from "./Dialogs";
+import PreviewDialog from "./PreviewDialog";
 import TableDesigner from "./TableDesigner";
 import ServerTools from "./ServerTools";
 import { useTheme, type ThemePref } from "./theme";
@@ -443,6 +444,21 @@ export default function App() {
   };
 
   /// Run a table operation, then refresh the tree and fix up any tabs that referred to the table.
+  // ---- Preview SQL, then run: every drop / empty / rename / copy goes through one dialog that shows the exact statements ----
+  const [planDlg, setPlanDlg] = useState<{ title: string; summary?: string; statements: string[]; confirmLabel?: string; after?: () => void } | null>(null);
+  const openPlan = async (op: PlanOp, o: { title: string; summary?: string; confirmLabel?: string; after?: () => void }) => {
+    if (activeId === null) return;
+    try { setPlanDlg({ ...o, statements: await planApi.build(activeId, op) }); }
+    catch (e) { setStatus(`Not possible: ${describeError(e)}`); }
+  };
+  /// Close the tabs of tables that no longer exist, keeping the active tab valid.
+  const forgetTables = (db: string, names: string[]) => setTabs((prev) => {
+    const rest = prev.filter((t) => !((t.kind === "table" || t.kind === "designer") && t.table?.db === db && names.includes(t.table.name ?? "")));
+    return rest.length ? rest : [newTab(1)];
+  });
+  useEffect(() => { if (tabs.length && !tabs.some((t) => t.id === activeTab)) setActiveTab(tabs[0].id); }, [tabs, activeTab]);
+  const renameTabs = (db: string, from: string, to: string) => setTabs((prev) => prev.map((t) => ((t.kind === "table" || t.kind === "designer") && t.table?.db === db && t.table.name === from ? { ...t, title: to, table: { db, name: to } } : t)));
+
   const runTableOp = async (database: string, table: string, operation: TableOp) => {
     if (activeId === null) return;
     try {
@@ -464,7 +480,7 @@ export default function App() {
   };
 
   const renameTable = (d: string, t: string) => setPrompt({ title: `Rename ${t}`, label: "New name", initial: t, confirmLabel: "Rename",
-    onCancel: () => setPrompt(null), onSubmit: (to) => { setPrompt(null); if (to !== t) runTableOp(d, t, { op: "rename", to }); } });
+    onCancel: () => setPrompt(null), onSubmit: (to) => { setPrompt(null); if (to !== t) openPlan({ op: "rename_table", db: d, from: t, to }, { title: `Rename ${t}`, confirmLabel: "Rename", after: () => renameTabs(d, t, to) }); } });
 
   const maintainTable = async (op: Maintenance, d: string, t: string) => {
     if (activeId === null) return;
@@ -523,8 +539,7 @@ export default function App() {
         { label: "Optimize", disabled: readOnly, onClick: () => maintainTable({ op: "optimize" }, d, t) },
         { label: "Repair", disabled: readOnly, onClick: () => maintainTable({ op: "repair", quick: false, extended: false, use_frm: false }, d, t) },
         { separator: true },
-        { label: "Truncate…", icon: "eraser", danger: true, disabled: readOnly, onClick: () => setTypeConfirm({ title: `Truncate ${t}`, message: `All rows of ${d}.${t} will be deleted and cannot be restored.`, expect: t, confirmLabel: "Truncate",
-            onCancel: () => setTypeConfirm(null), onConfirm: () => { setTypeConfirm(null); runTableOp(d, t, { op: "truncate" }); } }) },
+        { label: "Truncate…", icon: "eraser", danger: true, disabled: readOnly, onClick: () => openPlan({ op: "empty_tables", db: d, objects: [[t, false]] }, { title: `Empty ${t}`, confirmLabel: "Truncate", summary: `All rows of ${d}.${t} will be deleted and cannot be restored.` }) },
         { separator: true },
         { label: "Server tools", icon: "pulse", onClick: openServer },
       ] },
@@ -538,11 +553,10 @@ export default function App() {
       { separator: true },
       { label: "Copy name", icon: "copy", onClick: () => navigator.clipboard.writeText(t) },
       { label: "Copy Advanced Info", icon: "copy", onClick: () => copyAdvanced(d, t) },
-      { label: "Duplicate…", icon: "copy", disabled: readOnly, onClick: () => setPrompt({ title: `Duplicate ${t}`, label: "New table name", initial: `${t}_copy`, confirmLabel: "Duplicate", option: { label: "Copy the rows too", initial: false },
-          onCancel: () => setPrompt(null), onSubmit: (to, withData) => { setPrompt(null); runTableOp(d, t, { op: "duplicate", to, with_data: withData }); } }) },
+      { label: "Duplicate…", icon: "copy", disabled: readOnly, onClick: () => setPrompt({ title: `Duplicate ${t}`, label: "New table name", initial: `${t}_copy`, confirmLabel: "Next", option: { label: "Copy the rows too", initial: false },
+          onCancel: () => setPrompt(null), onSubmit: (to, withData) => { setPrompt(null); openPlan({ op: "copy_tables", db: d, copies: [[t, to]], with_data: withData }, { title: `Duplicate ${t}`, confirmLabel: "Duplicate" }); } }) },
       { label: "Rename…", icon: "edit", shortcut: "F2", disabled: readOnly, onClick: () => renameTable(d, t) },
-      { label: "Drop…", icon: "trash", danger: true, disabled: readOnly, onClick: () => setTypeConfirm({ title: `Drop ${t}`, message: `The table ${d}.${t} and all its data will be permanently deleted.`, expect: t, confirmLabel: "Drop table",
-          onCancel: () => setTypeConfirm(null), onConfirm: () => { setTypeConfirm(null); runTableOp(d, t, { op: "drop" }); } }) },
+      { label: "Drop…", icon: "trash", danger: true, disabled: readOnly, onClick: () => openPlan({ op: "drop_tables", db: d, objects: [[t, false]] }, { title: `Drop ${t}`, confirmLabel: "Drop table", summary: `The table ${d}.${t} and all its data will be permanently deleted.`, after: () => forgetTables(d, [t]) }) },
       { separator: true },
       { label: "Refresh", icon: "refresh", shortcut: "F5", onClick: () => reloadIndex() },
     ] });
@@ -575,9 +589,7 @@ export default function App() {
     items.push(
       { label: "Show / edit definition", icon: "sql", onClick: () => showDefinition(d, kind, name) },
       { separator: true },
-      { label: "Drop…", icon: "trash", danger: true, disabled: readOnly, onClick: () => setTypeConfirm({ title: `Drop ${KIND_LABEL[kind]} ${name}`, message: `The ${KIND_LABEL[kind]} ${d}.${name} will be permanently deleted.`, expect: name, confirmLabel: `Drop ${KIND_LABEL[kind]}`,
-          onCancel: () => setTypeConfirm(null),
-          onConfirm: async () => { setTypeConfirm(null); try { await api.dropObject(activeId!, kind, d, name); await reloadIndex(); setStatus(`Dropped ${KIND_LABEL[kind]} ${d}.${name}`); } catch (err) { setStatus(`Error: ${describeError(err)}`); } } }) },
+      { label: "Drop…", icon: "trash", danger: true, disabled: readOnly, onClick: () => openPlan({ op: "drop_object", db: d, kind, name }, { title: `Drop ${KIND_LABEL[kind]} ${name}`, confirmLabel: `Drop ${KIND_LABEL[kind]}`, summary: `The ${KIND_LABEL[kind]} ${d}.${name} will be permanently deleted.`, after: () => { if (kind === "view") forgetTables(d, [name]); } }) },
       { separator: true },
       { label: "Copy name", icon: "copy", onClick: () => navigator.clipboard.writeText(name) },
       { separator: true },
@@ -606,8 +618,7 @@ export default function App() {
     );
     items.push({ label: "Create database…", icon: "database", disabled: readOnly, onClick: () => setPrompt({ title: "Create database", label: "Database name", confirmLabel: "Create",
       onCancel: () => setPrompt(null), onSubmit: async (name) => { setPrompt(null); try { await schemaApi.databaseOp(activeId!, { op: "create", name, charset: "utf8mb4", collation: null }); await reloadIndex(); } catch (err) { setStatus(`Error: ${err}`); } } }) });
-    if (d) items.push({ label: "Drop database…", icon: "trash", danger: true, disabled: readOnly, onClick: () => setTypeConfirm({ title: `Drop database ${d}`, message: `The database ${d} with all its tables and data will be permanently deleted.`, expect: d, confirmLabel: "Drop database",
-      onCancel: () => setTypeConfirm(null), onConfirm: async () => { setTypeConfirm(null); try { await schemaApi.databaseOp(activeId!, { op: "drop", name: d }); await reloadIndex(); setTabs(tabs.filter((t) => t.table?.db !== d || t.kind === "sql")); } catch (err) { setStatus(`Error: ${err}`); } } }) });
+    if (d) items.push({ label: "Drop database…", icon: "trash", danger: true, disabled: readOnly, onClick: () => openPlan({ op: "drop_databases", names: [d] }, { title: `Drop database ${d}`, confirmLabel: "Drop database", summary: `The database ${d} with all its tables and data will be permanently deleted.`, after: () => setTabs((prev) => { const rest = prev.filter((t) => t.table?.db !== d || t.kind === "sql"); return rest.length ? rest : [newTab(1)]; }) }) });
     items.push({ separator: true }, { label: "Refresh", icon: "refresh", shortcut: "F5", onClick: () => reloadIndex() });
     setTreeMenu({ x: e.clientX, y: e.clientY, items });
   };
@@ -897,6 +908,12 @@ export default function App() {
       {pendingReview && <ReviewDialog review={pendingReview.review} onCancel={() => setPendingReview(null)} onRun={pendingReview.go} />}
       {prompt && <PromptDialog {...prompt} />}
       {typeConfirm && <TypeConfirmDialog {...typeConfirm} />}
+      {planDlg && activeId !== null && (
+        <PreviewDialog title={planDlg.title} summary={planDlg.summary} statements={planDlg.statements} environment={env} confirmLabel={planDlg.confirmLabel}
+          onCancel={() => setPlanDlg(null)} onRun={(st) => planApi.run(activeId, st)}
+          onDone={() => { reloadIndex(); planDlg.after?.(); setStatus(`${planDlg.title}: done`); }}
+          onOpenConsole={(sql) => addTab(sql, selectedDb)} />
+      )}
       {treeMenu && <ContextMenu x={treeMenu.x} y={treeMenu.y} items={treeMenu.items} onClose={() => setTreeMenu(null)} />}
       {dialog && (
         <ConnectionDialog

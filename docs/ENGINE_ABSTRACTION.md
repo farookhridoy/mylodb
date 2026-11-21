@@ -93,3 +93,10 @@ its read commands to an `enum Engine { MySql(MySqlBackend), … }` is the next c
 Writes (grid edits, table designer, admin pages, transfer) stay MySQL-only until the read path works for SQLite.
 
 Next: step 4, after the three decisions in section 4.
+
+## 8. Step 4: the app reads through the engine (done)
+
+`Kind` and `Node` moved to `myq-core` (`myq-schema::filter` re-exports them); `Backend` gained `index` and `column_nodes`. The app has `engine::Engine`
+(an enum implementing `Backend`, today with one variant) and every `Session` holds one. These commands now go through it: connect (name index),
+columns of a database (browser, autocomplete, re-index), database list, tables of a database, column and index details, capabilities. Everything else still
+uses the MySQL pool via `session_pool` / `conn_for` and is the work of the next steps (MySQL-only writes, admin, transfer stay as they are).

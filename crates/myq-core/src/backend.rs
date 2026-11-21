@@ -1,7 +1,7 @@
 //! The engine-neutral read path (docs/ENGINE_ABSTRACTION.md, step 3): what the application asks an engine for, and the shapes it gets back.
 //! A `Backend` implementation owns its connection pool; the rest of the application sees only these types.
 
-use crate::{Capabilities, Dialect};
+use crate::{Capabilities, Dialect, Node};
 use serde::Serialize;
 use std::future::Future;
 
@@ -103,6 +103,11 @@ pub trait Backend {
     fn dialect(&self) -> &dyn Dialect;
     /// What this engine (and version) can do.
     fn capabilities(&self) -> impl Future<Output = BackendResult<Capabilities>> + Send;
+    /// The flat name index of the object browser: databases, tables, views, routines, triggers and events (no columns).
+    /// System databases are included only when `include_system` is set.
+    fn index(&self, include_system: bool) -> impl Future<Output = BackendResult<Vec<Node>>> + Send;
+    /// Column nodes of one database (parent = table), loaded on demand.
+    fn column_nodes(&self, database: &str) -> impl Future<Output = BackendResult<Vec<Node>>> + Send;
     /// Databases with their default collation. Sizes are separate, because they can be slow.
     fn databases(&self) -> impl Future<Output = BackendResult<Vec<DatabaseRow>>> + Send;
     /// Tables and views of one database with engine, rows, size and overhead.

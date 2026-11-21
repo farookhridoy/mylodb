@@ -1,0 +1,46 @@
+// My snippets: save editor text to a library, insert and delete from the command palette.
+import { chromium } from "playwright-core";
+import fs from "node:fs";
+import assert from "node:assert/strict";
+const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || undefined, headless: true });
+const page = await (await browser.newContext({ viewport: { width: 1400, height: 900 } })).newPage();
+const errors = [];
+page.on("pageerror", (e) => errors.push("pageerror: " + e.message));
+await page.addInitScript({ content: fs.readFileSync(new URL("./mock.js", import.meta.url), "utf8") + "\nSIZES.orders = 900 * 1024 * 1024; // orders is the biggest table here" });
+await page.goto(process.env.APP_URL || "http://localhost:1420/");
+let step = 0;
+const ok = (m) => console.log(`ok ${++step} ${m}`);
+await page.selectOption(".conn-bar select", "1");
+await page.waitForSelector(".tree .db");
+await page.click(".tree .db:has-text('shop')");
+const reopen = async () => { await page.keyboard.press("Meta+k"); };
+await page.click(".cm-content");
+await page.keyboard.type("SELECT 42 AS answer");
+await reopen();
+await page.fill("input[aria-label=Command]", "save editor text");
+await page.keyboard.press("Enter");
+await page.fill(".dialog input", "Answer query");
+await page.click(".dialog .primary");
+assert.match(await page.evaluate(() => localStorage.getItem("mylodb.snippets")), /Answer query.*SELECT 42 AS answer/);
+ok("the editor text is saved as a named snippet in the library");
+
+await page.click(".cm-content");
+await page.keyboard.press("Meta+a");
+await page.keyboard.press("Backspace");
+await reopen();
+await page.fill("input[aria-label=Command]", "my snippet answer");
+await page.keyboard.press("Enter");
+await page.waitForFunction(() => document.querySelector(".cm-content")?.innerText.includes("SELECT 42 AS answer"));
+ok("a saved snippet is inserted from the command palette");
+
+await reopen();
+await page.fill("input[aria-label=Command]", "delete my snippet answer");
+await page.keyboard.press("Enter");
+assert.equal(await page.evaluate(() => localStorage.getItem("mylodb.snippets")), "[]");
+await reopen();
+await page.fill("input[aria-label=Command]", "my snippet answer");
+assert.equal(await page.locator(".palette li:has-text('Answer query')").count(), 0);
+ok("a snippet can be deleted and then disappears from the palette");
+assert.deepEqual(errors, []);
+await browser.close();
+console.log("ALL MY SNIPPETS UI CHECKS PASSED");

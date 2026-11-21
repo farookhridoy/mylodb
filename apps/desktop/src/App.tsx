@@ -16,6 +16,7 @@ import PreferencesDialog from "./PreferencesDialog";
 import TasksPanel from "./TasksPanel";
 import CommandPalette, { type Command } from "./CommandPalette";
 import { SNIPPETS } from "./snippets";
+import { loadMySnippets, saveMySnippet, deleteMySnippet, type MySnippet } from "./mySnippets";
 import { loadPrefs, type Prefs } from "./prefs";
 import TableDesigner from "./TableDesigner";
 import ServerTools from "./ServerTools";
@@ -131,6 +132,7 @@ export default function App() {
   const [formatOpen, setFormatOpen] = useState(false);
   const [formatError, setFormatError] = useState<string | null>(null);
   const [prompt, setPrompt] = useState<React.ComponentProps<typeof PromptDialog> | null>(null);
+  const [mySnippets, setMySnippets] = useState<MySnippet[]>(loadMySnippets);
   const [typeConfirm, setTypeConfirm] = useState<React.ComponentProps<typeof TypeConfirmDialog> | null>(null);
   const [restored, setRestored] = useState(false);
 
@@ -1156,6 +1158,20 @@ export default function App() {
               ["backup", "Backup / restore"], ["users", "Users and privileges"], ["server_tools", "Server tools"], ["catalog", "Engines, charsets, replication"], ["refresh_tree", "Refresh object tree"],
               ["theme_dark", "Theme: dark"], ["theme_light", "Theme: light"], ["theme_system", "Theme: system"], ["preferences", "Preferences"], ["new_connection", "New connection"], ["edit_connection", "Edit connection"]] as const)
             .map(([id, label]): Command => ({ id, label, hint: "action", run: () => menuHandler.current(id) })),
+          { id: "snippet-save", label: "Save editor text as my snippet…", hint: "selection, or the whole editor", run: () => {
+            const text = editor.current?.runnableText().trim();
+            if (!text) return setStatus("Nothing to save: the editor is empty");
+            setPrompt({ title: "Save as snippet", label: "Snippet name", confirmLabel: "Save", onCancel: () => setPrompt(null),
+              onSubmit: (name) => { setPrompt(null); setMySnippets((l) => saveMySnippet(l, name, text)); setStatus(`Snippet saved: ${name}`); } });
+          } },
+          ...mySnippets.flatMap((sn): Command[] => [
+            { id: `ms:${sn.name}`, label: `My snippet: ${sn.name}`, hint: "insert into the editor", run: () => {
+              if (activeId === null) return setStatus("Connect first");
+              const t = editorTab; if (!t) return;
+              setActiveTab(t.id); setTimeout(() => editor.current?.insert(sn.sql), 0);
+            } },
+            { id: `msd:${sn.name}`, label: `Delete my snippet: ${sn.name}`, hint: "removes it from the library", run: () => { setMySnippets((l) => deleteMySnippet(l, sn.name)); setStatus(`Snippet deleted: ${sn.name}`); } },
+          ]),
           ...SNIPPETS.map((sn): Command => ({ id: `s:${sn.label}`, label: `Snippet: ${sn.label}`, hint: "insert into the editor", run: () => {
             if (activeId === null) return setStatus("Connect first");
             const t = editorTab; if (!t) return;

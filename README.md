@@ -46,6 +46,8 @@ MyLoDB is for people who miss SQLyog on the Mac. It connects to MySQL and MariaD
 | **Users and privileges** | Create, rename, lock, drop; global, database, table and column privileges shown as the exact GRANT / REVOKE diff. |
 | **Server tools** | Live overview, process list (kill), variables, status, maintenance (CHECK / OPTIMIZE / REPAIR), logs. |
 | **Backup and import** | Consistent SQL backup (one file or per table, optional zip), restore with a script preview, CSV import with column mapping, export to CSV, JSON, JSON Lines, SQL, XML, HTML, Excel. |
+| **Visual tools** | A visual **query builder** (tables, joins from foreign keys, columns with functions, conditions, order, limit; the SQL is built and quoted by the backend) and a whole-database **ER diagram** (drag, zoom, filter, copy as Mermaid). |
+| **Analysis tools** | **Schema compare** (make one database match another, with Preview SQL), **data search** across every table, an **index advisor** (duplicate, redundant, missing foreign key indexes), live **server charts**, and **JSON / JSON Lines import**. |
 | **SQLite** | Open a `.sqlite` / `.db` file read-only: browse tables, views and triggers, run SQL, page, sort and filter the data grid. Features a file cannot have (users, server tools, backup) are disabled with the reason. |
 | **Connections** | Passwords in the macOS Keychain. SSH tunnels (host key confirmation), SSL modes, connect by URL, groups, several connections open at once. |
 | **Safe by default** | Environment badge and colour, server-enforced read-only, query time limit, row-estimate review of destructive SQL, type-to-confirm on production. No telemetry. |
@@ -57,7 +59,7 @@ Get the installer from the **[Releases page](https://github.com/farookhridoy/myl
 
 | Your computer | File |
 |---|---|
-| Mac with Apple Silicon (M1 and later) | `MyLoDB_0.2.0_aarch64.dmg` |
+| Mac with Apple Silicon (M1 and later) | `MyLoDB_0.3.0_aarch64.dmg` |
 
 An Intel build and a signed build are on the [roadmap](docs/ROADMAP.md). Not sure which Mac you have? Apple menu → **About This Mac**.
 
@@ -126,7 +128,7 @@ Single runs on one machine, so treat them as indications. The method, the limits
 
 ## Status
 
-Version **0.2.0** adds SQLite files (read-only) and fixes MariaDB 10.11 / 11.4. Version 0.1.0 was the first public release. Phases 1 to 13 of the [roadmap](docs/ROADMAP.md) are done: connection manager, object browser, SQL editor, data grid, table designer, users, server tools, backup and import, production safety, large-table engine, admin console, shell and preferences, workspace features. The Rust suite passes in CI on MySQL 8.0, 8.4 and 9 and MariaDB 10.11 and 11.4, and locally on MySQL 9.7 and MariaDB 13. MySQL 5.7 still fails some integration tests and is unsupported ([details](docs/SERVER_COMPATIBILITY.md)). Not yet: SQLite editing, PostgreSQL and SQL Server (design and progress in [docs/ENGINE_ABSTRACTION.md](docs/ENGINE_ABSTRACTION.md)), Windows and Linux builds, and a signed and notarised build.
+Version **0.3.0** adds a visual query builder, an ER diagram, schema compare, data search, an index advisor, server charts and JSON import. 0.2.0 added SQLite files (read-only) and fixed MariaDB 10.11 / 11.4; 0.1.0 was the first public release. Phases 1 to 13, 17 and most of 16 of the [roadmap](docs/ROADMAP.md) are done: connection manager, object browser, SQL editor, data grid, table designer, users, server tools, backup and import, production safety, large-table engine, admin console, shell and preferences, workspace features. The Rust suite passes in CI on MySQL 8.0, 8.4 and 9 and MariaDB 10.11 and 11.4, and locally on MySQL 9.7 and MariaDB 13. MySQL 5.7 still fails some integration tests and is unsupported ([details](docs/SERVER_COMPATIBILITY.md)). Not yet: SQLite editing, PostgreSQL and SQL Server (design and progress in [docs/ENGINE_ABSTRACTION.md](docs/ENGINE_ABSTRACTION.md)), Windows and Linux builds, and a signed and notarised build.
 
 ## Build it yourself
 

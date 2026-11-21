@@ -10,7 +10,7 @@ const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH 
 const ctx = await browser.newContext({ viewport: { width: 1320, height: 820 }, deviceScaleFactor: 2 });
 const page = await ctx.newPage();
 const mock = fs.readFileSync(new URL("../e2e/mock.js", import.meta.url), "utf8");
-await page.addInitScript({ content: "window.__tour = true;\n" + mock });
+await page.addInitScript({ content: "window.__tour = true; window.__statusExtra = true;\n" + mock });
 await page.goto(process.env.APP_URL || "http://localhost:1420/");
 const shot = async (name, sel) => { await page.waitForTimeout(350); await (sel ? page.locator(sel).first() : page).screenshot({ path: `${out}${name}.png` }); console.log("saved", name); };
 const key = (k) => page.keyboard.press(k);
@@ -116,6 +116,33 @@ await page.selectOption("select[aria-label='Condition 1 column']", "name");
 await page.selectOption("select[aria-label='Condition 1 operator']", "contains");
 await page.fill("input[aria-label='Condition 1 value']", "Ann");
 await shot("query-builder");
+
+// 6d. the analysis tools: schema compare, data search, index advisor, server charts
+await page.click(".tree .db:has-text('shop')", { button: "right" });
+await page.click(".ctx-label:has-text('Compare schemas')");
+await page.waitForSelector("h2:has-text('Compare schemas')");
+await page.locator("label:has-text('Source database') .ss-trigger").click();
+await page.click(".ss-opt:has-text('blog')");
+await page.click("button:text-is('Compare')");
+await page.waitForSelector("table[aria-label=Differences]");
+await page.click("tr:has-text('posts') button:has-text('Show SQL')");
+await shot("schema-compare");
+await page.click(".tree .db:has-text('shop')", { button: "right" });
+await page.click(".ctx-label:has-text('Search data')");
+await page.waitForSelector("h2:has-text('Data search')");
+await page.fill("input[placeholder='text or number']", "ann@example.com");
+await page.click("button:text-is('Search')");
+await page.waitForSelector("table[aria-label=Matches]");
+await shot("data-search");
+await page.click(".tree .db:has-text('shop')", { button: "right" });
+await page.click(".ctx-label:has-text('Index advisor')");
+await page.waitForSelector("table[aria-label=Findings]");
+await shot("index-advisor");
+await page.click("header.topbar button:has-text('Server')");
+await page.click(".dz-tabs button:has-text('Charts')");
+await page.selectOption("select[aria-label='Sampling interval']", "1000");
+await page.waitForFunction(() => Number(document.querySelector("[aria-label=Samples]")?.innerText.match(/(\d+) sample/)?.[1] ?? 0) >= 6, null, { timeout: 20000 });
+await shot("server-charts");
 
 // 7. dark theme
 await palette("theme: dark");

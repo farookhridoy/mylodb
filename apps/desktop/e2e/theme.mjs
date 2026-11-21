@@ -62,7 +62,7 @@ assert.equal(await theme(page), "dark");
 assert.notEqual(await editorBg(), "rgb(255, 255, 255)", "the editor switched to dark colours");
 assert.match(await page.locator(".cm-content").innerText(), /SELECT 1/, "typed text is still there");
 await page.click(".cm-content");
-await page.keyboard.press("Meta+z");
+await page.keyboard.press("ControlOrMeta+z");
 assert.doesNotMatch(await page.locator(".cm-content").innerText(), /SELECT 1/, "undo history survived the theme change");
 ok("the editor changes theme live and keeps its text and undo history");
 

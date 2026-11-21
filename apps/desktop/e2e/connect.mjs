@@ -63,7 +63,7 @@ assert.deepEqual(await tabs(), ["Results", "Profile", "Messages", "Info", "Histo
 await page.click(".cm-content");
 await page.evaluate(() => { window.__runSets = [{ columns: [{ name: "one", type_name: "LONGLONG" }], rows: [["1"]], total_rows: 1, truncated: false }]; });
 await page.keyboard.type("SELECT 1 AS one");
-await page.keyboard.press("Meta+Enter");
+await page.keyboard.press("ControlOrMeta+Enter");
 await page.waitForFunction(() => document.querySelector(".result-tabs button.active")?.textContent.trim() === "Results" && document.querySelector("table.grid th"));
 assert.equal(await page.locator("table.grid th:has-text('one')").count(), 1);
 ok("a query console has Results, Profile, Messages, Info and History tabs, and shows the rows in Results");
@@ -90,7 +90,7 @@ ok("Profile offers to profile the statement and shows the result in the same tab
 // two result sets
 await page.evaluate(() => { const s = { columns: [{ name: "a", type_name: "LONGLONG" }], rows: [["1"]], total_rows: 1, truncated: false }; window.__runSets = [s, s]; });
 await page.click(".cm-content");
-await page.keyboard.press("Meta+Enter");
+await page.keyboard.press("ControlOrMeta+Enter");
 await page.waitForFunction(() => document.querySelector(".result-tabs button:nth-child(2)")?.textContent.trim() === "Result 2");
 assert.deepEqual((await tabs()).slice(0, 2), ["Result 1", "Result 2"]);
 ok("several result sets get Result 1, Result 2 … tabs");

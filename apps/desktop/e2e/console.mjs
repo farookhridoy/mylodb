@@ -67,7 +67,7 @@ ok("the console / results divider can be dragged");
 // ---- running a live query shows its result next to the table data
 await page.evaluate(() => { window.__runSets = [{ columns: [{ name: "one", type_name: "LONGLONG" }], rows: [["1"]], total_rows: 1, truncated: false }]; });
 await typeIntoEditor("SELECT 1 AS one", true);
-await page.keyboard.press("Meta+Enter");
+await page.keyboard.press("ControlOrMeta+Enter");
 await page.waitForSelector(".result-tabs button:text-is('Results')");
 await page.waitForFunction(() => document.querySelector(".result-tabs button.active")?.textContent.trim() === "Results");
 assert.equal(await page.locator("table.grid th:has-text('one')").count(), 1);

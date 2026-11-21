@@ -52,7 +52,7 @@ await palette("new query tab");
 await page.waitForTimeout(300);
 await page.click(".cm-content");
 await page.keyboard.type("SELECT id, name, email\nFROM customers\nORDER BY id DESC\nLIMIT 100;");
-await key("Meta+Enter");
+await key("ControlOrMeta+Enter");
 await page.waitForTimeout(800);
 await shot("query");
 

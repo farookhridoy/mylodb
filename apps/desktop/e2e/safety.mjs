@@ -30,7 +30,7 @@ const write = async (sql, replace = true) => {
   if (replace) await page.keyboard.press("ControlOrMeta+a");
   await page.keyboard.type(sql);
 };
-const run = async () => { await page.click(".cm-content"); await page.keyboard.press("Meta+Enter"); await page.waitForTimeout(350); };
+const run = async () => { await page.click(".cm-content"); await page.keyboard.press("ControlOrMeta+Enter"); await page.waitForTimeout(350); };
 
 // ---- the connection dialog has a Safety tab with safe defaults
 await page.click("button[title='New connection']");

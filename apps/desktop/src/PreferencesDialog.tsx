@@ -1,6 +1,6 @@
 import { useState } from "react";
 import Select from "./Select";
-import { AREA_LABEL, DEFAULTS, FAMILIES, SIZE_RANGE, applyPrefs, savePrefs, type Area, type Prefs } from "./prefs";
+import { AREA_LABEL, DEFAULTS, FAMILIES, SCHEMES, SIZE_RANGE, applyPrefs, savePrefs, type Area, type Prefs } from "./prefs";
 import type { ThemePref } from "./theme";
 
 /** Preferences: theme, and font family, size and weight for each part of the window. Changes apply live; Cancel puts the old values back. */
@@ -9,10 +9,12 @@ export default function PreferencesDialog(props: {
   theme: ThemePref;
   onTheme(t: ThemePref): void;
   onChange(p: Prefs): void;
+  /** Called on every edit, so the editor can preview the colour scheme. */
+  onLive(p: Prefs): void;
   onClose(): void;
 }) {
   const [p, setP] = useState<Prefs>(props.initial);
-  const update = (next: Prefs) => { setP(next); applyPrefs(next); };
+  const update = (next: Prefs) => { setP(next); applyPrefs(next); props.onLive(next); };
   const setArea = (a: Area, patch: Partial<Prefs[Area]>) => update({ ...p, [a]: { ...p[a], ...patch } });
   const areas: Area[] = ["ui", "tree", "grid", "editor"];
   const cancel = () => { applyPrefs(props.initial); props.onClose(); };
@@ -48,6 +50,11 @@ export default function PreferencesDialog(props: {
               ))}
             </tbody>
           </table>
+          <label className="check" style={{ marginTop: 8 }}>Editor colours
+            <Select value={p.editorScheme} title="Editor colours" aria-label="Editor colours" onChange={(e) => update({ ...p, editorScheme: e.target.value as Prefs["editorScheme"] })}>
+              {SCHEMES.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}
+            </Select>
+          </label>
           <label className="check" style={{ marginTop: 8 }}>Editor line height
             <input type="number" step={0.1} min={1} max={2.2} style={{ width: 60 }} value={p.editorLineHeight} aria-label="Editor line height"
                    onChange={(e) => update({ ...p, editorLineHeight: Math.min(2.2, Math.max(1, Number(e.target.value) || DEFAULTS.editorLineHeight)) })} />

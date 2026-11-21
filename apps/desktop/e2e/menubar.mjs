@@ -53,6 +53,19 @@ await menu("close_tab");
 assert.equal(await page.locator(".qtab").count(), tabs);
 ok("Structure needs a selected database; New Query and Close Tab work");
 
+// ---- command palette
+await page.keyboard.press("Meta+k");
+await page.waitForSelector("[aria-label='Command palette']");
+await page.fill("input[aria-label=Command]", "engines");
+await page.keyboard.press("Enter");
+await page.waitForSelector("table[aria-label=Engines]");
+await page.keyboard.press("Meta+k");
+await page.fill("input[aria-label=Command]", "orders");
+assert.match(await page.locator("[role=option]").first().innerText(), /orders[\s\S]*shop/);
+await page.keyboard.press("Escape");
+assert.equal(await page.locator("[aria-label='Command palette']").count(), 0);
+ok("⌘K finds actions and tables, Enter runs, Escape closes");
+
 assert.deepEqual(errors, []);
 await browser.close();
 console.log("ALL MENU BAR UI CHECKS PASSED");

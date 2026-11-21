@@ -6,6 +6,8 @@ import { autocompletion, type CompletionContext, type CompletionResult } from "@
 import { editorApi, type SuggestionKind } from "./api";
 import { MySQL, sql } from "@codemirror/lang-sql";
 import { oneDark } from "@codemirror/theme-one-dark";
+import { schemeExtension } from "./editorSchemes";
+import type { EditorScheme } from "./prefs";
 
 export interface EditorHandle {
   /** Selected text, or the whole document when nothing is selected. */
@@ -37,6 +39,8 @@ const Editor = forwardRef<EditorHandle, {
   database: string | null;
   /** Dark editor colours (the light theme uses the app's own colours). */
   dark: boolean;
+  /** Syntax colour scheme chosen in Preferences. */
+  scheme?: EditorScheme;
 }>(function Editor(props, ref) {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
@@ -46,7 +50,7 @@ const Editor = forwardRef<EditorHandle, {
   cb.current = props;
   // the colour theme sits in a compartment so it can change without recreating the editor or losing undo history
   const themeSlot = useRef(new Compartment());
-  const themeFor = (dark: boolean) => (dark ? oneDark : []);
+  const themeFor = (dark: boolean) => [dark ? oneDark : [], Prec.high(schemeExtension(cb.current.scheme ?? "default", dark))];
 
   /** Ask the Rust engine for candidates. Ranked and capped there, so CodeMirror must not filter again. */
   const completionSource = async (ctx: CompletionContext): Promise<CompletionResult | null> => {
@@ -104,7 +108,7 @@ const Editor = forwardRef<EditorHandle, {
   useEffect(() => {
     view.current?.dispatch({ effects: themeSlot.current.reconfigure(themeFor(props.dark)) });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [props.dark]);
+  }, [props.dark, props.scheme]);
 
   useImperativeHandle(ref, () => ({
     runnableText() {

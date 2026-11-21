@@ -468,3 +468,6 @@ table.kv th { text-align: left; font-weight: 500; color: var(--dim); width: 170p
 .prefs-table td:first-child { color: var(--text); white-space: nowrap; } .prefs-table .ss { min-width: 190px; }
 .prefs-sample { margin-top: 10px; border: 1px solid var(--line); border-radius: 4px; padding: 8px 10px; background: var(--panel); }
 .sample-grid { font: var(--fw-grid, 400) var(--fs-grid, 12px) var(--font-grid); margin-bottom: 6px; } .sample-editor { font: var(--fw-editor, 400) var(--fs-editor, 13px)/var(--lh-editor, 1.5) var(--font-editor); }
+.palette-overlay { align-items: flex-start; padding-top: 90px; } .palette { width: 560px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 10px 40px rgba(0,0,0,.3); overflow: hidden; }
+.palette input { width: 100%; box-sizing: border-box; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; padding: 10px 12px; font-size: 14px; }
+.palette ul { list-style: none; margin: 0; padding: 4px 0; max-height: 360px; overflow: auto; } .palette li { display: flex; justify-content: space-between; gap: 12px; padding: 6px 12px; cursor: default; } .palette li.sel { background: var(--accent-soft); }

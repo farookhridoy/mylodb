@@ -47,6 +47,22 @@ assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), 
 await page.click("[role=dialog] button:text-is('Save')");
 ok("reset restores the defaults; theme is selectable in Preferences");
 
+// ---- editor colour scheme changes the keyword colour, live, and persists
+await page.selectOption(".conn-bar select", "1"); await page.waitForSelector(".tree .db");
+await page.click(".cm-content"); await page.keyboard.type("SELECT 1");
+const kw = () => page.evaluate(() => { const el = [...document.querySelectorAll(".cm-line span")].find((s) => /SELECT/i.test(s.textContent)); return el ? getComputedStyle(el).color : null; });
+const before = await kw();
+await page.click("button[aria-label=Preferences]");
+await page.selectOption("[role=dialog] select[title='Editor colours']", "contrast");
+await page.waitForFunction((b) => { const el = [...document.querySelectorAll(".cm-line span")].find((s) => /SELECT/i.test(s.textContent)); return el && getComputedStyle(el).color !== b; }, before);
+await page.click("[role=dialog] button:text-is('Cancel')");
+await page.waitForFunction((b) => { const el = [...document.querySelectorAll(".cm-line span")].find((s) => /SELECT/i.test(s.textContent)); return el && getComputedStyle(el).color === b; }, before);
+await page.click("button[aria-label=Preferences]");
+await page.selectOption("[role=dialog] select[title='Editor colours']", "vivid");
+await page.click("[role=dialog] button:text-is('Save')");
+assert.equal(JSON.parse(await page.evaluate(() => localStorage.getItem("mylodb.prefs"))).editorScheme, "vivid");
+ok("the editor colour scheme previews live, cancels cleanly and is saved");
+
 // damaged storage falls back to defaults
 await page.evaluate(() => localStorage.setItem("mylodb.prefs", '{"grid":{"size":999},"ui":"x"}'));
 await page.reload();

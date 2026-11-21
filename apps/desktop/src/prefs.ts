@@ -1,7 +1,11 @@
 /** Appearance preferences: font family, size and weight for each area, kept in localStorage and applied as CSS variables. */
 export type Area = "ui" | "tree" | "grid" | "editor";
 export interface FontPref { family: string; size: number; bold: boolean }
-export type Prefs = Record<Area, FontPref> & { editorLineHeight: number };
+export type EditorScheme = "default" | "vivid" | "solarized" | "contrast";
+export const SCHEMES: { id: EditorScheme; label: string }[] = [
+  { id: "default", label: "Default" }, { id: "vivid", label: "Multi-colour (vivid)" }, { id: "solarized", label: "Solarized" }, { id: "contrast", label: "High contrast" },
+];
+export type Prefs = Record<Area, FontPref> & { editorLineHeight: number; editorScheme: EditorScheme };
 
 const SANS = '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif';
 const MONO = '"SF Mono", Menlo, Monaco, monospace';
@@ -11,6 +15,7 @@ export const DEFAULTS: Prefs = {
   grid: { family: MONO, size: 12, bold: false },
   editor: { family: MONO, size: 13, bold: false },
   editorLineHeight: 1.5,
+  editorScheme: "default",
 };
 export const SIZE_RANGE: Record<Area, [number, number]> = { ui: [10, 18], tree: [10, 18], grid: [9, 16], editor: [10, 24] };
 export const AREA_LABEL: Record<Area, string> = { ui: "Interface", tree: "Sidebar (object tree)", grid: "Data grid", editor: "Query editor" };
@@ -36,7 +41,8 @@ export function loadPrefs(): Prefs {
     return { family: typeof r.family === "string" ? r.family : DEFAULTS[a].family, size: clamp(r.size, SIZE_RANGE[a], DEFAULTS[a].size), bold: r.bold === true };
   };
   const lh = typeof raw.editorLineHeight === "number" && raw.editorLineHeight >= 1 && raw.editorLineHeight <= 2.2 ? raw.editorLineHeight : DEFAULTS.editorLineHeight;
-  return { ui: area("ui"), tree: area("tree"), grid: area("grid"), editor: area("editor"), editorLineHeight: lh };
+  const scheme = SCHEMES.some((x) => x.id === raw.editorScheme) ? (raw.editorScheme as EditorScheme) : "default";
+  return { ui: area("ui"), tree: area("tree"), grid: area("grid"), editor: area("editor"), editorLineHeight: lh, editorScheme: scheme };
 }
 
 export function savePrefs(p: Prefs) { localStorage.setItem(KEY, JSON.stringify(p)); }

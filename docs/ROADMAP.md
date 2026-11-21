@@ -22,7 +22,7 @@ Priority words used below:
 | 9 | **Production safety**: environment badge and colour, server-enforced read-only, review of destructive SQL with row estimates, query timeout, confirm on commit | ✅ |
 | 10 | **Large data engine**: windowed grid, keyset paging, estimated counts with cancellable exact count, exports as cancellable jobs with progress, JSON Lines, gzip. Measured at 1M and 10M rows (`BENCHMARKS.md`) | ✅ |
 | 11b to 11e (part) | **Admin console, first half**: Preview SQL then run dialog for every drop, empty, rename, duplicate (FK-check switch inside, typed word on production); **Databases page** (sizes, table counts, sort, search, check all, bulk drop, create with collation); database **Structure page** (rows, engine, collation, size, overhead, filter, row actions, With selected: copy, show create, export, empty, drop, analyze, check, checksum, optimize, repair, add / replace prefix, copy with prefix, create new table); **FK checks on / off for the console's Run**; connection collation setting. Real-MySQL tests for the plan SQL and queries, UI suites for each page | ✅ |
-| 12 (part) | **Native menu bar** (MyLoDB, File, Edit, View, Database, Tools, Window, Help) and **Preferences** (⌘,): theme, font family / size / bold per area (interface, sidebar, data grid, editor), editor line height, live preview, saved and clamped | ✅ |
+| 12 (all) | **Phase 12 complete**: editor colour schemes (Default, Multi-colour, Solarized, High contrast, previewed live) and a **command palette** (⌘K: every action and table). Plus the **native menu bar** (MyLoDB, File, Edit, View, Database, Tools, Window, Help) and **Preferences** (⌘,): theme, font family / size / bold per area (interface, sidebar, data grid, editor), editor line height, live preview, saved and clamped | ✅ |
 | 11 (all) | **Phase 11 complete**: Operations (rename by copy, copy, collation), Data dictionary (print), Engines / Charsets / Replication page (`SHOW REPLICA STATUS` with `SLAVE` fallback) | ✅ |
 | extra | Light / dark / system theme; flat IDE look with one icon set; searchable dropdowns (select2 style); DBeaver-style context menus; lock to a database or table in the browser; table Properties / Data / Diagram views; console above data on table tabs; result tabs (Results, Profile, Messages, Table Data, Info, History); connect by host or URL; "Show all databases"; resizable sidebar and console | ✅ |
 
@@ -44,7 +44,7 @@ MySQL 5.7 / 8.0 / 8.4 / MariaDB runs, network-drop tests, measuring the real Tau
 | **Foreign key checks on / off** when importing and when running SQL | ✅ FK checks selector on the console's Run (per tab), CSV import switch, Restore and Run SQL file switch; Preview script shows counts and the first statements before a SQL file runs | done (11e) |
 | **Preview the SQL** before the final run (phpMyAdmin style), run with and without FK checks | ✅ drops, renames, copies and bulk operations preview their SQL; SQL files can be previewed | done (11d / 11e) |
 | **Change the theme** | 🟡 Light / Dark / System, also from Preferences and View menu. No gallery of named themes | nice to have (12) |
-| **Preferences**: font size, family, bold, per area (sidebar, data grid, query), multi-colour query highlighting | 🟡 Preferences dialog with fonts per area is done. Editor colour **themes** (named schemes) not yet | 12 (rest) |
+| **Preferences**: font size, family, bold, per area (sidebar, data grid, query), multi-colour query highlighting | ✅ Preferences with fonts per area and four editor colour schemes | done (12) |
 | A **navbar on top** like DBeaver or SQLyog (menus and a toolbar) | ✅ native menu bar (File, Edit, View, Database, Tools, Window, Help). In-window menu bar for Windows / Linux is not built | done on macOS (12) |
 | Connect to **MySQL, MariaDB, SQL Server, Oracle, SQLite, PostgreSQL** | 🟡 MySQL (tested on 9.7). MariaDB speaks the same protocol and probably works but has **never been tested**. The others need a database abstraction first | Phase 14 (MariaDB check), Phase 15 (engines) |
 
@@ -76,7 +76,7 @@ The analysis, screen mapping and design of these items are in `PHPMYADMIN_AND_EN
 |---|---|
 | **PostgreSQL** and **SQLite** support (database abstraction, introspection, paging, export) | 15 |
 | **SQL Server** support | 15 |
-| Command palette (Cmd+K), customisable shortcuts, a gallery of UI themes and editor colour themes | 12 / 13 |
+| Customisable shortcuts, a gallery of whole-UI themes, in-window menu bar for Windows / Linux | 12 / 13 |
 | Server "Settings" page (phpMyAdmin tab we do not have). Engines, Charsets and Replication are done (Home > Engines, charsets, replication) | 11f |
 | Table-level Operations page (move table to another database, table options), Replication writes | 11f |
 | Schema compare and migration preview, data compare, copy a database or table between connections | 16 |
@@ -106,7 +106,7 @@ The analysis, screen mapping and design of these items are in `PHPMYADMIN_AND_EN
 | Phase | Theme | What | Effort |
 |---|---|---|---|
 | 11 ✅ | **Admin console** (phpMyAdmin parity), finished | 11a dashboard · 11b Databases page and bulk drop · 11c Structure page and With selected · 11d Preview SQL then run · 11e FK-check switches and previews · 11f Operations, Charsets, Engines, Replication | 3 to 4 wk |
-| 12 | **Shell and preferences** | top menu bar and toolbar, Preferences (fonts per area, themes), command palette | 2 to 3 wk |
+| 12 ✅ | **Shell and preferences** (done) | top menu bar and toolbar, Preferences (fonts per area, themes), command palette | 2 to 3 wk |
 | 13 | **Workspace parity** | `.sql` files, templates, text results, connection tabs and groups, browser leftovers | 2 to 3 wk |
 | 14 | **Quality gates** | CI, Tasks panel, MySQL 5.7 / 8.0 / 8.4 / 9 and MariaDB matrix, network-drop tests | 1 to 2 wk |
 | 15 | **Database engines** | driver abstraction; PostgreSQL, SQLite, SQL Server; Oracle only on demand | 8 to 12 wk |

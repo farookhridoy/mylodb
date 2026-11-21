@@ -12,6 +12,7 @@ import StructurePage from "./StructurePage";
 import HomePage from "./HomePage";
 import CatalogPage from "./CatalogPage";
 import PreferencesDialog from "./PreferencesDialog";
+import CommandPalette, { type Command } from "./CommandPalette";
 import { loadPrefs, type Prefs } from "./prefs";
 import TableDesigner from "./TableDesigner";
 import ServerTools from "./ServerTools";
@@ -130,7 +131,9 @@ export default function App() {
 
   const theme = useTheme();
   const [prefsOpen, setPrefsOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
   const [prefs, setPrefs] = useState<Prefs>(loadPrefs);
+  const [livePrefs, setLivePrefs] = useState<Prefs>(prefs); // what the open Preferences dialog shows, so the editor previews it
   const editor = useRef<EditorHandle>(null);
   const filterSeq = useRef(0);
   const runIds = useRef<Record<string, string>>({});
@@ -767,6 +770,7 @@ export default function App() {
         if (e.key === "F4") openTable(selectedDb, selectedTable, undefined, "properties"); else renameTable(selectedDb, selectedTable);
         return;
       }
+      if (e.metaKey && e.key.toLowerCase() === "k") { e.preventDefault(); setPaletteOpen(true); return; }
       if (e.metaKey && e.key === ",") { e.preventDefault(); setPrefsOpen(true); return; }
       if (!e.metaKey || activeId === null) return;
       if (e.shiftKey && e.key.toLowerCase() === "b") { e.preventDefault(); setSide("objects"); const focus = () => filterInput.current?.focus(); focus(); setTimeout(focus, 0); /* the second call covers the objects tab not being mounted yet */ return; }
@@ -948,7 +952,7 @@ export default function App() {
                   </label>
                 </div>
                 <div className="editor-wrap" style={{ height: consoleSize.size }}>
-                  <Editor ref={editor} tabId={editorTab.id} initialDoc={editorTab.sql} onChange={(sql) => patchTab(editorTab.id, { sql })} onRun={run} onFormat={formatSql} connectionId={activeId} database={editorTab.database} dark={theme.resolved === "dark"} />
+                  <Editor ref={editor} tabId={editorTab.id} initialDoc={editorTab.sql} onChange={(sql) => patchTab(editorTab.id, { sql })} onRun={run} onFormat={formatSql} connectionId={activeId} database={editorTab.database} dark={theme.resolved === "dark"} scheme={prefsOpen ? livePrefs.editorScheme : prefs.editorScheme} />
                 </div>
                 <Splitter axis="y" label="Resize the console" onDrag={consoleSize.adjust} onReset={consoleSize.reset} />
                 <ResultsPane
@@ -1040,7 +1044,17 @@ export default function App() {
       )}
       {pendingReview && <ReviewDialog review={pendingReview.review} onCancel={() => setPendingReview(null)} onRun={pendingReview.go} />}
       {prompt && <PromptDialog {...prompt} />}
-      {prefsOpen && <PreferencesDialog initial={prefs} theme={theme.pref} onTheme={theme.setPref} onChange={setPrefs} onClose={() => setPrefsOpen(false)} />}
+      {paletteOpen && (
+        <CommandPalette onClose={() => setPaletteOpen(false)} commands={[
+          ...([["new_query", "New query tab"], ["home", "Server home"], ["databases", "Databases"], ["structure", "Tables of the selected database"], ["new_table", "New table"], ["export", "Export data"], ["import", "Import data"],
+              ["backup", "Backup / restore"], ["users", "Users and privileges"], ["server_tools", "Server tools"], ["catalog", "Engines, charsets, replication"], ["refresh_tree", "Refresh object tree"],
+              ["theme_dark", "Theme: dark"], ["theme_light", "Theme: light"], ["theme_system", "Theme: system"], ["preferences", "Preferences"], ["new_connection", "New connection"], ["edit_connection", "Edit connection"]] as const)
+            .map(([id, label]): Command => ({ id, label, hint: "action", run: () => menuHandler.current(id) })),
+          ...index.filter((n) => n.kind === "table" || n.kind === "view").slice(0, 5000)
+            .map((n): Command => ({ id: `t:${n.database}.${n.name}`, label: n.name, hint: `${n.kind} in ${n.database}`, run: () => openTable(n.database, n.name) })),
+        ]} />
+      )}
+      {prefsOpen && <PreferencesDialog initial={prefs} theme={theme.pref} onTheme={theme.setPref} onChange={(p) => { setPrefs(p); setLivePrefs(p); }} onLive={setLivePrefs} onClose={() => { setLivePrefs(prefs); setPrefsOpen(false); }} />}
       {typeConfirm && <TypeConfirmDialog {...typeConfirm} />}
       {planDlg && activeId !== null && (
         <PreviewDialog title={planDlg.title} summary={planDlg.summary} statements={planDlg.statements} environment={env} confirmLabel={planDlg.confirmLabel}

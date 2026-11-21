@@ -340,6 +340,14 @@ export async function onJobProgress(jobId: string, cb: (p: JobProgress) => void)
   return () => { un(); };
 }
 
+export interface Cap { available: boolean; reason: string | null }
+/** What the connected server can do; a feature it lacks comes with the reason. */
+export interface Capabilities {
+  flavor: "mysql" | "mariadb";
+  schemas: Cap; routines: Cap; triggers: Cap; events: Cap; users: Cap; replication: Cap; explain_analyze: Cap; read_only_session: Cap; row_estimates: Cap;
+}
+export const capabilitiesApi = { get: (id: number) => invoke<Capabilities>("capabilities", { id }) };
+
 /** Open one of the author's links in the browser (the backend refuses any other address). */
 export const openUrl = (url: string) => invoke<void>("open_url", { url });
 

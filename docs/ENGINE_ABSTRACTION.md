@@ -1,6 +1,6 @@
 # Phase 15 design: the engine abstraction
 
-Status of 2026-11-21. Step 1 (section 5) is done; the rest is design only. It narrows section 3.2 of `PHPMYADMIN_AND_ENGINES.md` into steps that can each ship and be tested.
+Status of 2026-11-21. Steps 1 and 2 (sections 5 and 6) are done; the rest is design only. It narrows section 3.2 of `PHPMYADMIN_AND_ENGINES.md` into steps that can each ship and be tested.
 
 ## 1. What is coupled to MySQL today (measured by grep, not guessed)
 
@@ -62,4 +62,19 @@ Guard: `crates/myq-driver/tests/engine_seam.rs` fails if the app imports the dri
 Real-MySQL test: `crates/myq-driver/tests/session.rs`. Full Rust workspace suite passes on MySQL 9.7. Not rerun: MariaDB 13 and the UI suites.
 `myq_driver::Conn` is still a MySQL type that the app passes around (`conn_for`); step 3 replaces it with the `Backend` handle.
 
-Next: step 2 (`myq-core` with `Dialect` and `Capabilities`), after the three decisions in section 4.
+## 6. Step 2: `myq-core` with `Dialect` and `Capabilities` (done)
+
+New crate `crates/myq-core` (no dependencies on a driver, no I/O):
+
+* `Dialect` (`quote_ident`, `quote_string`, `limit_offset`) with one implementation, `MySql`. It is now the **only** place that quotes identifiers and
+  strings. Before, seven private copies existed (`myq-schema::ddl`, `myq-data`, `myq-admin` twice, `myq-transfer` twice, `myq-sql`); they
+  now re-export `myq_core::{q, lit}`. Output is byte-for-byte the same for ordinary text; the one deliberate change is that NUL and Ctrl-Z in a
+  string literal are now escaped everywhere (only the backup writer did that before). The data grid's `LIMIT … OFFSET` goes through the dialect.
+* `Capabilities` (`schemas`, `routines`, `triggers`, `events`, `users`, `replication`, `explain_analyze`, `read_only_session`, `row_estimates`), each a
+  `Cap { available, reason }`, built from `SELECT VERSION()` (`Capabilities::mysql_family`). Exposed as the `capabilities` command;
+  the UI uses it first for the **Analyze** button, which is now disabled with the server's reason on MySQL older than 8.0.18.
+* Tests: golden quoting and paging strings, flavor and version parsing, a real-server check on MySQL 9.7 and MariaDB 13, a UI test for the disabled button.
+
+Not done yet (step 3): a `Backend` trait for connect / introspect / run / stream, and replacing `myq_driver::Conn` in the application layer.
+
+Next: step 3, after the three decisions in section 4.

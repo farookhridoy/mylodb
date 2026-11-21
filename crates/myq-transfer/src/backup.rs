@@ -224,22 +224,7 @@ impl Sink<'_> {
 
 // ---------- text helpers ----------
 
-/// A string literal that survives a round trip: backslash, quote, NUL and Ctrl-Z are escaped.
-pub(crate) fn quote_string(s: &str) -> String {
-    let mut out = String::with_capacity(s.len() + 2);
-    out.push('\'');
-    for c in s.chars() {
-        match c {
-            '\\' => out.push_str("\\\\"),
-            '\'' => out.push_str("''"),
-            '\0' => out.push_str("\\0"),
-            '\u{1a}' => out.push_str("\\Z"),
-            c => out.push(c),
-        }
-    }
-    out.push('\'');
-    out
-}
+pub(crate) use myq_core::lit as quote_string;
 
 /// Length of an account such as `` `user`@`host` ``, `'user'@'%'` or `user@localhost` at the start of `s`.
 fn account_len(s: &str) -> usize {

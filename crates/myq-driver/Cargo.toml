@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+myq-core = { path = "../myq-core" }
 myq-schema = { path = "../myq-schema" }
 myq-sql = { path = "../myq-sql" }
 mysql_async = { version = "0.36", default-features = false, features = ["default-rustls"] }

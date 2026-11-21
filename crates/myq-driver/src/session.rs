@@ -15,6 +15,12 @@ pub async fn restore_foreign_key_checks(conn: &mut Conn) {
     let _ = set_foreign_key_checks(conn, true).await;
 }
 
+/// What this server can do, from its `SELECT VERSION()` (see `myq_core::Capabilities`).
+pub async fn capabilities(conn: &mut Conn) -> Result<myq_core::Capabilities> {
+    let version: Option<String> = conn.query_first("SELECT VERSION()").await?;
+    Ok(myq_core::Capabilities::mysql_family(&version.unwrap_or_default()))
+}
+
 /// What a throwaway connection learned about the server.
 #[derive(Debug, Serialize)]
 pub struct Probe {

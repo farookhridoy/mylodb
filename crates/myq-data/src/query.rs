@@ -248,7 +248,7 @@ pub(crate) fn select_sql(meta: &TableMeta, spec: &PageSpec) -> Result<Select> {
 fn finish_select(meta: &TableMeta, conditions: Vec<String>, params: Vec<Value>, order: String, limit: u32, offset: u64, reverse: bool) -> Result<Select> {
     let where_clause = if conditions.is_empty() { String::new() } else { format!(" WHERE {}", conditions.join(" AND ")) };
     // One extra row tells us whether a next page exists without a COUNT(*).
-    let sql = format!("SELECT * FROM {}{}{} LIMIT {} OFFSET {}", meta.qualified(), where_clause, order, limit + 1, offset);
+    let sql = format!("SELECT * FROM {}{}{} {}", meta.qualified(), where_clause, order, myq_core::Dialect::limit_offset(&myq_core::MySql, u64::from(limit) + 1, u64::from(offset)));
     Ok(Select { sql, params, limit, reverse })
 }
 

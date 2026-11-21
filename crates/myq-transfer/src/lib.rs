@@ -44,6 +44,4 @@ pub(crate) fn check_cancel(cancel: &AtomicBool) -> Result<()> {
     if cancel.load(Ordering::Relaxed) { Err(Error::Cancelled) } else { Ok(()) }
 }
 
-pub(crate) fn q(ident: &str) -> String {
-    format!("`{}`", ident.replace('`', "``"))
-}
+pub(crate) use myq_core::q;

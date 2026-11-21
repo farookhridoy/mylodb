@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Select from "./Select";
 import { open as pickPath, save as savePath } from "@tauri-apps/plugin-dialog";
-import { fileApi, onMenuAction, api, describeError, editorApi, planApi, queryApi, schemaApi, serverApi, type PlanOp, type ConnectError, type Favorite, type FormatOptions, type Kind, type Environment, type Maintenance, type Review, type Node, type SavedConnection, type TableOp } from "./api";
+import { capabilitiesApi, type Capabilities, fileApi, onMenuAction, api, describeError, editorApi, planApi, queryApi, schemaApi, serverApi, type PlanOp, type ConnectError, type Favorite, type FormatOptions, type Kind, type Environment, type Maintenance, type Review, type Node, type SavedConnection, type TableOp } from "./api";
 import AnalysisPane, { type Analysis } from "./AnalysisPane";
 import ConnectionDialog from "./ConnectionDialog";
 import ContextMenu, { type MenuItem } from "./ContextMenu";
@@ -152,6 +152,7 @@ export default function App() {
   const filterSeq = useRef(0);
   const runIds = useRef<Record<string, string>>({});
 
+  const [caps, setCaps] = useState<Capabilities | null>(null);
   const [aboutOpen, setAboutOpen] = useState(false);
   const [manualOpen, setManualOpen] = useState(false);
   // the first-run guide starts by itself once, shortly after the window is up
@@ -206,6 +207,7 @@ export default function App() {
         restoredTabs = [home, newTab(1)];
         restoredActive = home.id;
       }
+      capabilitiesApi.get(id).then(setCaps).catch(() => setCaps(null));
       setActiveId(id);
       setOpenIds((ids) => (ids.includes(id) ? ids : [...ids, id]));
       setIndex(idx);
@@ -1072,7 +1074,7 @@ export default function App() {
                   </div>
                   <span className="sep" />
                   <button onClick={() => analyse("explain")} title="Explain the selected statement, or the one at the cursor">Explain</button>
-                  <button onClick={() => analyse("analyze")} title="EXPLAIN ANALYZE: runs the SELECT and shows real timings">Analyze</button>
+                  <button onClick={() => analyse("analyze")} disabled={caps?.explain_analyze.available === false} title={caps?.explain_analyze.available === false ? (caps.explain_analyze.reason ?? "Not available on this server") : "EXPLAIN ANALYZE: runs the SELECT and shows real timings"}>Analyze</button>
                   <button onClick={() => analyse("profile")} title="Run the SELECT and show stage timings and the work it caused">Profile</button>
                   {formatError && <span className="error small">{formatError}</span>}
                   <span className="grow" />

@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+myq-core = { path = "../myq-core" }
 myq-driver = { path = "../myq-driver" }
 myq-sql = { path = "../myq-sql" }
 myq-schema = { path = "../myq-schema" }

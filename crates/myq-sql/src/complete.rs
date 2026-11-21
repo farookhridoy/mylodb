@@ -448,9 +448,7 @@ fn needs_quotes(name: &str) -> bool {
     !(ok_first && name.chars().all(is_word)) || is_reserved(name)
 }
 
-fn quote(name: &str) -> String {
-    format!("`{}`", name.replace('`', "``"))
-}
+use myq_core::q as quote;
 
 fn ident(name: &str, force_quote: bool) -> String {
     if force_quote || needs_quotes(name) { quote(name) } else { name.to_string() }

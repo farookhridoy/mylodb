@@ -239,6 +239,13 @@ async fn test_connection(state: tauri::State<'_, AppState>, connection: SavedCon
 }
 
 /// Forget the saved host key of a connection's SSH server (after the server was legitimately re-keyed).
+/// What the connected server can do; the UI hides or disables what it cannot, with the reason.
+#[tauri::command]
+async fn capabilities(state: tauri::State<'_, AppState>, id: i64) -> Result<myq_core::Capabilities, String> {
+    let mut c = conn_for(&state, id).await?;
+    myq_driver::capabilities(&mut c).await.map_err(err)
+}
+
 /// Links the About and Manual pages may open in the browser. Anything else is refused, so a page can never launch an arbitrary URL.
 const ALLOWED_LINKS: [&str; 4] = ["https://farookhridoy.com", "https://thelarasoft.com", "https://github.com/farookhridoy/mylodb", "https://github.com/farookhridoy"];
 
@@ -1472,6 +1479,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             open_url,
+            capabilities,
             list_connections,
             save_connection,
             delete_connection,

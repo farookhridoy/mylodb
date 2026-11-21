@@ -222,6 +222,19 @@ export const searchApi = {
 export interface IndexFinding { table: string; kind: "duplicate" | "redundant" | "missing_foreign_key_index"; index: string; detail: string; sql: string }
 export interface IndexAdvice { findings: IndexFinding[]; unused: [string, string][]; unused_note: string; tables: number }
 export const adviceApi = { indexes: (id: number, db: string) => invoke<IndexAdvice>("index_advice", { id, db }) };
+/** The visual query builder's spec (mirrors `myq_schema::builder::QuerySpec`). */
+export interface BuilderTable { db: string; table: string; alias: string }
+export type BuilderOp = "eq" | "ne" | "lt" | "le" | "gt" | "ge" | "contains" | "starts_with" | "ends_with" | "in" | "between" | "is_null" | "not_null";
+export interface QuerySpec {
+  from: BuilderTable;
+  joins: { kind: "inner" | "left"; table: BuilderTable; on: [{ alias: string; column: string }, string][] }[];
+  select: { alias: string; column: string; name?: string | null; agg?: "count" | "sum" | "avg" | "min" | "max" | null }[];
+  distinct: boolean;
+  filters: { alias: string; column: string; op: BuilderOp; values: string[]; numeric: boolean }[];
+  order: { alias: string; column: string; desc: boolean }[];
+  limit: number | null;
+}
+export const builderApi = { build: (id: number, spec: QuerySpec) => invoke<string>("build_query", { id, spec }) };
 
 export type ChangeKind = "added" | "changed" | "removed";
 export interface TableChange { table: string; kind: ChangeKind; statements: string[]; deferred: string[]; destructive: boolean }

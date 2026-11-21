@@ -119,6 +119,14 @@ const handlers = {
     { table: "orders", kind: "duplicate", index: "idx_s2", detail: "`idx_s2` has the same columns (status) as `idx_s1`", sql: "DROP INDEX `idx_s2` ON `" + a.db + "`.`orders`" },
     { table: "items", kind: "missing_foreign_key_index", index: "fk_order", detail: "foreign key `fk_order` on (order_id) has no index that starts with those columns", sql: "CREATE INDEX `idx_items_order_id` ON `" + a.db + "`.`items` (`order_id`)" },
   ], unused: [["orders", "idx_old"]], unused_note: "Unused means: no query has used the index since the server started.", tables: 3 },
+  build_query: (a) => {
+    const s = a.spec;
+    if (window.__buildProblem) throw window.__buildProblem;
+    const sel = s.select.length ? s.select.map((c) => `${c.agg ? c.agg.toUpperCase() + "(" : ""}${c.alias}.${c.column}${c.agg ? ")" : ""}${c.name ? " AS " + c.name : ""}`).join(", ") : "*";
+    const joins = s.joins.map((j) => `\n${j.kind.toUpperCase()} JOIN ${j.table.table} AS ${j.table.alias} ON ${j.on.map(([l, r]) => `${l.alias}.${l.column} = ${j.table.alias}.${r}`).join(" AND ")}`).join("");
+    const where = s.filters.length ? `\nWHERE ${s.filters.map((f) => `${f.alias}.${f.column} ${f.op} ${f.values.join(" / ")}`).join(" AND ")}` : "";
+    return `SELECT ${sel}\nFROM ${s.from.table} AS ${s.from.alias}${joins}${where}${s.limit ? "\nLIMIT " + s.limit : ""};`;
+  },
   schema_compare: (a) => window.__compare ?? { changes: [
     { table: "old_log", kind: "removed", statements: ["DROP TABLE `" + a.targetDb + "`.`old_log`"], deferred: [], destructive: true },
     { table: "posts", kind: "added", statements: ["CREATE TABLE `" + a.targetDb + "`.`posts` (\n  `id` int NOT NULL\n)"], deferred: ["ALTER TABLE `" + a.targetDb + "`.`posts` ADD CONSTRAINT `fk_user` FOREIGN KEY (`id`) REFERENCES `users` (`id`)"], destructive: false },

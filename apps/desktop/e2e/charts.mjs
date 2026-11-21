@@ -1,0 +1,46 @@
+// Server charts: counters become per-second lines, gauges are plotted as they are, series the server lacks are said so, pause and clear work.
+import { chromium } from "playwright-core";
+import fs from "node:fs";
+import assert from "node:assert/strict";
+const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || undefined, headless: true });
+const page = await (await browser.newContext({ viewport: { width: 1400, height: 900 } })).newPage();
+const errors = [];
+page.on("pageerror", (e) => errors.push("pageerror: " + e.message));
+await page.addInitScript({ content: "window.__statusExtra = true;\n" + fs.readFileSync(new URL("./mock.js", import.meta.url), "utf8") + "\nSIZES.orders = 900 * 1024 * 1024; // orders is the biggest table here" });
+await page.goto(process.env.APP_URL || "http://localhost:1420/");
+let step = 0;
+const ok = (m) => console.log(`ok ${++step} ${m}`);
+await page.selectOption(".conn-bar select", "1");
+await page.selectOption(".conn-bar select", "1");
+await page.waitForSelector(".tree .db");
+await page.click("button[title^='Server:']");
+await page.waitForSelector(".server-tools");
+await page.click(".dz-tabs button:has-text('Charts')");
+await page.selectOption("select[aria-label='Sampling interval']", "1000");
+await page.waitForSelector("[data-chart=qps] polyline[data-series=Questions]", { timeout: 15000 });
+const samples = () => page.locator("[aria-label=Samples]").innerText().then((t) => Number(t.match(/(\d+) sample/)[1]));
+await page.waitForFunction(() => Number(document.querySelector("[aria-label=Samples]").innerText.match(/(\d+) sample/)[1]) >= 3, null, { timeout: 15000 });
+const legend = (k) => page.locator(`[data-legend=${k}]`).innerText();
+const qps = Number((await legend("Questions")).replace("k", "")) * ((await legend("Questions")).includes("k") ? 1000 : 1);
+assert.ok(qps > 50 && qps < 400, `Questions/s from the counter deltas: ${qps}`);
+assert.equal(await legend("Threads_connected"), "7", "a gauge is plotted as it is");
+assert.match(await legend("Bytes_received"), /KB|B$/);
+assert.ok(await page.locator("[data-chart=statements] polyline[data-series=Com_select]").count() === 1 && await page.locator("[data-chart=statements] polyline[data-series=Com_insert]").count() === 1);
+assert.match(await page.locator("[data-chart=rows]").innerText(), /does not report Innodb_rows_read/, "a series the server lacks is said so");
+ok("counters are drawn as per-second rates, gauges as they are, and a missing series is explained");
+
+await page.click("button:text-is('Pause')");
+const frozen = await samples();
+await page.waitForTimeout(2600);
+assert.equal(await samples(), frozen, "pausing stops the sampling");
+assert.match(await page.locator("[aria-label=Samples]").innerText(), /paused/);
+await page.click("button:text-is('Resume')");
+await page.waitForFunction((n) => Number(document.querySelector("[aria-label=Samples]").innerText.match(/(\d+) sample/)[1]) > n, frozen, { timeout: 10000 });
+ok("pause stops the sampling and resume continues it");
+
+await page.click("button:text-is('Clear')");
+await page.waitForFunction(() => /Collecting|^0 sample|·\s*0 sample/.test(document.querySelector(".charts").innerText) || document.querySelectorAll("polyline[data-series]").length === 0);
+ok("clear empties the history");
+assert.deepEqual(errors, []);
+await browser.close();
+console.log("ALL CHARTS UI CHECKS PASSED");

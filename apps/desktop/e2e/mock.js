@@ -476,3 +476,8 @@ handlers.preview_sql_source = (a) => {
   return { files: 1, statements: 12, bytes: 4096, kinds: [["INSERT", 8], ["CREATE TABLE", 2], ["DROP TABLE", 2]], destructive: 2, errors: [],
     first: [{ file: "dump.sql", line: 1, text: "DROP TABLE IF EXISTS `a`" }, { file: "dump.sql", line: 2, text: "CREATE TABLE `a` (id INT)" }] };
 };
+handlers.server_catalog = () => ({
+  engines: { columns: ["Engine", "Support", "Comment"], rows: [["InnoDB", "DEFAULT", "Supports transactions"], ["MyISAM", "YES", "MyISAM storage engine"]] },
+  charsets: { columns: ["Charset", "Description", "Default collation", "Maxlen"], rows: [["utf8mb4", "UTF-8 Unicode", "utf8mb4_0900_ai_ci", "4"], ["latin1", "cp1252 West European", "latin1_swedish_ci", "1"]] },
+  replication: { columns: [], rows: [] }, replication_note: null,
+});

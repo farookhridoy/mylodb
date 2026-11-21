@@ -454,3 +454,9 @@ table.kv th { text-align: left; font-weight: 500; color: var(--dim); width: 170p
 .home-actions { display: flex; flex-wrap: wrap; gap: 8px; } .home-action { display: inline-flex; align-items: center; gap: 6px; }
 .row-gap { display: flex; gap: 8px; } .src-preview { margin-top: 8px; border: 1px solid var(--line); border-radius: 4px; padding: 8px 10px; background: var(--panel); }
 .src-preview .preview-sql { max-height: 220px; overflow: auto; } .bad-text { color: var(--danger, #d14343); }
+.dict-overlay .dict { width: min(1000px, 94vw); max-height: 90vh; overflow: auto; } .dict-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.dict-table { margin-bottom: 16px; break-inside: avoid; } .print-only { display: none; }
+@media print {
+  body * { visibility: hidden; } .dict-overlay, .dict-overlay * { visibility: visible; } .dict-overlay { position: absolute; inset: 0; background: #fff; }
+  .dict-overlay .dict { max-height: none; width: auto; box-shadow: none; } .no-print { display: none !important; } .print-only { display: block; }
+}

@@ -1,0 +1,22 @@
+// Engines, character sets and replication on one page, opened from the home page.
+import { chromium } from "playwright-core";
+import fs from "node:fs";
+import assert from "node:assert/strict";
+const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || undefined, headless: true });
+const page = await (await browser.newContext({ viewport: { width: 1400, height: 900 } })).newPage();
+const errors = [];
+page.on("pageerror", (e) => errors.push("pageerror: " + e.message));
+await page.addInitScript({ content: "window.__fresh = true;\n" + fs.readFileSync(new URL("./mock.js", import.meta.url), "utf8") });
+await page.goto(process.env.APP_URL || "http://localhost:1420/");
+await page.selectOption(".conn-bar select", "1");
+await page.click("button.home-action:has-text('Engines, charsets')");
+await page.waitForSelector("table[aria-label=Engines]");
+assert.match(await page.locator("table[aria-label=Engines]").innerText(), /InnoDB[\s\S]*DEFAULT/);
+await page.click("[role=tab]:text-is('Charsets')");
+assert.match(await page.locator("table[aria-label='Character sets']").innerText(), /utf8mb4_0900_ai_ci/);
+await page.click("[role=tab]:text-is('Replication')");
+assert.match(await page.locator(".admin-page").innerText(), /not a replica/);
+console.log("ok 1 engines, character sets and replication pages");
+assert.deepEqual(errors, []);
+await browser.close();
+console.log("ALL CATALOG PAGE UI CHECKS PASSED");

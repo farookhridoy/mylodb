@@ -390,9 +390,12 @@ export const adminApi = {
   sizes: (id: number) => invoke<[string, number, number][]>("database_sizes", { id }),
   tables: (id: number, db: string) => invoke<TableRow[]>("database_tables", { id, db }),
   home: (id: number) => invoke<ServerHome>("server_home", { id }),
+  catalog: (id: number) => invoke<ServerCatalog>("server_catalog", { id }),
 };
 
 export interface SourcePreview {
   files: number; statements: number; bytes: number; kinds: [string, number][]; destructive: number;
   first: { file: string; line: number; text: string }[]; errors: string[];
 }
+export interface Grid { columns: string[]; rows: (string | null)[][] }
+export interface ServerCatalog { engines: Grid; charsets: Grid; replication: Grid; replication_note: string | null }

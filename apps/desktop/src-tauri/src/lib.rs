@@ -675,6 +675,49 @@ async fn server_home(state: tauri::State<'_, AppState>, id: i64) -> Result<Serve
     })
 }
 
+/// A result table as plain text: SHOW ENGINES, SHOW CHARACTER SET, SHOW REPLICA STATUS.
+#[derive(serde::Serialize, Default)]
+struct Grid {
+    columns: Vec<String>,
+    rows: Vec<Vec<Option<String>>>,
+}
+
+async fn grid(c: &mut myq_driver::Conn, sql: &str) -> Result<Grid, myq_driver::mysql_async::Error> {
+    use myq_driver::mysql_async::{from_value_opt, prelude::Queryable, Row, Value};
+    let rows: Vec<Row> = c.query(sql).await?;
+    let columns = rows.first().map(|r| r.columns_ref().iter().map(|c| c.name_str().to_string()).collect()).unwrap_or_default();
+    let rows = rows
+        .iter()
+        .map(|r| (0..r.len()).map(|i| match r.as_ref(i) { Some(Value::NULL) | None => None, Some(v) => from_value_opt::<String>(v.clone()).ok() }).collect())
+        .collect();
+    Ok(Grid { columns, rows })
+}
+
+#[derive(serde::Serialize)]
+struct ServerCatalog {
+    engines: Grid,
+    charsets: Grid,
+    /// Empty when this server is not a replica (or the account may not look).
+    replication: Grid,
+    replication_note: Option<String>,
+}
+
+#[tauri::command]
+async fn server_catalog(state: tauri::State<'_, AppState>, id: i64) -> Result<ServerCatalog, String> {
+    let mut c = conn_for(&state, id).await?;
+    let engines = grid(&mut c, "SHOW ENGINES").await.map_err(err)?;
+    let charsets = grid(&mut c, "SHOW CHARACTER SET").await.map_err(err)?;
+    // MySQL 8.0.22+ and MariaDB 10.5.1+ know REPLICA; older servers only SLAVE.
+    let (replication, replication_note) = match grid(&mut c, "SHOW REPLICA STATUS").await {
+        Ok(g) => (g, None),
+        Err(_) => match grid(&mut c, "SHOW SLAVE STATUS").await {
+            Ok(g) => (g, None),
+            Err(e) => (Grid::default(), Some(format!("not available: {e}"))),
+        },
+    };
+    Ok(ServerCatalog { engines, charsets, replication, replication_note })
+}
+
 // ---- plans: the SQL a bulk or destructive operation will run, shown before it runs ----
 
 /// An operation the UI wants to preview. Building the statements is pure (see `myq_schema::plan`); nothing here touches the server.
@@ -1344,6 +1387,7 @@ pub fn run() {
             table_column_details,
             run_query,
             preview_sql_source,
+            server_catalog,
             database_list,
             database_sizes,
             database_tables,

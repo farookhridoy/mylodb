@@ -4,6 +4,9 @@ import ContextMenu, { type MenuItem } from "./ContextMenu";
 import { adminApi, api, describeError, serverApi, type Maintenance, type MaintenanceRow, type PlanOp, type TableRow } from "./api";
 import { formatBytes } from "./browserMeta";
 import FormDialog, { type FormField } from "./FormDialog";
+import Select from "./Select";
+import DataDictionary from "./DataDictionary";
+import { schemaApi } from "./api";
 
 /**
  * A database's Structure page (phpMyAdmin): every table and view with rows, engine, collation, size and overhead,
@@ -21,6 +24,8 @@ export default function StructurePage(props: {
   onPlan(op: PlanOp, o: { title: string; summary?: string; confirmLabel?: string; after?: () => void }): void;
   onExport(tables: string[]): void;
   onSearch(table: string): void;
+  /** The database no longer exists under this name (renamed): close what refers to it. */
+  onDatabaseGone(db: string): void;
 }) {
   const { db } = props;
   const [rows, setRows] = useState<TableRow[] | null>(null);
@@ -32,6 +37,13 @@ export default function StructurePage(props: {
   const [report, setReport] = useState<{ title: string; text?: string; rows?: MaintenanceRow[] } | null>(null);
   const [newName, setNewName] = useState("");
   const [newCols, setNewCols] = useState("4");
+  const [dict, setDict] = useState(false);
+  const [renameTo, setRenameTo] = useState("");
+  const [copyTo, setCopyTo] = useState("");
+  const [copyData, setCopyData] = useState(true);
+  const [collations, setCollations] = useState<string[]>([]);
+  const [collation, setCollation] = useState("");
+  useEffect(() => { schemaApi.serverOptions(props.connectionId).then((o) => setCollations(o.charsets.flatMap(([, c]) => c))).catch(() => {}); }, [props.connectionId]);
 
   useEffect(() => {
     let live = true;
@@ -101,6 +113,7 @@ export default function StructurePage(props: {
         <input className="admin-search" placeholder="containing the word…" value={word} onChange={(e) => setWord(e.target.value)} aria-label="Filter tables" />
         <span className="dim small">{rows ? `${shown.length} of ${rows.length}` : ""}</span>
         <span className="grow" />
+        <button disabled={!rows || rows.length === 0} onClick={() => setDict(true)} title="All tables with their columns, to read or print">Data dictionary</button>
         <button disabled={none} aria-label="With selected" onClick={(e) => { const r = (e.currentTarget as HTMLElement).getBoundingClientRect(); setMenu({ x: r.left, y: r.bottom + 2 }); }}>
           With selected{picked.length ? ` (${picked.length})` : ""} ▾
         </button>
@@ -147,6 +160,29 @@ export default function StructurePage(props: {
           <button className="primary" disabled={props.readOnly || !newName.trim()} onClick={() => props.onNewTable(newName.trim(), Math.max(1, parseInt(newCols, 10) || 1))}>Create</button>
         </div>
       </section>
+
+      <section className="admin-card" style={{ maxWidth: 560 }} aria-label="Operations">
+        <h4>Operations on this database</h4>
+        <div className="admin-row" style={{ marginBottom: 8 }}>
+          <input placeholder="New name" value={renameTo} onChange={(e) => setRenameTo(e.target.value)} disabled={props.readOnly} aria-label="Rename database to" />
+          <button disabled={props.readOnly || !renameTo.trim() || renameTo.trim() === db}
+                  onClick={() => props.onPlan({ op: "rename_database", old: db, new: renameTo.trim(), collation: null }, { title: `Rename database ${db}`, confirmLabel: "Rename", summary: "MySQL cannot rename a database: the tables are moved to a new one and this one is dropped.", after: () => props.onDatabaseGone(db) })}>Rename</button>
+        </div>
+        <div className="admin-row" style={{ marginBottom: 8 }}>
+          <input placeholder="Copy to…" value={copyTo} onChange={(e) => setCopyTo(e.target.value)} disabled={props.readOnly} aria-label="Copy database to" />
+          <label className="check"><input type="checkbox" checked={copyData} onChange={(e) => setCopyData(e.target.checked)} /> with data</label>
+          <button disabled={props.readOnly || !copyTo.trim() || copyTo.trim() === db}
+                  onClick={() => props.onPlan({ op: "copy_database", src: db, dst: copyTo.trim(), with_data: copyData, collation: null }, { title: `Copy database ${db}`, confirmLabel: "Copy" })}>Copy</button>
+        </div>
+        <div className="admin-row">
+          <Select value={collation} onChange={(e) => setCollation(e.target.value)} disabled={props.readOnly} aria-label="Database collation" title="Database collation">
+            <option value="">(choose a collation)</option>{collations.map((c) => <option key={c} value={c}>{c}</option>)}
+          </Select>
+          <button disabled={props.readOnly || !collation}
+                  onClick={() => props.onPlan({ op: "alter_database", name: db, charset: null, collation }, { title: `Change collation of ${db}`, confirmLabel: "Change", summary: "Applies to tables created later. Existing tables keep their own collation." })}>Change</button>
+        </div>
+      </section>
+      {dict && rows && <DataDictionary connectionId={props.connectionId} db={db} tables={rows.filter((r) => !r.is_view).map((r) => r.name)} onClose={() => setDict(false)} />}
 
       {menu && <ContextMenu x={menu.x} y={menu.y} items={withSelected()} onClose={() => setMenu(null)} />}
       {form && <FormDialog title={form.title} fields={form.fields} option={form.option} hint={form.hint} onCancel={() => setForm(null)}

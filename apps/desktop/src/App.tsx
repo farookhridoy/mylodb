@@ -10,6 +10,7 @@ import PreviewDialog from "./PreviewDialog";
 import DatabasesPage from "./DatabasesPage";
 import StructurePage from "./StructurePage";
 import HomePage from "./HomePage";
+import CatalogPage from "./CatalogPage";
 import TableDesigner from "./TableDesigner";
 import ServerTools from "./ServerTools";
 import { useTheme, type ThemePref } from "./theme";
@@ -34,7 +35,7 @@ import { ConfirmDialog, FavoritesPanel, HistoryPanel, SaveFavoriteDialog } from 
 /** A SQL editor tab, or a table data tab (`kind: "table"`). Tabs saved before table tabs existed have no kind. */
 interface QueryTab {
   id: string; title: string; sql: string; database: string | null;
-  kind?: "sql" | "table" | "designer" | "users" | "server" | "transfer" | "databases" | "structure" | "home";
+  kind?: "sql" | "table" | "designer" | "users" | "server" | "transfer" | "databases" | "structure" | "home" | "catalog";
   /// For `transfer` tabs: which tool to show and what it is about.
   transfer?: TransferPreset;
   /// For a new-table `designer` tab: the name and column count asked for on the Structure page.
@@ -460,6 +461,14 @@ export default function App() {
     const existing = tabs.find((t) => t.kind === "structure" && t.table?.db === db);
     if (existing) return setActiveTab(existing.id);
     const t: QueryTab = { id: uid(), title: `${db}: Structure`, sql: "", database: db, kind: "structure", table: { db, name: null } };
+    setTabs([...tabs, t]);
+    setActiveTab(t.id);
+  };
+
+  const openCatalog = () => {
+    const existing = tabs.find((t) => t.kind === "catalog");
+    if (existing) return setActiveTab(existing.id);
+    const t: QueryTab = { id: uid(), title: "Engines & charsets", sql: "", database: null, kind: "catalog" };
     setTabs([...tabs, t]);
     setActiveTab(t.id);
   };
@@ -922,6 +931,7 @@ export default function App() {
                   { label: "Databases", icon: "database", run: openDatabases, hint: "List, create and drop databases" },
                   { label: "New query", icon: "terminal", run: () => addTab("", selectedDb) },
                   { label: "Server tools", icon: "pulse", run: openServer, hint: "Processes, variables, status, maintenance, logs" },
+                  { label: "Engines, charsets, replication", icon: "info", run: openCatalog },
                   { label: "Users and privileges", icon: "user", run: openUsers },
                   { label: "Export", icon: "export", run: () => openTransfer({ tab: "export" }) },
                   { label: "Import", icon: "import", run: () => openTransfer({ tab: "import" }) },
@@ -934,12 +944,14 @@ export default function App() {
                 onDrop={(names, summary) => openPlan({ op: "drop_databases", names }, { title: `Drop ${names.length} database${names.length === 1 ? "" : "s"}`, confirmLabel: "Drop", summary,
                   after: () => { setDbRefresh((n) => n + 1); setTabs((prev) => { const rest = prev.filter((t) => !(t.table && names.includes(t.table.db))); return rest.length ? rest : [newTab(1)]; }); } })} />
             )}
+            {tab.kind === "catalog" && <CatalogPage key={`${activeId}:${tab.id}`} connectionId={activeId} />}
             {tab.kind === "structure" && tab.table && (
               <StructurePage key={`${activeId}:${tab.id}`} connectionId={activeId} db={tab.table.db} readOnly={readOnly} refreshKey={dbRefresh}
                 onBrowse={(t) => openTable(tab.table!.db, t)} onDesign={(t) => openDesigner(tab.table!.db, t)}
                 onSearch={(t) => openTable(tab.table!.db, t)}
                 onNewTable={(name, columns) => openNewTable(tab.table!.db, name, columns)}
                 onExport={(tables) => openTransfer({ tab: "export", db: tab.table!.db, table: tables[0] })}
+                onDatabaseGone={(d) => setTabs((prev) => { const rest = prev.filter((t) => t.table?.db !== d || t.kind === "sql"); return rest.length ? rest : [newTab(1)]; })}
                 onPlan={(op, o) => openPlan(op, o)} />
             )}
             {tab.kind === "server" && <ServerTools key={`${activeId}:${tab.id}`} connectionId={activeId} nodes={index} />}

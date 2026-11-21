@@ -71,6 +71,32 @@ await page.click("button.primary:text-is('Create')");
 await page.waitForSelector(".qtab:has-text('invoices')");
 ok("Create new table opens the designer for it");
 
+// ---- operations and data dictionary
+await page.click(".qtab:has-text('Structure')");
+await page.waitForSelector("[aria-label=Operations]");
+await page.fill("input[aria-label='Rename database to']", "shop2");
+await page.click("[aria-label=Operations] button:text-is('Rename')");
+await page.waitForSelector(".preview-dialog");
+assert.match(await page.locator(".preview-sql").innerText(), /CREATE DATABASE `shop2`;[\s\S]*RENAME TABLE[\s\S]*DROP DATABASE `shop`;/);
+await page.click(".preview-dialog button:text-is('Cancel')");
+await page.fill("input[aria-label='Copy database to']", "shop_bak");
+await page.click("[aria-label=Operations] button:text-is('Copy')");
+await page.waitForSelector(".preview-dialog");
+assert.match(await page.locator(".preview-sql").innerText(), /CREATE DATABASE `shop_bak`;/);
+await page.click(".preview-dialog button:text-is('Cancel')");
+await page.selectOption("select[title='Database collation'], select[aria-label='Database collation']", "utf8mb4_bin");
+await page.click("[aria-label=Operations] button:text-is('Change')");
+await page.waitForSelector(".preview-dialog");
+assert.equal(await page.locator(".preview-sql").innerText(), "ALTER DATABASE `shop` COLLATE utf8mb4_bin;");
+await page.click(".preview-dialog button:text-is('Cancel')");
+ok("rename, copy and change collation of a database preview their SQL");
+
+await page.click("button:text-is('Data dictionary')");
+await page.waitForSelector("[aria-label='Data dictionary'] section.dict-table");
+assert.ok((await page.locator("section.dict-table").count()) >= 1);
+await page.click("[aria-label='Data dictionary'] button:text-is('Close')");
+ok("data dictionary lists the tables with their columns");
+
 assert.deepEqual(errors, []);
 await browser.close();
 console.log("ALL STRUCTURE PAGE UI CHECKS PASSED");

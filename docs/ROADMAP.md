@@ -22,9 +22,10 @@ Priority words used below:
 | 9 | **Production safety**: environment badge and colour, server-enforced read-only, review of destructive SQL with row estimates, query timeout, confirm on commit | ✅ |
 | 10 | **Large data engine**: windowed grid, keyset paging, estimated counts with cancellable exact count, exports as cancellable jobs with progress, JSON Lines, gzip. Measured at 1M and 10M rows (`BENCHMARKS.md`) | ✅ |
 | 11b to 11e (part) | **Admin console, first half**: Preview SQL then run dialog for every drop, empty, rename, duplicate (FK-check switch inside, typed word on production); **Databases page** (sizes, table counts, sort, search, check all, bulk drop, create with collation); database **Structure page** (rows, engine, collation, size, overhead, filter, row actions, With selected: copy, show create, export, empty, drop, analyze, check, checksum, optimize, repair, add / replace prefix, copy with prefix, create new table); **FK checks on / off for the console's Run**; connection collation setting. Real-MySQL tests for the plan SQL and queries, UI suites for each page | ✅ |
+| 11 (all) | **Phase 11 complete**: Operations (rename by copy, copy, collation), Data dictionary (print), Engines / Charsets / Replication page (`SHOW REPLICA STATUS` with `SLAVE` fallback) | ✅ |
 | extra | Light / dark / system theme; flat IDE look with one icon set; searchable dropdowns (select2 style); DBeaver-style context menus; lock to a database or table in the browser; table Properties / Data / Diagram views; console above data on table tabs; result tabs (Results, Profile, Messages, Table Data, Info, History); connect by host or URL; "Show all databases"; resizable sidebar and console | ✅ |
 
-Tests: 148 Rust tests (many against a real MySQL 9.7) and 16 UI suites. Unsigned arm64 `.dmg` builds and installs.
+Tests: about 170 Rust tests (many against a real MySQL 9.7) and 21 UI suites. Unsigned arm64 `.dmg` builds and installs.
 
 What Phase 10 did **not** cover (honest list): column virtualization for very wide tables, a multi-page cache or read-ahead, segmented exports,
 MySQL 5.7 / 8.0 / 8.4 / MariaDB runs, network-drop tests, measuring the real Tauri window (only headless Chrome with a mock was measured).
@@ -37,7 +38,7 @@ MySQL 5.7 / 8.0 / 8.4 / MariaDB runs, network-drop tests, measuring the real Tau
 |---|---|---|
 | A **dashboard after connecting** (server info, collation, theme, like phpMyAdmin's home) | ✅ Home page opens on a fresh connect (version, account, uptime, SSL, collation, links); connection collation is a connection setting | done (11a) |
 | **List all databases**, select all, **drop** the selected | ✅ Databases page (database menu > Databases) | done (11b) |
-| **Go inside a database and see all tables**, choose some and drop them (the "Structure" tab: rows, engine, collation, size, overhead, Browse / Structure / Search / Insert / Empty / Drop, "With selected": copy, show create, export, empty, drop, analyze, check, checksum, optimize, repair, add / replace prefix, copy with prefix, "containing the word" filter, create table) | ✅ Structure page (database menu > Structure). Print / Data dictionary still to do | 11c done, print in 11f |
+| **Go inside a database and see all tables**, choose some and drop them (the "Structure" tab: rows, engine, collation, size, overhead, Browse / Structure / Search / Insert / Empty / Drop, "With selected": copy, show create, export, empty, drop, analyze, check, checksum, optimize, repair, add / replace prefix, copy with prefix, "containing the word" filter, create table) | ✅ Structure page (database menu > Structure), with Operations (rename, copy, collation) and a printable Data dictionary | done (11c, 11f) |
 | After clicking Drop, **show the descriptive SQL** before it runs (`DROP TABLE a, b`) | ✅ one shared Preview SQL dialog for drops, empties, renames, copies, prefix operations | done (11d) |
 | **Foreign key checks on / off** when importing and when running SQL | ✅ FK checks selector on the console's Run (per tab), CSV import switch, Restore and Run SQL file switch; Preview script shows counts and the first statements before a SQL file runs | done (11e) |
 | **Preview the SQL** before the final run (phpMyAdmin style), run with and without FK checks | ✅ drops, renames, copies and bulk operations preview their SQL; SQL files can be previewed | done (11d / 11e) |
@@ -75,8 +76,8 @@ The analysis, screen mapping and design of these items are in `PHPMYADMIN_AND_EN
 | **PostgreSQL** and **SQLite** support (database abstraction, introspection, paging, export) | 15 |
 | **SQL Server** support | 15 |
 | Command palette (Cmd+K), customisable shortcuts, a gallery of UI themes and editor colour themes | 12 / 13 |
-| Charsets and Engines pages, Replication status, server "Settings" page (phpMyAdmin tabs we do not have) | 11f |
-| Database Operations: rename (by copy), change charset and collation, copy database, Print and Data dictionary | 11f |
+| Server "Settings" page (phpMyAdmin tab we do not have). Engines, Charsets and Replication are done (Home > Engines, charsets, replication) | 11f |
+| Table-level Operations page (move table to another database, table options), Replication writes | 11f |
 | Schema compare and migration preview, data compare, copy a database or table between connections | 16 |
 | Data Search across tables, query builder, whole-database ER diagram | 16 / 17 |
 | Browser leftovers: sort by name or size, drag a name into the editor, Info panel, alter database, rename routines | 13 |
@@ -103,7 +104,7 @@ The analysis, screen mapping and design of these items are in `PHPMYADMIN_AND_EN
 
 | Phase | Theme | What | Effort |
 |---|---|---|---|
-| 11 | **Admin console** (phpMyAdmin parity) | 11a dashboard · 11b Databases page and bulk drop · 11c Structure page and With selected · 11d Preview SQL then run · 11e FK-check switches and previews · 11f Operations, Charsets, Engines, Replication | 3 to 4 wk |
+| 11 ✅ | **Admin console** (phpMyAdmin parity), finished | 11a dashboard · 11b Databases page and bulk drop · 11c Structure page and With selected · 11d Preview SQL then run · 11e FK-check switches and previews · 11f Operations, Charsets, Engines, Replication | 3 to 4 wk |
 | 12 | **Shell and preferences** | top menu bar and toolbar, Preferences (fonts per area, themes), command palette | 2 to 3 wk |
 | 13 | **Workspace parity** | `.sql` files, templates, text results, connection tabs and groups, browser leftovers | 2 to 3 wk |
 | 14 | **Quality gates** | CI, Tasks panel, MySQL 5.7 / 8.0 / 8.4 / 9 and MariaDB matrix, network-drop tests | 1 to 2 wk |

@@ -17,6 +17,16 @@ const SECTIONS: Section[] = [
       </ol>
       <p>Passwords are stored in the macOS Keychain, never in the app's own database or in logs.</p>
     </>) },
+  { id: "sqlite", title: "SQLite files", body: (
+    <>
+      <p>MyLoDB opens SQLite files too. In the connection dialog choose <b>Database type → SQLite file (read-only)</b>, pick the file and press <b>Test connection</b>.</p>
+      <ul>
+        <li>The file is opened <b>read-only</b>: nothing in MyLoDB can change it in this version, and opening never creates a file.</li>
+        <li>Browse tables, views, triggers, columns and indexes, run SQL, and page, sort, filter and count a table in the grid. Counts are exact; <code>REGEXP</code> is not available.</li>
+        <li>Users, server tools, events, routines and dump-based backup do not exist for a file: those buttons are disabled and their tooltips say why.</li>
+        <li>Not yet: editing, export from a table, and cancelling a running query.</li>
+      </ul>
+    </>) },
   { id: "browse", title: "Browsing objects", body: (
     <>
       <p>The sidebar tree shows databases, tables, views, routines, triggers and events. Click a name to filter the tree to it; click a table to see its columns.</p>

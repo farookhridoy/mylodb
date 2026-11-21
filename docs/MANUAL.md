@@ -1,6 +1,6 @@
 # MyLoDB user manual
 
-Version 0.1.0. The same text is inside the app: **Help → User Manual**. Screenshots show the real interface running on demo data (a fake `shop` database), not a real server.
+Version 0.2.0. The same text is inside the app: **Help → User Manual**. Screenshots show the real interface running on demo data (a fake `shop` database), not a real server.
 
 ## Contents
 
@@ -19,7 +19,7 @@ Version 0.1.0. The same text is inside the app: **Help → User Manual**. Screen
 
 ## 1. Install and first launch
 
-Download `MyLoDB_0.1.0_aarch64.dmg` from the [Releases page](https://github.com/farookhridoy/mylodb/releases/latest) (Mac with Apple Silicon) and drag **MyLoDB** into **Applications**.
+Download `MyLoDB_0.2.0_aarch64.dmg` from the [Releases page](https://github.com/farookhridoy/mylodb/releases/latest) (Mac with Apple Silicon) and drag **MyLoDB** into **Applications**.
 
 MyLoDB is not signed with a paid Apple Developer certificate, so macOS warns you the first time. This is expected, and you do it once:
 
@@ -50,6 +50,17 @@ Click **+** above the object tree (or **Database → New Database Connection…*
 The **Safety** tab sets the **Environment** (Development, Staging, Production), a server-enforced **Read-only** session, a **query time limit**, and whether destructive SQL is reviewed first.
 
 Several connections can be open at once; each is a tab above the workspace. Closing a tab disconnects only that connection. Each connection remembers its own open tabs and tree state.
+
+### SQLite files
+
+Choose **Database type → SQLite file (read-only)** in the connection dialog, pick the file with **Browse…** and press **Test connection**. A SQLite connection:
+
+* opens the file **read-only**: MyLoDB cannot change it in this version (the file is opened read-only and the session is set to `query_only`, and opening a file never creates one);
+* browses tables, views, triggers, columns and indexes (the primary key is shown as `PRIMARY`), runs SQL with results as NULL-aware text (BLOBs as hex), and pages, filters, sorts and counts a table in the data grid (counts are exact; `REGEXP` is not available);
+* has no server home, users, server tools, events, routines or dump-based backup: those buttons are disabled and their tooltips say why;
+* does not yet offer editing, export from a table, or cancelling a running query.
+
+![A SQLite connection in the connection dialog](images/sqlite-dialog.png)
 
 ## 3. Browse objects
 

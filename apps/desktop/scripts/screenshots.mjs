@@ -86,6 +86,16 @@ await page.waitForSelector("[aria-label='About MyLoDB']");
 await shot("about");
 await page.click("[aria-label='About MyLoDB'] .primary");
 
+// 6b. SQLite in the connection dialog
+await page.click("button[title='New connection']");
+await page.waitForSelector(".conn-dialog");
+await page.click(".conn-dialog .ss-trigger");
+await page.click(".ss-opt:has-text('SQLite file')");
+await page.fill(".conn-dialog input >> nth=0", "Shop file");
+await page.fill("input[placeholder='/path/to/data.sqlite']", "/Users/you/data/shop.sqlite");
+await shot("sqlite-dialog");
+await page.click(".conn-dialog .actions button:has-text('Cancel')");
+
 // 7. dark theme
 await palette("theme: dark");
 await page.waitForTimeout(400);

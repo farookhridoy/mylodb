@@ -1,7 +1,7 @@
 <h1 align="center">MyLoDB</h1>
 
 <p align="center">
-  <b>An open-source MySQL and MariaDB manager for macOS, written in Rust and React.</b><br>
+  <b>An open-source MySQL, MariaDB and SQLite manager for macOS, written in Rust and React.</b><br>
   Browse, query, edit, design and administer your databases in one fast native window.
 </p>
 
@@ -30,7 +30,7 @@
 > **The first time you open MyLoDB, macOS shows a warning. That is expected.** The app is not signed with a paid Apple Developer certificate.
 > Click **Done** (not *Move to Trash*), then **System Settings → Privacy & Security → Open Anyway**. [Step-by-step](#how-to-install-and-open-mylodb).
 
-MyLoDB is for people who miss SQLyog on the Mac. It connects to MySQL and MariaDB and gives you a tree of your objects with a fast filter, a SQL editor with autocomplete, an editable data grid, a table designer, user and privilege management, server tools, and backup and import. It is built for safety (production colouring, server-enforced read-only, a review before destructive SQL) and for big tables (keyset paging, windowed grid, streamed exports).
+MyLoDB is for people who miss SQLyog on the Mac. It connects to MySQL and MariaDB (and opens SQLite files read-only) and gives you a tree of your objects with a fast filter, a SQL editor with autocomplete, an editable data grid, a table designer, user and privilege management, server tools, and backup and import. It is built for safety (production colouring, server-enforced read-only, a review before destructive SQL) and for big tables (keyset paging, windowed grid, streamed exports).
 
 *Screenshots show the real interface running on demo data, not a real server.*
 
@@ -46,6 +46,7 @@ MyLoDB is for people who miss SQLyog on the Mac. It connects to MySQL and MariaD
 | **Users and privileges** | Create, rename, lock, drop; global, database, table and column privileges shown as the exact GRANT / REVOKE diff. |
 | **Server tools** | Live overview, process list (kill), variables, status, maintenance (CHECK / OPTIMIZE / REPAIR), logs. |
 | **Backup and import** | Consistent SQL backup (one file or per table, optional zip), restore with a script preview, CSV import with column mapping, export to CSV, JSON, JSON Lines, SQL, XML, HTML, Excel. |
+| **SQLite** | Open a `.sqlite` / `.db` file read-only: browse tables, views and triggers, run SQL, page, sort and filter the data grid. Features a file cannot have (users, server tools, backup) are disabled with the reason. |
 | **Connections** | Passwords in the macOS Keychain. SSH tunnels (host key confirmation), SSL modes, connect by URL, groups, several connections open at once. |
 | **Safe by default** | Environment badge and colour, server-enforced read-only, query time limit, row-estimate review of destructive SQL, type-to-confirm on production. No telemetry. |
 | **Comfortable** | Light, dark and system themes, per-area fonts, four editor colour schemes, command palette (⌘K), native macOS menus, a built-in manual and a first-run tour. |
@@ -56,7 +57,7 @@ Get the installer from the **[Releases page](https://github.com/farookhridoy/myl
 
 | Your computer | File |
 |---|---|
-| Mac with Apple Silicon (M1 and later) | `MyLoDB_0.1.0_aarch64.dmg` |
+| Mac with Apple Silicon (M1 and later) | `MyLoDB_0.2.0_aarch64.dmg` |
 
 An Intel build and a signed build are on the [roadmap](docs/ROADMAP.md). Not sure which Mac you have? Apple menu → **About This Mac**.
 
@@ -125,7 +126,7 @@ Single runs on one machine, so treat them as indications. The method, the limits
 
 ## Status
 
-Version **0.1.0** is the first public release. Phases 1 to 13 of the [roadmap](docs/ROADMAP.md) are done: connection manager, object browser, SQL editor, data grid, table designer, users, server tools, backup and import, production safety, large-table engine, admin console, shell and preferences, workspace features. The Rust suite passes in CI on MySQL 8.0, 8.4 and 9 and MariaDB 10.11 and 11.4, and locally on MySQL 9.7 and MariaDB 13. MySQL 5.7 still fails some integration tests and is unsupported ([details](docs/SERVER_COMPATIBILITY.md)). Not yet: PostgreSQL / SQLite / SQL Server (design in [docs/ENGINE_ABSTRACTION.md](docs/ENGINE_ABSTRACTION.md)), schema compare, visual query builder, Windows and Linux builds, and a signed and notarised build.
+Version **0.2.0** adds SQLite files (read-only) and fixes MariaDB 10.11 / 11.4. Version 0.1.0 was the first public release. Phases 1 to 13 of the [roadmap](docs/ROADMAP.md) are done: connection manager, object browser, SQL editor, data grid, table designer, users, server tools, backup and import, production safety, large-table engine, admin console, shell and preferences, workspace features. The Rust suite passes in CI on MySQL 8.0, 8.4 and 9 and MariaDB 10.11 and 11.4, and locally on MySQL 9.7 and MariaDB 13. MySQL 5.7 still fails some integration tests and is unsupported ([details](docs/SERVER_COMPATIBILITY.md)). Not yet: SQLite editing, PostgreSQL and SQL Server (design and progress in [docs/ENGINE_ABSTRACTION.md](docs/ENGINE_ABSTRACTION.md)), Windows and Linux builds, and a signed and notarised build.
 
 ## Build it yourself
 

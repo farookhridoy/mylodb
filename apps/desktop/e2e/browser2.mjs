@@ -27,6 +27,7 @@ ok("tables can be sorted by size (largest first) and back to name order");
 
 await page.keyboard.press("Meta+k");
 await page.fill("input[aria-label=Command]", "snippet join");
+await page.waitForFunction((q) => (document.querySelector(".palette li")?.innerText ?? "").toLowerCase().includes(q.split(" ")[0].toLowerCase()), "snippet join");
 await page.keyboard.press("Enter");
 await page.waitForFunction(() => document.querySelector(".cm-content")?.innerText.includes("INNER JOIN") || document.querySelector(".cm-content")?.innerText.includes("JOIN table_b"));
 ok("⌘K inserts a SQL snippet into the editor");

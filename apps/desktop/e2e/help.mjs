@@ -33,6 +33,7 @@ ok("the tour does not start again on the next launch");
 // replay from the command palette
 await page.keyboard.press("Meta+k");
 await page.fill("input[aria-label=Command]", "quick tour");
+await page.waitForFunction((q) => (document.querySelector(".palette li")?.innerText ?? "").toLowerCase().includes(q.split(" ")[0].toLowerCase()), "quick tour");
 await page.keyboard.press("Enter");
 await page.waitForSelector(".tour-card");
 await page.keyboard.press("Escape");
@@ -42,6 +43,7 @@ ok("Quick tour can be replayed and closed with Esc");
 // manual
 await page.keyboard.press("Meta+k");
 await page.fill("input[aria-label=Command]", "user manual");
+await page.waitForFunction((q) => (document.querySelector(".palette li")?.innerText ?? "").toLowerCase().includes(q.split(" ")[0].toLowerCase()), "user manual");
 await page.keyboard.press("Enter");
 await page.waitForSelector("[aria-label='User manual']");
 assert.match(await page.locator(".manual article").innerText(), /Getting started/);
@@ -56,6 +58,7 @@ ok("the manual opens, switches sections and closes");
 // about
 await page.keyboard.press("Meta+k");
 await page.fill("input[aria-label=Command]", "about mylodb");
+await page.waitForFunction((q) => (document.querySelector(".palette li")?.innerText ?? "").toLowerCase().includes(q.split(" ")[0].toLowerCase()), "about mylodb");
 await page.keyboard.press("Enter");
 await page.waitForSelector("[aria-label='About MyLoDB']");
 const about = await page.locator("[aria-label='About MyLoDB']").innerText();

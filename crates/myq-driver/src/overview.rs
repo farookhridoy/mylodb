@@ -158,8 +158,8 @@ pub async fn table_overview(pool: &Pool, database: &str, table: &str) -> Result<
             collation: collation.clone(),
         };
         if let Some(c) = collation {
-            let cs: Option<String> = conn.exec_first("SELECT CHARACTER_SET_NAME FROM information_schema.COLLATIONS WHERE COLLATION_NAME = ?", (c,)).await?;
-            o.info.charset = cs;
+            let cs: Option<Option<String>> = conn.exec_first("SELECT CHARACTER_SET_NAME FROM information_schema.COLLATIONS WHERE COLLATION_NAME = ?", (c.as_str(),)).await?;
+            o.info.charset = cs.flatten().or_else(|| myq_schema::ddl::charset_of_collation(&c).map(String::from));
         }
     }
 

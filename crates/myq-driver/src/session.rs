@@ -58,25 +58,32 @@ pub struct ServerOptions {
 
 pub async fn server_options(conn: &mut Conn) -> Result<ServerOptions> {
     let engines: Vec<String> = conn.query("SELECT ENGINE FROM information_schema.ENGINES WHERE SUPPORT IN ('YES','DEFAULT') ORDER BY ENGINE").await?;
-    // MariaDB 10.10+ lists its UCA-14.0.0 collations (`uca1400_*`) with a NULL character set and NULL IS_DEFAULT: they belong to no
-    // charset in this list, so they are skipped instead of failing the whole call.
-    let rows: Vec<(String, Option<String>, Option<String>)> = conn
-        .query("SELECT COLLATION_NAME, CHARACTER_SET_NAME, IS_DEFAULT FROM information_schema.COLLATIONS ORDER BY CHARACTER_SET_NAME, COLLATION_NAME")
+    // COLLATION_CHARACTER_SET_APPLICABILITY pairs every collation with every character set it can be used with, on both servers.
+    // MariaDB 10.10+ also lists generic UCA 14 collations there (`uca1400_ai_ci`, with a NULL character set in COLLATIONS); the usable
+    // name for a character set is then prefixed (`utf8mb4_uca1400_ai_ci`). CHARACTER_SETS names each set's default collation
+    // (COLLATIONS.IS_DEFAULT is empty for most rows on MariaDB).
+    let pairs: Vec<(String, String)> = conn
+        .query("SELECT COLLATION_NAME, CHARACTER_SET_NAME FROM information_schema.COLLATION_CHARACTER_SET_APPLICABILITY ORDER BY COLLATION_NAME")
         .await?;
+    let defaults: Vec<(String, String)> = conn.query("SELECT CHARACTER_SET_NAME, DEFAULT_COLLATE_NAME FROM information_schema.CHARACTER_SETS").await?;
     let mut charsets: Vec<(String, Vec<String>, String)> = Vec::new();
-    for (collation, charset, is_default) in rows.into_iter().filter_map(|(c, cs, d)| Some((c, cs?, d.unwrap_or_default()))) {
+    for (name, charset) in pairs {
+        let collation = if name == charset || name.starts_with(&format!("{charset}_")) { name } else { format!("{charset}_{name}") };
         let entry = match charsets.iter().position(|c| c.0 == charset) {
             Some(i) => i,
             None => {
-                charsets.push((charset.clone(), vec![], String::new()));
+                let default = defaults.iter().find(|d| d.0 == charset).map(|d| d.1.clone()).unwrap_or_default();
+                charsets.push((charset, vec![], default));
                 charsets.len() - 1
             }
         };
-        if is_default == "Yes" {
-            charsets[entry].2 = collation.clone();
-        }
         charsets[entry].1.push(collation);
     }
+    for c in &mut charsets {
+        c.1.sort();
+        c.1.dedup();
+    }
+    charsets.sort_by(|a, b| a.0.cmp(&b.0));
     Ok(ServerOptions { engines, charsets })
 }
 

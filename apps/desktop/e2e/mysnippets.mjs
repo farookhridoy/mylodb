@@ -18,6 +18,7 @@ await page.click(".cm-content");
 await page.keyboard.type("SELECT 42 AS answer");
 await reopen();
 await page.fill("input[aria-label=Command]", "save editor text");
+await page.waitForSelector(".palette li.sel:has-text('Save editor text as my snippet')");
 await page.keyboard.press("Enter");
 await page.fill(".dialog input", "Answer query");
 await page.click(".dialog .primary");
@@ -37,6 +38,7 @@ ok("a saved snippet is inserted from the command palette");
 
 await reopen();
 await page.fill("input[aria-label=Command]", "delete my snippet answer");
+await page.waitForSelector(".palette li.sel:has-text('Delete my snippet: Answer query')");
 await page.keyboard.press("Enter");
 assert.equal(await page.evaluate(() => localStorage.getItem("mylodb.snippets")), "[]");
 await reopen();

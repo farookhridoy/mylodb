@@ -69,6 +69,7 @@ await shot("structure");
 // 6. command palette, preferences, manual, about
 await key("Meta+k");
 await page.fill("input[aria-label=Command]", "snippet");
+await page.waitForFunction((q) => (document.querySelector(".palette li")?.innerText ?? "").toLowerCase().includes(q.split(" ")[0].toLowerCase()), "snippet");
 await shot("command-palette");
 await key("Escape");
 await palette("preferences");

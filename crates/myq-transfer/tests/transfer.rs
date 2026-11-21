@@ -81,10 +81,18 @@ fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02X}")).collect()
 }
 
+async fn utf8mb4_default(c: &mut Conn) -> String {
+    let d: Option<String> = c.query_first("SELECT DEFAULT_COLLATE_NAME FROM information_schema.CHARACTER_SETS WHERE CHARACTER_SET_NAME = 'utf8mb4'").await.unwrap();
+    d.unwrap_or_else(|| "utf8mb4_general_ci".into())
+}
+
 /// A database with every awkward thing a dump has to carry.
 async fn build_source(c: &mut Conn, db: &str) {
     for stmt in [
-        format!("CREATE DATABASE `{db}` CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci"),
+        // The server's own default utf8mb4 collation, so that SHOW CREATE TABLE reads the same before and after a restore:
+        // a column collation that is not the charset default is printed differently once it has been written out explicitly.
+        // (`utf8mb4_0900_ai_ci` is unknown to MySQL 5.7 and MariaDB before 11.4.5.)
+        format!("CREATE DATABASE `{db}` CHARACTER SET utf8mb4 COLLATE {}", utf8mb4_default(c).await),
         format!("USE `{db}`"),
         // edge TIMESTAMP values are only valid in UTC; the dump itself always runs in UTC
         "SET SESSION time_zone = '+00:00'".to_string(),

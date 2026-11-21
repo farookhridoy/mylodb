@@ -177,6 +177,13 @@ pub fn q(ident: &str) -> String {
     format!("`{}`", ident.replace('`', "``"))
 }
 
+/// The character set a collation belongs to: collation names start with it (`utf8mb4_unicode_ci`, `latin1_swedish_ci`, `binary`).
+/// `information_schema.COLLATIONS` cannot be trusted for this: MariaDB 10.10+ lists its `uca1400_*` collations with a NULL character set.
+pub fn charset_of_collation(collation: &str) -> Option<&str> {
+    let cs = collation.split('_').next().filter(|c| !c.is_empty())?;
+    Some(cs)
+}
+
 /// A quoted string literal. Backslashes and quotes are escaped.
 pub fn lit(s: &str) -> String {
     format!("'{}'", s.replace('\\', "\\\\").replace('\'', "''"))
@@ -657,6 +664,16 @@ pub fn drop_database_sql(name: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_collation_names_its_character_set() {
+        use super::charset_of_collation as cs;
+        assert_eq!(cs("utf8mb4_0900_ai_ci"), Some("utf8mb4"));
+        assert_eq!(cs("utf8mb4_uca1400_ai_ci"), Some("utf8mb4"), "MariaDB lists these with a NULL character set");
+        assert_eq!(cs("latin1_swedish_ci"), Some("latin1"));
+        assert_eq!(cs("binary"), Some("binary"));
+        assert_eq!(cs(""), None);
+    }
+
     use super::*;
 
     fn col(name: &str, ty: &str) -> ColumnDef {

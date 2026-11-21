@@ -1,0 +1,54 @@
+// Visual query builder: choose tables, a join (ON taken from the foreign key), columns and conditions; the SQL is built by the backend.
+import { chromium } from "playwright-core";
+import fs from "node:fs";
+import assert from "node:assert/strict";
+const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || undefined, headless: true });
+const page = await (await browser.newContext({ viewport: { width: 1400, height: 900 } })).newPage();
+const errors = [];
+page.on("pageerror", (e) => errors.push("pageerror: " + e.message));
+await page.addInitScript({ content: fs.readFileSync(new URL("./mock.js", import.meta.url), "utf8") + "\nSIZES.orders = 900 * 1024 * 1024; // orders is the biggest table here" });
+await page.goto(process.env.APP_URL || "http://localhost:1420/");
+let step = 0;
+const ok = (m) => console.log(`ok ${++step} ${m}`);
+await page.selectOption(".conn-bar select", "1");
+await page.selectOption(".conn-bar select", "1");
+await page.waitForSelector(".tree .db");
+await page.click(".tree .db:has-text('shop')", { button: "right" });
+await page.getByText("Query builder…").click();
+await page.waitForSelector("h2:has-text('Query builder')");
+assert.match(await page.locator("pre[aria-label='Generated SQL']").innerText(), /Choose a table to start/);
+await page.locator("label:has-text('From') .ss-trigger").click();
+await page.click(".ss-opt:has-text('customers')");
+await page.waitForFunction(() => document.querySelector("pre[aria-label='Generated SQL']")?.innerText.includes("FROM customers AS c"));
+ok("choosing a table builds SELECT * FROM it");
+
+await page.locator("label:has-text('Join another table') .ss-trigger").click();
+await page.click(".ss-opt:has-text('orders')");
+await page.waitForFunction(() => document.querySelector("pre[aria-label='Generated SQL']")?.innerText.includes("INNER JOIN orders AS o ON c.id = o.customer_id"));
+ok("joining orders fills the ON columns from the foreign key");
+
+await page.click("button:has-text('+ Column')");
+await page.selectOption("select[aria-label='Column 1 table']", "c");
+await page.selectOption("select[aria-label='Column 1']", "name");
+await page.click("button:has-text('+ Column')");
+await page.selectOption("select[aria-label='Column 2 table']", "o");
+await page.selectOption("select[aria-label='Column 2']", "id");
+await page.selectOption("select[aria-label='Column 2 function']", "count");
+await page.fill("input[aria-label='Column 2 name']", "orders_n");
+await page.click("button:has-text('+ Condition')");
+await page.selectOption("select[aria-label='Condition 1 column']", "name");
+await page.selectOption("select[aria-label='Condition 1 operator']", "contains");
+await page.fill("input[aria-label='Condition 1 value']", "Ann");
+await page.waitForFunction(() => /WHERE c\.name contains Ann/.test(document.querySelector("pre[aria-label='Generated SQL']")?.innerText ?? ""));
+const sql = await page.locator("pre[aria-label='Generated SQL']").innerText();
+assert.match(sql, /SELECT c\.name, COUNT\(o\.id\) AS orders_n\nFROM customers AS c\nINNER JOIN orders AS o ON c\.id = o\.customer_id\nWHERE c\.name contains Ann\nLIMIT 100;/);
+const spec = await page.evaluate(() => window.__calls.filter((c) => c.cmd === "build_query").at(-1).args.spec);
+assert.deepEqual([spec.select.length, spec.filters[0].numeric, spec.joins[0].on[0][1]], [2, false, "customer_id"]);
+ok("columns with a function and a name, a condition and the limit all reach the SQL");
+
+await page.click("button:has-text('Open in editor')");
+await page.waitForFunction(() => /INNER JOIN orders/.test(document.querySelector(".cm-content")?.innerText ?? ""));
+ok("Open in editor puts the SQL in a query tab");
+assert.deepEqual(errors, []);
+await browser.close();
+console.log("ALL QUERY BUILDER UI CHECKS PASSED");

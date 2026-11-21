@@ -110,6 +110,14 @@ const handlers = {
   account_apply: (a) => { window.__accountApplied = JSON.parse(JSON.stringify(a)); return 2; },
   account_drop: (a) => { window.__dropped = a; return null; },
   open_url: () => null,
+  build_query: (a) => {
+    const s = a.spec;
+    if (window.__buildProblem) throw window.__buildProblem;
+    const sel = s.select.length ? s.select.map((c) => `${c.agg ? c.agg.toUpperCase() + "(" : ""}${c.alias}.${c.column}${c.agg ? ")" : ""}${c.name ? " AS " + c.name : ""}`).join(", ") : "*";
+    const joins = s.joins.map((j) => `\n${j.kind.toUpperCase()} JOIN ${j.table.table} AS ${j.table.alias} ON ${j.on.map(([l, r]) => `${l.alias}.${l.column} = ${j.table.alias}.${r}`).join(" AND ")}`).join("");
+    const where = s.filters.length ? `\nWHERE ${s.filters.map((f) => `${f.alias}.${f.column} ${f.op} ${f.values.join(" / ")}`).join(" AND ")}` : "";
+    return `SELECT ${sel}\nFROM ${s.from.table} AS ${s.from.alias}${joins}${where}${s.limit ? "\nLIMIT " + s.limit : ""};`;
+  },
   schema_compare: (a) => window.__compare ?? { changes: [
     { table: "old_log", kind: "removed", statements: ["DROP TABLE `" + a.targetDb + "`.`old_log`"], deferred: [], destructive: true },
     { table: "posts", kind: "added", statements: ["CREATE TABLE `" + a.targetDb + "`.`posts` (\n  `id` int NOT NULL\n)"], deferred: ["ALTER TABLE `" + a.targetDb + "`.`posts` ADD CONSTRAINT `fk_user` FOREIGN KEY (`id`) REFERENCES `users` (`id`)"], destructive: false },

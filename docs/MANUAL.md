@@ -111,6 +111,11 @@ Choose **Database type → SQLite file (read-only)** in the connection dialog, p
 * **Users and Privileges:** create, rename, lock and drop accounts, and global, database, table and column privileges, shown as the exact GRANT / REVOKE changes with passwords masked.
 * **Server Tools:** overview with live queries per second, process list (stop query, kill connection), variables (edit with confirmation), status with rates, CHECK / ANALYZE / OPTIMIZE / REPAIR for many tables, and logs. **Engines, charsets, replication** is under Tools.
 
+### Visual query builder
+
+Right-click a database → **Query builder…** (or **SQL Editor → Visual Query Builder…**). Choose a **From** table, add joins (the ON columns are filled in from a foreign key between the tables when there is one; you can change them), tick **Columns** (none chosen means every column; each can have COUNT, SUM, AVG, MIN or MAX and a name), add **Conditions** (all must hold: =, ≠, <, ≤, >, ≥, contains, starts with, ends with, in, between, is NULL, is not NULL), an **order**, DISTINCT and a **limit**. The SQL is rebuilt as you go; **Open in editor** puts it in a query tab and **Run** also runs it.
+The statement is built by the backend with the connection's quoting: names are checked against the tables you chose, values are quoted, `%` and `_` in "contains" text are literal, aggregates group by the plain columns, and a mistake (a join that refers to a later table, DISTINCT ordered by an unselected column) is explained instead of sent to the server.
+
 ### Compare schemas
 
 Right-click a database → **Compare schemas…** opens a tab that makes **this** database (the target) match another one (the source), which can be on any open connection.

@@ -285,6 +285,13 @@ async fn read_defs(state: &tauri::State<'_, AppState>, id: i64, db: &str) -> Res
     Ok((defs, warnings))
 }
 
+/// The SELECT for the query builder page, in the dialect of the connection's engine. Nothing runs.
+#[tauri::command]
+fn build_query(state: tauri::State<AppState>, id: i64, spec: myq_schema::builder::QuerySpec) -> Result<String, String> {
+    let engine = state.sessions.lock().unwrap().get(&id).map(|s| s.engine.clone()).ok_or("not connected")?;
+    myq_schema::builder::build_with(&spec, engine.dialect())
+}
+
 /// What has to change in the target database so that its tables match the source database's. Nothing is changed; the UI previews the
 /// statements and runs them through `run_plan` on the target connection.
 #[tauri::command]
@@ -1545,6 +1552,7 @@ fn build_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::
     let sql_editor = SubmenuBuilder::new(app, "SQL Editor")
         .item(&with_icon("new_query", "New SQL Script", icon!("terminal"))?)
         .item(&with_icon("new_query_db", "New Script in Selected Database", icon!("terminal"))?)
+        .item(&with_icon("builder", "Visual Query Builder…", icon!("sql"))?)
         .item(&with_icon("open_file", "Open SQL File…", icon!("folder"))?)
         .separator()
         .item(&with_icon("run", "Execute", icon!("play"))?)
@@ -1604,6 +1612,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             open_url,
+            build_query,
             schema_compare,
             capabilities,
             list_connections,

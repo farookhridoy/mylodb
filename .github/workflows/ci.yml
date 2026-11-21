@@ -13,6 +13,17 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # the website builds: every local link and image exists (it is published by pages.yml)
+  site:
+    name: Website check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node scripts/check-site.mjs
+
   # The Rust crates, tested against real servers: the integration tests create their own uniquely named databases and drop them again.
   rust:
     name: Rust · ${{ matrix.server.name }}

@@ -2,7 +2,7 @@
 
 Open-source MySQL/MariaDB manager for macOS, written in Rust (Tauri + React).
 
-Status: planning. See [docs/ANALYSIS.md](docs/ANALYSIS.md) for the feature analysis, architecture, and phased roadmap.
+See [docs/ROADMAP.md](docs/ROADMAP.md) for what is done and what is left, and [docs/ANALYSIS.md](docs/ANALYSIS.md) for the original analysis and architecture.
 
 ## Develop
 
@@ -36,4 +36,4 @@ Integration tests use a local MySQL (`MYLODB_TEST_HOST/PORT/USER/PASSWORD`) and 
 - Workspace: a table opens as a SQL console (top) and its data grid (bottom); sidebar and console are resizable; arrows open and close nodes; clicking a table, column or database name pastes it into the query being written; the table menu has SELECT / INSERT / UPDATE / DELETE samples; the locked database is the console's database.
 - Browser lock: clicking a database locks the filter and the tree to it (a chip in the filter box; ✕, Backspace or Esc releases it), clicking a table locks to its columns. Flat IDE-style look with one set of line icons.
 - Phase 8: views, procedures, functions, triggers and events have menus (show / edit definition as a runnable script, drop, new-object templates); tables list their indexes; databases show their size; expansion and selection are remembered per connection; F5 refreshes.
-- Next: see [docs/PLAN_VS_CURRENT.md](docs/PLAN_VS_CURRENT.md) for the comparison with the product plan and the SQLyog reference, and the phase list (the Large Data Engine comes next).
+- Next: see [docs/ROADMAP.md](docs/ROADMAP.md) for the phase list, the comparison with the product plan and the SQLyog reference (phases 1 to 13 are done; engines, power tools, visual tools and the beta release are open).

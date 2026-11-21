@@ -108,24 +108,10 @@ SQLyog's object-browser filter is a high-value feature. Design:
 
 ## 6. Phased roadmap
 
-| Phase | Name | Deliverable | Est. |
-|---|---|---|---|
-| 0 | Foundation | Install Rust toolchain, Cargo workspace, Tauri shell, CI, signing plan, license, design tokens | 1 wk |
-| 1 | Connect & browse (MVP-0) | Connection manager (Keychain), SSL, object tree **with filter**, multi-tab | 3 wk |
-| 2 | Query | SQL editor, run/cancel, multi-result tabs, history, favorites, charset, session restore | 3 wk |
-| 3 | Data grid | Paged/streaming grid, inline edit, form view, FK lookup, BLOB viewer, export CSV/JSON/SQL | 4 wk |
-| 4 | Schema tools | Table designer (create/alter/dup/truncate/drop), index/FK editors, SQL preview, user & privilege manager | 5 wk |
-| 5 | Editor intelligence | Autocomplete, formatter, EXPLAIN/profiler | 4 wk |
-| 6 | Connectivity & ops | SSH tunnel, diagnostics (processlist/kill, variables, logs, CHECK/OPTIMIZE) | 3 wk |
-| 7 | Import/export & backup | Import CSV/SQL, XLSX/XML/HTML export, backup to zip, file-per-table | 3 wk |
-| 8 | **Public beta 0.1** | Signed `.dmg`, Homebrew cask, docs site | 1 wk |
-| 9 | Search & optimize | Global data search, redundant index analyzer, type recommender | 3 wk |
-| 10 | Visual tools | Query builder, ER designer (reverse + forward) | 8 wk |
-| 11 | Sync | Schema sync, data compare, one-way then two-way data sync | 8 wk |
-| 12 | Automation | `myq-agent`, launchd schedules, email reports, XML/TOML jobs | 4 wk |
-| 13 | Extras | ODBC import, HTTP tunnel, plugin API | open |
-
-Roughly 6–7 months for a solo developer to 0.1 + automation; ~12 months for full list. MVP usable daily at end of Phase 3 (~10 wk).
+The original phase table (phases 0 to 13) has been superseded by the re-planned roadmap, which tracks what is done and what is not:
+**[ROADMAP.md](ROADMAP.md)**. In short: phases 1 to 13 (connect, query, grid, schema tools, safety, large data, admin console,
+shell and preferences, workspace) and most of 14 (quality gates) are done; engines (15), power tools (16), visual tools (17) and the
+beta release (18) are open.
 
 ## 7. Risks
 
@@ -143,8 +129,6 @@ Roughly 6–7 months for a solo developer to 0.1 + automation; ~12 months for fu
 - Round-trip tests: introspect → generate DDL → apply to empty DB → introspect again → equal.
 - UI smoke tests with Playwright against the Tauri webview.
 
-## 9. Immediate next steps
+## 9. Next steps
 
-1. Install Rust: `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh` (not yet installed on this machine) and `xcode-select --install` if missing.
-2. Confirm decisions: Tauri+React stack, license, and whether to rename.
-3. Start Phase 0 → Phase 1 (connection manager + filterable tree).
+See [ROADMAP.md](ROADMAP.md), section 3 (what is left) and section 4 (proposed order).

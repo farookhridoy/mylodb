@@ -1,0 +1,61 @@
+# Phase 15 design: the engine abstraction
+
+Status of 2026-11-21. Design only; no code changed. It narrows section 3.2 of `PHPMYADMIN_AND_ENGINES.md` into steps that can each ship and be tested.
+
+## 1. What is coupled to MySQL today (measured by grep, not guessed)
+
+| Crate | Lines | `mysql_async` mentions | `information_schema` | `SHOW …` | Notes |
+|---|---|---|---|---|---|
+| `myq-driver` | 1,018 | 18 | 30 | 1 | connection, pool, introspection, overview, scripts, values. The seam goes here. |
+| `myq-schema` | 1,422 | 0 | 1 | 2 | pure SQL builders (`ddl.rs`, `plan.rs`, `filter.rs`); backtick quoting in 34 places via `ddl::q`. Pure, so per-dialect variants are easy to test. |
+| `myq-sql` | 2,020 | 0 | 0 | 6 | splitter, formatter, risk review, completion. Parses MySQL syntax; completion keywords are MySQL's. |
+| `myq-data` | 1,632 | 7 | 5 | 0 | paging, keyset, edit, export. Builds `LIMIT` and backtick SQL. |
+| `myq-admin` | 1,143 | 11 | 6 | 13 | users, server variables, processes: the most MySQL-specific. |
+| `myq-profile` | 323 | 2 | 0 | 6 | `EXPLAIN`, `SHOW PROFILE`. |
+| `myq-transfer` | 1,912 | 13 | 10 | 8 | dump format, CSV import, SQL file runner. |
+| `myq-store` | 734 | 0 | 0 | 0 | local SQLite store; unaffected. |
+| `src-tauri/lib.rs` | 1,656 | 41 via `myq_driver::mysql_async` | | | commands reach into `mysql_async` types directly (`Queryable`, `Row`, `Value`). **This is the leak to close first.** |
+
+Reading: about 6,500 of 10,400 lines touch the dialect or the driver. The pure builders in `myq-schema` and `myq-sql` are the cheapest to make
+dialect-aware; `lib.rs` talking to `mysql_async` directly is the real obstacle, because every command would need rewriting at once.
+
+## 2. Strategy: strangler, not big bang
+
+Do not move MySQL behind a trait in one change (the roadmap's "riskiest step"). Instead:
+
+1. **Close the leak.** Commands in `lib.rs` stop importing `mysql_async` and call functions in `myq-driver` (or the crate that owns the feature).
+   Pure refactor, MySQL only, the whole existing suite (170 Rust tests, 21+ UI suites) stays the safety net. After this step `mysql_async` appears
+   only inside `myq-*` crates.
+2. **Introduce `myq-core` with `Capabilities` and `Dialect` only** (no `Backend` yet): quote identifier, string literal, page SQL, keyset SQL,
+   a capability list with a human reason per missing feature. MySQL implements them by delegating to today's functions. `ddl::q` and the
+   `LIMIT` builders take a `&dyn Dialect`. Tests: golden SQL per dialect, MySQL output unchanged byte for byte.
+3. **`Backend` trait for the read path first**: connect, list databases/tables/columns/indexes, run a statement, stream rows, cancel.
+   MySQL wraps the existing code. The UI reads `Capabilities` to hide what an engine lacks.
+4. **First new engine: SQLite** (vertical slice, read path only). Reasons: no server, no container in CI, `rusqlite` is already a dependency,
+   and it forces every capability gate (no users, no events, no schemas, no estimate, `PRAGMA query_only` as read-only) to exist and work.
+   Slice: open a file, browse tables and columns, run SQL, paged grid, export. Writes (edit, designer) follow once the read path is solid.
+5. **PostgreSQL** (`tokio-postgres`), then **SQL Server** (`tiberius`) reuse the same seam. Oracle only on demand (Instant Client is bring-your-own).
+
+## 3. Rules that keep it safe
+
+* MySQL behaviour must not change: every step keeps the existing tests green and adds golden tests that pin today's SQL.
+* The UI and application layer ask for **capabilities**, never an engine name; a missing feature says why ("SQLite has no users").
+* Identity of an object is `(engine, connection, schema-or-database, name)`; do not assume `database.table` is the whole path (PostgreSQL has
+  database > schema > table; SQLite has attached databases, `main` by default).
+* Read-only sessions are enforced by the server where possible (`SET SESSION TRANSACTION READ ONLY`, `PRAGMA query_only`,
+  `default_transaction_read_only`); never by the client alone.
+* Credentials stay in the Keychain; a SQLite connection has none, only a path.
+* A dump is engine-specific: do not promise cross-engine restore.
+
+## 4. Decisions for the owner
+
+1. **Order of engines.** Recommended: SQLite, then PostgreSQL, then SQL Server. (SQLite first because it is the cheapest way to prove the seam.)
+2. **Scope of the first SQLite release.** Recommended: read-only browsing and querying first; editing and the table designer in a second step.
+3. **Where `Dialect` lives.** Recommended: a new `myq-core` crate that `myq-schema`, `myq-data` and the engines depend on, so `myq-schema` stays pure.
+
+## 5. Step 1 checklist (next work)
+
+- [ ] List every `mysql_async` use in `src-tauri/src/lib.rs` (41) and group by feature (grid helper, user admin, server tools, restore, …).
+- [ ] Move each group behind a function in the crate that owns the feature; no behaviour change.
+- [ ] Add a CI/grep guard: `mysql_async` must not appear in `apps/desktop/src-tauri`.
+- [ ] Run the full Rust suite on MySQL 9.7 and MariaDB 13 and the full UI suite.

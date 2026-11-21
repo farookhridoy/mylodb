@@ -1,0 +1,42 @@
+// JSON import: a .json file is turned into a CSV once and the ordinary CSV import continues with it.
+import { chromium } from "playwright-core";
+import fs from "node:fs";
+import assert from "node:assert/strict";
+const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || undefined, headless: true });
+const page = await (await browser.newContext({ viewport: { width: 1400, height: 900 } })).newPage();
+const errors = [];
+page.on("pageerror", (e) => errors.push("pageerror: " + e.message));
+await page.addInitScript({ content: fs.readFileSync(new URL("./mock.js", import.meta.url), "utf8") + "\nSIZES.orders = 900 * 1024 * 1024; // orders is the biggest table here" });
+await page.goto(process.env.APP_URL || "http://localhost:1420/");
+let step = 0;
+const ok = (m) => console.log(`ok ${++step} ${m}`);
+await page.selectOption(".conn-bar select", "1");
+const set = (n, v) => page.evaluate(([k, x]) => { window[k] = x; }, [n, v]);
+const g = (n) => page.evaluate((k) => window[k], n);
+await page.selectOption(".conn-bar select", "1");
+await page.waitForSelector(".tree .db");
+await page.click(".tree .db:has-text('shop')");
+await page.click(".row-item.leaf:has-text('orders')", { button: "right" });
+await page.click(".ctx-label:text-is('Import Data…')");
+await page.waitForSelector(".transfer .dz-tabs button.active:text-is('Import CSV')");
+await set("__nextOpen", "/Users/me/people.json");
+await page.click("button:text-is('Browse…')");
+await page.waitForSelector(".map-table table");
+assert.deepEqual(await g("__jsonPrepared"), ["/Users/me/people.json"], "the JSON file went through the conversion");
+const pv = (await g("__previews")).at(-1);
+assert.equal(pv.path, "/tmp/mylodb-json/converted.csv", "the preview reads the converted CSV, not the JSON");
+assert.deepEqual([pv.format.delimiter, pv.format.null_text, pv.format.has_header], [",", "\\N", true], "NULL is the text the conversion writes");
+assert.match(await page.locator("[aria-label='JSON source']").innerText(), /JSON file: 3 rows read as a table/);
+assert.equal(await page.locator(".path-field input[readonly]").first().inputValue(), "people.json", "the original file name is shown, not the temporary path");
+ok("choosing a .json file converts it and continues as a CSV import with NULL text set");
+
+// a CSV afterwards clears the JSON note
+await set("__nextOpen", "/Users/me/orders.csv");
+await page.click("button:text-is('Browse…')");
+await page.waitForFunction(() => !document.querySelector("[aria-label='JSON source']"));
+const pv2 = (await g("__previews")).at(-1);
+assert.equal(pv2.path, "/Users/me/orders.csv");
+ok("choosing a CSV afterwards drops the JSON note");
+assert.deepEqual(errors, []);
+await browser.close();
+console.log("ALL JSON IMPORT UI CHECKS PASSED");

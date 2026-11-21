@@ -209,6 +209,7 @@ const DELIMS: [string, string][] = [[",", "Comma ,"], [";", "Semicolon ;"], ["\t
 function ImportCsv({ connectionId, nodes, preset, onSchemaChanged, ensureColumns }: { connectionId: number; nodes: Node[]; preset: TransferPreset; onSchemaChanged(): void; ensureColumns(db: string): Promise<unknown> }) {
   const dbs = useMemo(() => nodes.filter((n) => n.kind === "database").map((n) => n.name), [nodes]);
   const [path, setPath] = useState("");
+  const [source, setSource] = useState<{ name: string; rows: number } | null>(null); // set when a JSON file was turned into the CSV at `path`
   const [fmt, setFmt] = useState<CsvFormat>({ delimiter: ",", quote: '"', has_header: true, encoding: "utf-8", null_text: null, trim: false });
   const [preview, setPreview] = useState<CsvPreview | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -241,13 +242,27 @@ function ImportCsv({ connectionId, nodes, preset, onSchemaChanged, ensureColumns
   }, []);
 
   const choose = async () => {
-    const p = await pickPath({ multiple: false, filters: [{ name: "CSV / text", extensions: ["csv", "tsv", "txt"] }] });
-    if (typeof p !== "string") return;
-    setPath(p);
+    const picked = await pickPath({ multiple: false, filters: [{ name: "CSV, JSON or text", extensions: ["csv", "tsv", "txt", "json", "jsonl", "ndjson"] }] });
+    if (typeof picked !== "string") return;
+    let p = picked;
     let f = fmt;
-    try { f = { ...fmt, delimiter: await transferApi.sniff(p) }; setFmt(f); } catch { /* keep the default */ }
+    setSource(null);
+    if (/\.(json|jsonl|ndjson)$/i.test(picked)) {
+      // JSON becomes a CSV once, here; everything below is the ordinary CSV import
+      try {
+        setErr(null);
+        const j = await transferApi.jsonPrepare(picked);
+        p = j.csv_path;
+        f = { ...fmt, delimiter: ",", quote: '"', has_header: true, encoding: "utf-8", null_text: j.null_text };
+        setFmt(f);
+        setSource({ name: picked.split(/[\\/]/).pop()!, rows: j.rows });
+      } catch (e) { setPath(""); setPreview(null); setErr(String(e)); return; }
+    } else {
+      try { f = { ...fmt, delimiter: await transferApi.sniff(p) }; setFmt(f); } catch { /* keep the default */ }
+    }
+    setPath(p);
     await load(p, f);
-    setNewName(p.split("/").pop()!.replace(/\.[^.]+$/, "").replace(/[^A-Za-z0-9_]+/g, "_"));
+    setNewName(picked.split(/[\\/]/).pop()!.replace(/\.[^.]+$/, "").replace(/[^A-Za-z0-9_]+/g, "_"));
   };
 
   // refresh the preview when the format changes
@@ -293,7 +308,8 @@ function ImportCsv({ connectionId, nodes, preset, onSchemaChanged, ensureColumns
       <div className="xfer-cols">
         <section>
           <h4>File</h4>
-          <label>CSV file<div className="path-field"><input value={path} readOnly placeholder="Choose a file…" /><button onClick={choose}>Browse…</button></div></label>
+          <label>CSV or JSON file<div className="path-field"><input value={source ? source.name : path} readOnly placeholder="Choose a file…" /><button onClick={choose}>Browse…</button></div></label>
+          {source && <div className="banner" aria-label="JSON source">JSON file: {source.rows.toLocaleString()} row{source.rows === 1 ? "" : "s"} read as a table. A key a row lacks and a JSON null are both NULL; nested objects and arrays are loaded as JSON text. The import continues like a CSV.</div>}
           <div className="row">
             <label>Delimiter<Select value={fmt.delimiter} onChange={(e) => set({ delimiter: e.target.value })}>{DELIMS.map(([v, l]) => <option key={l} value={v}>{l}</option>)}</Select></label>
             <label>Quote<Select value={fmt.quote} onChange={(e) => set({ quote: e.target.value })}><option value={'"'}>"</option><option value="'">'</option></Select></label>

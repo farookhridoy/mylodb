@@ -407,6 +407,8 @@ export async function onMenuAction(cb: (id: string) => void): Promise<() => void
 
 export const transferApi = {
   sniff: (path: string) => invoke<string>("csv_sniff", { path }),
+  /** A JSON / JSON Lines file as a temporary CSV (NULL is `null_text`) for the CSV import to continue with. */
+  jsonPrepare: (path: string) => invoke<{ csv_path: string; rows: number; columns: string[]; null_text: string }>("json_prepare", { path }),
   preview: (path: string, format: CsvFormat, limit = 20) => invoke<CsvPreview>("csv_preview", { path, format, limit }),
   infer: (path: string, format: CsvFormat) => invoke<InferredColumn[]>("csv_infer", { path, format }),
   createTable: (id: number, db: string, table: string, columns: InferredColumn[]) => invoke<Node[]>("csv_create_table", { id, db, table, columns }),

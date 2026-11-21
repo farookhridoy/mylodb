@@ -110,6 +110,7 @@ const handlers = {
   account_apply: (a) => { window.__accountApplied = JSON.parse(JSON.stringify(a)); return 2; },
   account_drop: (a) => { window.__dropped = a; return null; },
   open_url: () => null,
+  json_prepare: (a) => { window.__jsonPrepared = (window.__jsonPrepared || []).concat([a.path]); return { csv_path: "/tmp/mylodb-json/converted.csv", rows: 3, columns: ["id", "name", "score"], null_text: "\\N" }; },
   search_data: (a) => window.__search ?? { hits: [
     { table: "customers", rows: 2, columns: [["email", 2], ["note", 1]] },
     { table: "orders", rows: 5, columns: [["ref", 5]] },

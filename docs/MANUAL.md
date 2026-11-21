@@ -133,6 +133,11 @@ Right-click a database → **ER diagram…** draws every table as a box with its
 Right-click a database → **Query builder…** (or **SQL Editor → Visual Query Builder…**). Choose a **From** table, add joins (the ON columns are filled in from a foreign key between the tables when there is one; you can change them), tick **Columns** (none chosen means every column; each can have COUNT, SUM, AVG, MIN or MAX and a name), add **Conditions** (all must hold: =, ≠, <, ≤, >, ≥, contains, starts with, ends with, in, between, is NULL, is not NULL), an **order**, DISTINCT and a **limit**. The SQL is rebuilt as you go; **Open in editor** puts it in a query tab and **Run** also runs it.
 The statement is built by the backend with the connection's quoting: names are checked against the tables you chose, values are quoted, `%` and `_` in "contains" text are literal, aggregates group by the plain columns, and a mistake (a join that refers to a later table, DISTINCT ordered by an unselected column) is explained instead of sent to the server.
 
+### Import JSON
+
+In **File → Import Data…** choose a `.json`, `.jsonl` or `.ndjson` file with **Browse…**. MyLoDB turns it into a temporary CSV once and the ordinary CSV import continues with it (preview, column mapping, creating a table from the file, insert / skip / update / replace, all-or-nothing or continue on error).
+Accepted: an array of objects, JSON Lines (one object per line), or a single object. The columns are the keys in the order they first appear. A key a row lacks and a JSON `null` are both **NULL**; strings are kept as they are; numbers and `true` / `false` become their JSON text; nested objects and arrays are loaded as compact JSON text. An array is read into memory, so it is limited to 256 MB: use JSON Lines for anything larger (those are streamed). A string that is exactly `\N` would be read as NULL.
+
 ### Compare schemas
 
 Right-click a database → **Compare schemas…** opens a tab that makes **this** database (the target) match another one (the source), which can be on any open connection.

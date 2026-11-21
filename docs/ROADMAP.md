@@ -84,7 +84,7 @@ The analysis, screen mapping and design of these items are in `PHPMYADMIN_AND_EN
 | Table-level Operations page (move table to another database, table options), Replication writes | 11f |
 | Schema compare and migration preview, data compare, copy a database or table between connections | 16 |
 | Data Search across tables, query builder, whole-database ER diagram | 16 / 17 |
-| Browser leftovers: sort by name or size, drag a name into the editor, Info panel, alter database, rename routines | 13 |
+| Browser leftovers: sort by name or size, Info panel, alter database, rename routines | 13 |
 | Column virtualization and a page cache for very wide or very deep grids; segmented exports | 10b |
 | Charts for server status, an "Execute and edit result set" grid for single-table SELECTs | 16 |
 | JSON / XML / XLSX import, saved and re-runnable transfer configurations | 16 |

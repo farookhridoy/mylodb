@@ -1,0 +1,30 @@
+// Dragging a tree row carries its quoted name, ready to drop into the editor.
+import { chromium } from "playwright-core";
+import fs from "node:fs";
+import assert from "node:assert/strict";
+const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || undefined, headless: true });
+const page = await (await browser.newContext({ viewport: { width: 1400, height: 900 } })).newPage();
+const errors = [];
+page.on("pageerror", (e) => errors.push("pageerror: " + e.message));
+await page.addInitScript({ content: fs.readFileSync(new URL("./mock.js", import.meta.url), "utf8") + "\nSIZES.orders = 900 * 1024 * 1024; // orders is the biggest table here" });
+await page.goto(process.env.APP_URL || "http://localhost:1420/");
+let step = 0;
+const ok = (m) => console.log(`ok ${++step} ${m}`);
+await page.selectOption(".conn-bar select", "1");
+await page.waitForSelector(".tree .db");
+await page.click(".tree .db:has-text('shop')");
+await page.waitForSelector(".row-item.leaf");
+const drop = (selector) => page.evaluate((sel) => {
+  const src = document.querySelector(sel);
+  const dt = new DataTransfer();
+  src.dispatchEvent(new DragEvent("dragstart", { bubbles: true, dataTransfer: dt }));
+  return dt.getData("text/plain");
+}, selector);
+assert.equal(await drop(".row-item.leaf"), "`shop`.`customers`");
+ok("dragging a table carries its quoted database.table name");
+assert.equal(await drop(".row-item.db"), "`shop`");
+ok("dragging a database carries its quoted name");
+assert.equal(await page.locator(".row-item.leaf").first().getAttribute("draggable"), "true");
+assert.deepEqual(errors, []);
+await browser.close();
+console.log("ALL DRAG NAME UI CHECKS PASSED");

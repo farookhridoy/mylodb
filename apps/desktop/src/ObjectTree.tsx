@@ -152,6 +152,7 @@ export default function ObjectTree(props: TreeProps) {
         return (
           <li key={name} className="under-root">
             <div className={`row-item db ${selectedDb === name && props.selectedTable === null ? "selected" : ""} ${selectedDb === name ? "current" : ""}`}
+                 {...dragName(quoteIdent(name))}
                  onClick={() => { props.onSelectDb(name); props.ensureStats(name); openKeys([name, `${name}/table`]); props.onPick({ kind: "database", db: name }); }}
                  onContextMenu={(e) => { props.onSelectDb(name); props.onDatabaseMenu(e, name); }}>
               <Chev open={isOpen} onClick={(e) => { e.stopPropagation(); toggle(name); if (!isOpen) props.ensureStats(name); }} />
@@ -237,6 +238,7 @@ const DbBranch = memo(function DbBranch(props: TreeProps & {
                   return (
                     <li key={nk}>
                       <div className={`row-item leaf ${isTable && props.selectedTable === n.name && props.selectedDb === db ? "selected" : ""}`}
+                           {...dragName(`${quoteIdent(db)}.${quoteIdent(n.name)}`)}
                            onClick={() => {
                              if (!isTable) return;
                              props.onSelectTable(db, n.name);
@@ -308,7 +310,7 @@ function ColumnList({ onPick, ensure, detail, indexes, fallback, query, filterin
     return (
       <ul className="columns">
         {shown.slice(0, 500).map((c) => (
-          <li key={c.name} className="row-item col" onClick={() => onPick(c.name)} title={`${c.name} ${c.column_type}${c.nullable ? "" : " NOT NULL"}${c.extra ? " " + c.extra : ""}`}>
+          <li key={c.name} className="row-item col" {...dragName(quoteIdent(c.name))} onClick={() => onPick(c.name)} title={`${c.name} ${c.column_type}${c.nullable ? "" : " NOT NULL"}${c.extra ? " " + c.extra : ""}`}>
             <span className="key">{c.key === "PRI" ? <Icon name="key" size={12} className="ico-pk" /> : c.key === "UNI" ? <Icon name="unique" size={11} /> : <Icon name="column" size={11} className="ico-col" />}</span>
             <span className="name"><Highlight text={c.name} terms={query ? query.split(/\s+/).map((t) => t.toLowerCase()) : terms} /></span>
             <span className="ctype">{c.column_type}</span>
@@ -348,3 +350,12 @@ function DbSize({ stats }: { stats: Record<string, TableStat> | undefined }) {
   const total = Object.values(stats).reduce((a, t) => a + (t.bytes ?? 0), 0);
   return <span className="size" title={`${total.toLocaleString()} bytes in ${Object.keys(stats).length} tables (estimate)`}>{formatBytes(total)}</span>;
 }
+
+/** Backtick-quote a MySQL identifier. */
+export const quoteIdent = (n: string) => "`" + n.replace(/`/g, "``") + "`";
+
+/** Make a tree row draggable: dropping it on the editor inserts the (quoted) name where it lands. */
+const dragName = (text: string) => ({
+  draggable: true,
+  onDragStart: (e: React.DragEvent) => { e.dataTransfer.setData("text/plain", text); e.dataTransfer.effectAllowed = "copy"; },
+});

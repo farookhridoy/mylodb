@@ -1027,6 +1027,33 @@ fn cancel_job(state: tauri::State<AppState>, job_id: String) {
     }
 }
 
+#[derive(serde::Serialize)]
+struct JsonPrepared {
+    /// The CSV the import continues with (a temporary file).
+    csv_path: String,
+    rows: u64,
+    columns: Vec<String>,
+    /// The text that means NULL in that CSV.
+    null_text: &'static str,
+}
+
+/// Turn a JSON / JSON Lines file into a temporary CSV so that the CSV import (preview, mapping, modes) can load it. Temporary files of
+/// earlier conversions older than a day are removed first.
+#[tauri::command]
+fn json_prepare(path: String) -> Result<JsonPrepared, String> {
+    let dir = std::env::temp_dir().join("mylodb-json");
+    std::fs::create_dir_all(&dir).map_err(err)?;
+    for e in std::fs::read_dir(&dir).map_err(err)?.flatten() {
+        if e.metadata().and_then(|m| m.modified()).ok().and_then(|t| t.elapsed().ok()).is_some_and(|age| age > std::time::Duration::from_secs(86_400)) {
+            let _ = std::fs::remove_file(e.path());
+        }
+    }
+    let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0);
+    let csv = dir.join(format!("{}-{stamp}.csv", std::process::id()));
+    let conv = myq_transfer::json_to_csv(std::path::Path::new(&path), &csv).map_err(err)?;
+    Ok(JsonPrepared { csv_path: csv.to_string_lossy().into_owned(), rows: conv.rows, columns: conv.columns, null_text: myq_transfer::NULL_TEXT })
+}
+
 #[tauri::command]
 fn csv_sniff(path: String) -> Result<char, String> {
     myq_transfer::sniff_delimiter(std::path::Path::new(&path)).map_err(err)
@@ -1663,6 +1690,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             open_url,
+            json_prepare,
             index_advice,
             er_model,
             build_query,

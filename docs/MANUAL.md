@@ -136,6 +136,10 @@ The statement is built by the backend with the connection's quoting: names are c
 ### Server charts
 
 **Server → Charts** samples the global status counters every 1, 2, 5 or 10 seconds and draws the last five minutes as lines: queries per second, statements per second (SELECT, INSERT, UPDATE, DELETE), connected and running connections, network bytes per second, InnoDB rows read, inserted, updated and deleted per second, and slow queries per second. Counters are turned into per-second rates between two samples (a counter that goes back, as after a restart, leaves a gap instead of a spike); connection counts are plotted as they are. Hover for the value at that moment. **Pause** stops sampling, **Clear** empties the history, and a series the server does not report (MariaDB names some counters differently) is said so instead of drawing an empty chart.
+### Import JSON
+
+In **File → Import Data…** choose a `.json`, `.jsonl` or `.ndjson` file with **Browse…**. MyLoDB turns it into a temporary CSV once and the ordinary CSV import continues with it (preview, column mapping, creating a table from the file, insert / skip / update / replace, all-or-nothing or continue on error).
+Accepted: an array of objects, JSON Lines (one object per line), or a single object. The columns are the keys in the order they first appear. A key a row lacks and a JSON `null` are both **NULL**; strings are kept as they are; numbers and `true` / `false` become their JSON text; nested objects and arrays are loaded as compact JSON text. An array is read into memory, so it is limited to 256 MB: use JSON Lines for anything larger (those are streamed). A string that is exactly `\N` would be read as NULL.
 
 ### Compare schemas
 

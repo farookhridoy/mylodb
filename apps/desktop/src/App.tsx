@@ -149,6 +149,9 @@ export default function App() {
   const filterSeq = useRef(0);
   const runIds = useRef<Record<string, string>>({});
 
+  const pendingSave = useRef<{ id: number; payload: string } | null>(null);
+  const connectionsRef = useRef(connections);
+  connectionsRef.current = connections;
   const refresh = useCallback(async () => setConnections(await api.listConnections()), []);
   useEffect(() => { refresh(); }, [refresh]);
   const active = connections.find((c) => c.id === activeId);
@@ -220,11 +223,20 @@ export default function App() {
   // Autosave open tabs (debounced) so a crash or restart restores them.
   useEffect(() => {
     if (activeId === null || !restored) return;
+    const payload = JSON.stringify({ tabs, active: activeTab });
+    pendingSave.current = { id: activeId, payload };
     const t = setTimeout(() => {
-      queryApi.sessionSet(activeId, JSON.stringify({ tabs, active: activeTab })).catch(() => {});
+      pendingSave.current = null;
+      queryApi.sessionSet(activeId, payload).catch(() => {});
     }, 800);
     return () => clearTimeout(t);
   }, [tabs, activeTab, activeId, restored]);
+  // Switching to another connection inside the delay must not drop the last edits of the one being left:
+  // write them under the connection they belong to (unless it was deleted meanwhile).
+  useEffect(() => () => {
+    const p = pendingSave.current;
+    if (p && connectionsRef.current.some((c) => c.id === p.id)) { pendingSave.current = null; queryApi.sessionSet(p.id, p.payload).catch(() => {}); }
+  }, [activeId]);
 
   // ---- columns are loaded per database, on demand ----
   // Loads run one at a time, in order, so the positions the backend appended them at match this list.

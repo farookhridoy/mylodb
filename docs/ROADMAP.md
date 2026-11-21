@@ -70,7 +70,7 @@ The analysis, screen mapping and design of these items are in `PHPMYADMIN_AND_EN
 | 7 | **Preferences**: fonts per area (sidebar, data grid, editor, results), size, family, weight, line height; editor colour theme; saved | 12 | 1 wk |
 | 8 | ~~MariaDB and MySQL matrix~~ MariaDB 13 and MySQL 9.7 done by hand; 5.7, 8.0, 8.4, MariaDB 10.11 / 11.4 are in CI and still need a first green run | 14 | 2 d |
 | 9 | ~~CI and Tasks panel~~ written and tested locally; CI has not run on GitHub yet | 14 | done |
-| 10 | ~~Open / save `.sql` files, text results, copy options, snippets, several connections~~ done. Done since: saved snippet library of your own (⌘K: save editor text, insert, delete). Connection groups (folders in the picker) done. Left: per-connection tab memory when two share a database, drag a name into the editor | 13 | 1 wk |
+| 10 | ~~Open / save `.sql` files, text results, copy options, snippets, several connections~~ done. Done since: saved snippet library of your own (⌘K: save editor text, insert, delete). Connection groups (folders in the picker) done. Left: drag a name into the editor | 13 | 1 wk |
 | 11 | **Signing and notarisation** (needs an Apple Developer account), Intel build, Homebrew cask, user documentation | 18 | 1 to 2 wk |
 
 ### Nice to have

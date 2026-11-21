@@ -96,6 +96,27 @@ await page.fill("input[placeholder='/path/to/data.sqlite']", "/Users/you/data/sh
 await shot("sqlite-dialog");
 await page.click(".conn-dialog .actions button:has-text('Cancel')");
 
+// 6c. the visual tools: ER diagram and query builder
+await page.click(".tree .db:has-text('shop')", { button: "right" });
+await page.click(".ctx-label:has-text('ER diagram')");
+await page.waitForSelector(".dgm-box[data-table=customers]");
+await shot("er-diagram");
+await page.click(".tree .db:has-text('shop')", { button: "right" });
+await page.click(".ctx-label:has-text('Query builder')");
+await page.waitForSelector("h2:has-text('Query builder')");
+await page.locator("label:has-text('From') .ss-trigger").click();
+await page.click(".ss-opt:has-text('customers')");
+await page.locator("label:has-text('Join another table') .ss-trigger").click();
+await page.click(".ss-opt:has-text('orders')");
+await page.click("button:has-text('+ Column')");
+await page.selectOption("select[aria-label='Column 1 table']", "c");
+await page.selectOption("select[aria-label='Column 1']", "name");
+await page.click("button:has-text('+ Condition')");
+await page.selectOption("select[aria-label='Condition 1 column']", "name");
+await page.selectOption("select[aria-label='Condition 1 operator']", "contains");
+await page.fill("input[aria-label='Condition 1 value']", "Ann");
+await shot("query-builder");
+
 // 7. dark theme
 await palette("theme: dark");
 await page.waitForTimeout(400);

@@ -3,6 +3,7 @@
 mod config;
 mod defaults;
 mod introspect;
+mod er;
 mod estimate;
 mod overview;
 mod script;
@@ -12,6 +13,7 @@ mod values;
 
 pub use config::{ConnConfig, SslMode};
 pub use defaults::{is_mariadb, parse_column_default, ParsedDefault};
+pub use er::{er_model, ErColumn, ErModel, ErRelation, ErTable};
 pub use estimate::estimate_rows;
 pub use overview::{table_overview, ColumnFull, Constraint, ForeignKey, PartitionInfo, TableInfo, TableOverview, TriggerInfo};
 pub use introspect::{database_list, database_sizes, database_tables, index_details, object_definition, column_details, introspect, introspect_columns, table_stats, IntrospectOptions, TableStat};

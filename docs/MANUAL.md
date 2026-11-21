@@ -120,6 +120,18 @@ Every base table is read once (one `COUNT(*)` over its searchable columns), and 
 
 Right-click a database → **Index advisor…** analyses the index definitions of every table: **duplicate** indexes (same columns in the same order, or a plain index repeating the primary key or a unique index), **redundant** ones (a plain index that is only the start of another index), and **foreign keys without an index** that starts with their columns. Unique indexes are never called redundant, full-text and spatial indexes are left alone, and an index with a prefix length is only matched with an identical one.
 Drops are pre-selected, adding an index is not (it costs write speed and space). **Preview and apply…** opens Preview SQL with exactly the chosen `DROP INDEX` / `CREATE INDEX` statements. A second list shows indexes the server reports as unused since it started (`sys.schema_unused_indexes`): check the uptime before dropping one.
+### ER diagram
+
+Right-click a database → **ER diagram…** draws every table as a box with its columns and every foreign key as a line. Tables are placed by foreign-key depth: tables that reference nothing sit on the right, the tables that reference them to their left, and tables with no relation underneath. Drag a box by its header, zoom with − / +, filter by name, tick **only tables with relations**, **double-click** a table to open it, and **Copy as Mermaid** to paste the shown tables and relations into documentation as `erDiagram` text. The whole database is read in three queries, so hundreds of tables load at once; each box shows the first 14 columns.
+
+![ER diagram of a database](images/er-diagram.png)
+
+### Visual query builder
+
+![The visual query builder](images/query-builder.png)
+
+Right-click a database → **Query builder…** (or **SQL Editor → Visual Query Builder…**). Choose a **From** table, add joins (the ON columns are filled in from a foreign key between the tables when there is one; you can change them), tick **Columns** (none chosen means every column; each can have COUNT, SUM, AVG, MIN or MAX and a name), add **Conditions** (all must hold: =, ≠, <, ≤, >, ≥, contains, starts with, ends with, in, between, is NULL, is not NULL), an **order**, DISTINCT and a **limit**. The SQL is rebuilt as you go; **Open in editor** puts it in a query tab and **Run** also runs it.
+The statement is built by the backend with the connection's quoting: names are checked against the tables you chose, values are quoted, `%` and `_` in "contains" text are literal, aggregates group by the plain columns, and a mistake (a join that refers to a later table, DISTINCT ordered by an unselected column) is explained instead of sent to the server.
 
 ### Compare schemas
 

@@ -4,8 +4,10 @@
 //! Today there is one dialect, MySQL / MariaDB. It owns the *only* implementation of identifier and string quoting: the crates that used
 //! to carry their own copy (`myq-schema`, `myq-data`, `myq-admin`, `myq-transfer`, `myq-sql`) call it.
 
+mod backend;
 mod capabilities;
 mod dialect;
 
+pub use backend::{Backend, BackendError, BackendResult, ColumnDetail, ColumnInfo, DatabaseRow, IndexDetail, ResultSet, StatementResult, TableRow};
 pub use capabilities::{Cap, Capabilities, Flavor};
 pub use dialect::{lit, q, Dialect, MySql};

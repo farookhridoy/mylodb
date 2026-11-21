@@ -1,6 +1,6 @@
 # Phase 15 design: the engine abstraction
 
-Status of 2026-11-21. Steps 1 and 2 (sections 5 and 6) are done; the rest is design only. It narrows section 3.2 of `PHPMYADMIN_AND_ENGINES.md` into steps that can each ship and be tested.
+Status of 2026-11-21. Steps 1 to 3 (sections 5 to 7) are done; the rest is design only. It narrows section 3.2 of `PHPMYADMIN_AND_ENGINES.md` into steps that can each ship and be tested.
 
 ## 1. What is coupled to MySQL today (measured by grep, not guessed)
 
@@ -75,6 +75,21 @@ New crate `crates/myq-core` (no dependencies on a driver, no I/O):
   the UI uses it first for the **Analyze** button, which is now disabled with the server's reason on MySQL older than 8.0.18.
 * Tests: golden quoting and paging strings, flavor and version parsing, a real-server check on MySQL 9.7 and MariaDB 13, a UI test for the disabled button.
 
-Not done yet (step 3): a `Backend` trait for connect / introspect / run / stream, and replacing `myq_driver::Conn` in the application layer.
+## 7. Step 3: the `Backend` trait, read path (done)
 
-Next: step 3, after the three decisions in section 4.
+`myq-core::Backend` is what the application asks an engine for: `dialect`, `capabilities`, `databases`, `tables`, `columns`, `indexes`, `run` (a script, one result per
+statement; statement errors live in the results). The engine-neutral shapes it returns (`DatabaseRow`, `TableRow`, `ColumnDetail`, `IndexDetail`,
+`ColumnInfo`, `ResultSet`, `StatementResult`) moved from `myq-driver` to `myq-core`; `myq-driver` re-exports them, so no caller changed.
+`myq_driver::MySqlBackend` implements the trait by delegating to the functions that already existed.
+
+Design choices: native `async fn` in the trait with `Send` futures and **enum dispatch** in the application (no `dyn`, no `async-trait` dependency);
+`Dialect` is `Send + Sync`.
+
+Proof: `crates/myq-driver/tests/backend.rs` drives a real server through a function that is generic over `Backend` and knows nothing about MySQL.
+That function is the contract a SQLite or PostgreSQL backend has to pass. Passes on MySQL 9.7 and MariaDB 13.
+
+Not done yet (step 3b / 4): the application (`src-tauri`) still holds a `mysql_async::Pool` per session and calls `myq_driver` functions directly; switching
+its read commands to an `enum Engine { MySql(MySqlBackend), … }` is the next change, then the first second engine (SQLite) implements `Backend`.
+Writes (grid edits, table designer, admin pages, transfer) stay MySQL-only until the read path works for SQLite.
+
+Next: step 4, after the three decisions in section 4.

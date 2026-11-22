@@ -133,12 +133,10 @@ Right-click a database → **ER diagram…** draws every table as a box with its
 Right-click a database → **Query builder…** (or **SQL Editor → Visual Query Builder…**). Choose a **From** table, add joins (the ON columns are filled in from a foreign key between the tables when there is one; you can change them), tick **Columns** (none chosen means every column; each can have COUNT, SUM, AVG, MIN or MAX and a name), add **Conditions** (all must hold: =, ≠, <, ≤, >, ≥, contains, starts with, ends with, in, between, is NULL, is not NULL), an **order**, DISTINCT and a **limit**. The SQL is rebuilt as you go; **Open in editor** puts it in a query tab and **Run** also runs it.
 The statement is built by the backend with the connection's quoting: names are checked against the tables you chose, values are quoted, `%` and `_` in "contains" text are literal, aggregates group by the plain columns, and a mistake (a join that refers to a later table, DISTINCT ordered by an unselected column) is explained instead of sent to the server.
 
-<<<<<<< HEAD
 ### Server charts
 
 **Server → Charts** samples the global status counters every 1, 2, 5 or 10 seconds and draws the last five minutes as lines: queries per second, statements per second (SELECT, INSERT, UPDATE, DELETE), connected and running connections, network bytes per second, InnoDB rows read, inserted, updated and deleted per second, and slow queries per second. Counters are turned into per-second rates between two samples (a counter that goes back, as after a restart, leaves a gap instead of a spike); connection counts are plotted as they are. Hover for the value at that moment. **Pause** stops sampling, **Clear** empties the history, and a series the server does not report (MariaDB names some counters differently) is said so instead of drawing an empty chart.
-=======
->>>>>>> 2d13701de996ac476f07c7127239d1fefca17fd6
+
 ### Import JSON
 
 In **File → Import Data…** choose a `.json`, `.jsonl` or `.ndjson` file with **Browse…**. MyLoDB turns it into a temporary CSV once and the ordinary CSV import continues with it (preview, column mapping, creating a table from the file, insert / skip / update / replace, all-or-nothing or continue on error).

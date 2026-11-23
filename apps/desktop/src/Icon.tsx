@@ -57,6 +57,7 @@ const PATHS: Record<string, ReactNode> = {
   sort: <path d="M4.500 3v10M2.500 11l2 2 2-2M11.500 13V3M9.500 5l2-2 2 2" />,
   home: <path d="M2 8.200 8 2.800l6 5.400M3.600 7v6.500h3.200V10h2.400v3.500h3.200V7" />,
   preview: <><path d="M1.500 8S4 3.500 8 3.500 14.500 8 14.500 8 12 12.500 8 12.500 1.500 8 1.500 8z" /><path d="M6.600 6.200 10 8l-3.400 1.800z" fill="currentColor" /></>,
+  sidebar: <><rect x="2" y="3" width="12" height="10" rx="1" /><path d="M6 3v10" /></>,
   search: <><circle cx="7" cy="7" r="4.200" /><path d="m10.200 10.200 3.300 3.300" /></>,
 };
 

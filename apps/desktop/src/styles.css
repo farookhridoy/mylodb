@@ -153,7 +153,7 @@ table.dg th { padding: 0; }
 .dg td.edited { background: var(--edited); } .dg td.dflt { color: var(--dim); font-style: italic; }
 .dg tr.row-selected td { background: var(--row-selected); } .dg tr.row-selected td.edited { background: var(--edited); }
 .dg tr.row-new td { background: var(--new-row); } .dg tr.row-deleted td { background: var(--deleted-row); text-decoration: line-through; color: var(--dim); }
-.dg .rownum { cursor: pointer; width: 44px; }
+.dg .rownum { cursor: pointer; }
 .cell-edit { display: flex; gap: 2px; margin: -3px -10px; } .cell-edit input { flex: 1; min-width: 0; border-radius: 0; border: 0; background: var(--cell-edit); padding: 3px 8px; font: inherit; }
 .pending { color: var(--warn); }
 .dg-side { width: 340px; flex: 0 0 340px; border-left: 1px solid var(--line); background: var(--panel); display: flex; flex-direction: column; min-height: 0; overflow: auto; }
@@ -596,3 +596,7 @@ table.kv th { text-align: left; font-weight: 500; color: var(--dim); width: 170p
 [data-palette] .cm-editor .cm-selectionBackground, [data-palette] .cm-editor.cm-focused .cm-selectionBackground { background: var(--selected); }
 [data-palette] .cm-content { caret-color: var(--text); }
 .theme-grid { width: 100%; }
+
+.sidebar[hidden] { display: none; } .sidebar-toggle { min-width: 30px; }
+.sidebar-toggle[aria-pressed="false"] { color: var(--dim); }
+.dg th.rownum .rn-head { justify-content: flex-end; }

@@ -3,6 +3,6 @@ resolver = "2"
 members = ["crates/myq-core", "crates/myq-sqlite", "crates/myq-schema", "crates/myq-driver", "crates/myq-store", "crates/myq-data", "crates/myq-admin", "crates/myq-sql", "crates/myq-profile", "crates/myq-tunnel", "crates/myq-transfer", "apps/desktop/src-tauri"]
 
 [workspace.package]
-version = "0.4.1"
+version = "0.4.2"
 edition = "2021"
 license = "Apache-2.0"

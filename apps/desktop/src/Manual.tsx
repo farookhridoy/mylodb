@@ -156,7 +156,7 @@ const SECTIONS: Section[] = [
     </>) },
   { id: "keys", title: "Keyboard shortcuts", body: (
     <table className="info kv"><tbody>
-      {[["⌘T", "New SQL script"], ["⌘W", "Close tab"], ["⌘↵", "Run selection or script"], ["⇧⌘F", "Format SQL"], ["⇧⌘B", "Search objects"], ["⌘K", "Command palette"], ["⌘,", "Preferences"], ["F5", "Refresh the object tree"]]
+      {[["⌘T", "New SQL script"], ["⌘W", "Close tab"], ["⌘↵", "Run selection or script"], ["⇧⌘F", "Format SQL"], ["⇧⌘B", "Search objects"], ["⌘B", "Show or hide the sidebar"], ["⌘K", "Command palette"], ["⌘,", "Preferences"], ["F5", "Refresh the object tree"]]
         .map(([k, v]) => <tr key={k}><th><K>{k}</K></th><td>{v}</td></tr>)}
     </tbody></table>) },
   { id: "help", title: "Troubleshooting", body: (

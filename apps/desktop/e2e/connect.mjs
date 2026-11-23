@@ -99,13 +99,20 @@ ok("several result sets get Result 1, Result 2 … tabs");
 await page.click(".tree .db:has-text('shop')");
 await page.dblclick(".row-item.leaf:has-text('orders')");
 await page.waitForSelector("table.dg tbody tr");
-assert.deepEqual(await tabs(), ["Results", "Profile", "Messages", "Table Data", "Info", "History"]);
+assert.deepEqual(await tabs(), ["Table Data"], "a table tab starts with its data alone");
 assert.equal(await page.locator(".result-tabs button.active").innerText().then((t) => t.trim()), "Table Data");
+// running a query in the tab brings the rest
+await page.click(".cm-content");
+await page.keyboard.press("ControlOrMeta+Enter");
+await page.waitForFunction(() => document.querySelectorAll(".result-tabs button").length > 1);
+// (the mock still returns two result sets from the step above, hence Result 1 and Result 2)
+assert.deepEqual((await tabs()).slice(-5), ["Profile", "Messages", "Table Data", "Info", "History"]);
+assert.match((await tabs())[0], /^Result/);
 await page.click(".result-tabs button:has-text('Info')");
 assert.match(await page.locator(".info-pane").innerText(), /shop\.orders[\s\S]*InnoDB/);
 await page.click(".info-pane button:has-text('Open Properties')");
 await page.waitForSelector(".props-head");
-ok("a table tab has Results, Profile, Messages, Table Data, Info and History; Info summarises the table and links to Properties");
+ok("a table tab shows only Table Data until a query runs, then Results, Profile, Messages, Table Data, Info and History; Info summarises the table and links to Properties");
 
 await browser.close();
 assert.deepEqual(errors, [], "browser errors: " + errors.join(" | "));

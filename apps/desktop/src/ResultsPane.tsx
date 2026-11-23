@@ -52,7 +52,10 @@ export default function ResultsPane({ run, analysis, data, dataLabel = "Table Da
   const explain = analysis && analysis.kind !== "profile" ? analysis : undefined;
   const profile = analysis && analysis.kind === "profile" ? analysis : undefined;
   const resultTabs: { id: TabId; label: string }[] = sets.length > 1 ? sets.map((_, i) => ({ id: `r${i}`, label: `Result ${i + 1}` })) : [{ id: "r0", label: "Results" }];
-  const tabs: { id: TabId; label: string; icon: IconName; warn?: boolean }[] = [
+  // A table tab starts with its data alone. Results, Profile, Messages, Info and History appear once a query has been run (or
+  // explained / profiled) in this tab, because before that they have nothing to show.
+  const lean = hasData && !run && !analysis;
+  const tabs: { id: TabId; label: string; icon: IconName; warn?: boolean }[] = lean ? [{ id: "data", label: dataLabel, icon: "table" as IconName }] : [
     ...resultTabs.map((t) => ({ ...t, icon: "grid" as IconName })),
     ...(explain ? [{ id: "explain", label: "Explain", icon: "diagram" as IconName }] : []),
     { id: "profile", label: "Profile", icon: "pulse" },

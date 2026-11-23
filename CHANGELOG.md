@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.2 (2026-11-23)
+
+**Added**
+* **Show or hide the sidebar.** A button before Home (also ⌘B, View → Toggle Sidebar, and ⌘K) hides the sidebar to give the data more room. The choice is remembered, and the tree keeps its state while hidden.
+* The row-number column of Table Data is now titled **SL**. It resizes like the other columns, and clicking it sorts by the primary key: ascending, descending, then off, with an arrow.
+
+**Changed**
+* A table tab shows only **Table Data** until you run a query in it. Results, Profile, Messages, Info and History appear after the first Run (or Explain or Profile), because before that they had nothing to show.
+
 ## 0.4.1 (2026-11-23)
 
 **Added**

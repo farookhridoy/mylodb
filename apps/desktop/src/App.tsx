@@ -113,6 +113,9 @@ export default function App() {
   const [columnsLoaded, setColumnsLoaded] = useState<Set<string>>(new Set());
   const meta = useBrowserMeta(activeId);
   const sidebar = useSize("mylodb.sidebarWidth", 300, 200, () => Math.min(640, window.innerWidth - 360));
+  // the sidebar can be hidden to give the data more room; it stays mounted (hidden) so the tree keeps its state
+  const [sidebarOpen, setSidebarOpen] = useState(() => localStorage.getItem("mylodb.sidebarOpen") !== "0");
+  const toggleSidebar = () => setSidebarOpen((o) => { localStorage.setItem("mylodb.sidebarOpen", o ? "0" : "1"); return !o; });
   const consoleSize = useSize("mylodb.editorHeight", 230, 70, () => window.innerHeight - 220);
   const activeIdRef = useRef(activeId);
   activeIdRef.current = activeId;
@@ -508,7 +511,8 @@ export default function App() {
       case "new_connection": return setDialog("new");
       case "edit_connection": return active ? setDialog(active) : setStatus("Pick a connection first");
       case "refresh_tree": return need(() => reloadIndex());
-      case "focus_filter": return need(() => { setSide("objects"); setTimeout(() => filterInput.current?.focus(), 0); });
+      case "toggle_sidebar": return toggleSidebar();
+      case "focus_filter": return need(() => { setSidebarOpen(true); localStorage.setItem("mylodb.sidebarOpen", "1"); setSide("objects"); setTimeout(() => filterInput.current?.focus(), 0); });
       case "theme_system": return theme.setPref("system");
       case "theme_light": return theme.setPref("light");
       case "theme_dark": return theme.setPref("dark");
@@ -983,8 +987,9 @@ export default function App() {
       }
       if (e.metaKey && e.key.toLowerCase() === "k") { e.preventDefault(); setPaletteOpen(true); return; }
       if (e.metaKey && e.key === ",") { e.preventDefault(); setPrefsOpen(true); return; }
+      if (e.metaKey && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "b") { e.preventDefault(); toggleSidebar(); return; }
       if (!e.metaKey || activeId === null) return;
-      if (e.shiftKey && e.key.toLowerCase() === "b") { e.preventDefault(); setSide("objects"); const focus = () => filterInput.current?.focus(); focus(); setTimeout(focus, 0); /* the second call covers the objects tab not being mounted yet */ return; }
+      if (e.shiftKey && e.key.toLowerCase() === "b") { e.preventDefault(); setSidebarOpen(true); localStorage.setItem("mylodb.sidebarOpen", "1"); setSide("objects"); const focus = () => filterInput.current?.focus(); focus(); setTimeout(focus, 0); /* the second call covers the objects tab not being mounted yet */ return; }
       if (e.key === "t") { e.preventDefault(); addTab("", tab?.database ?? null); }
       if (e.key === "w") { e.preventDefault(); if (tab) closeTab(tab.id); }
     };
@@ -995,6 +1000,8 @@ export default function App() {
   return (
     <div className="app">
       <header className="topbar" role="toolbar" aria-label="Main toolbar">
+        <button className="sidebar-toggle" title={sidebarOpen ? "Hide the sidebar (⌘B)" : "Show the sidebar (⌘B)"} aria-label="Toggle sidebar" aria-pressed={sidebarOpen} onClick={toggleSidebar}><Icon name="sidebar" /></button>
+        <span className="sep" />
         <button title={capTitle("server_tools", "Server home")} disabled={activeId === null || capOff("server_tools")} onClick={openHome}><Icon name="home" /> Home</button>
         <button title="New query tab (⌘T)" disabled={activeId === null} onClick={() => addTab("", selectedDb)}><Icon name="terminal" /> New query</button>
         <button title="List, create and drop databases" disabled={activeId === null} onClick={openDatabases}><Icon name="database" /> Databases</button>
@@ -1024,7 +1031,7 @@ export default function App() {
         </div>
       )}
       <div className="app-body">
-      <aside className="sidebar" style={{ width: sidebar.size }} onMouseDownCapture={() => { fromEditor.current = !!(document.activeElement as HTMLElement | null)?.closest?.(".editor"); }}>
+      <aside className="sidebar" hidden={!sidebarOpen} style={{ width: sidebar.size }} onMouseDownCapture={() => { fromEditor.current = !!(document.activeElement as HTMLElement | null)?.closest?.(".editor"); }}>
         <div className="conn-bar">
           <Select value={activeId ?? ""} onChange={(e) => e.target.value && open(Number(e.target.value), undefined, openIds.includes(Number(e.target.value)))}>
             <option value="">Select connection…</option>
@@ -1106,7 +1113,7 @@ export default function App() {
           <FavoritesPanel refreshKey={panelKey} onInsert={insertIntoEditor} onOpen={(sql) => addTab(sql, tab?.database ?? null)} />
         )}
       </aside>
-      <Splitter axis="x" label="Resize the sidebar" onDrag={sidebar.adjust} onReset={sidebar.reset} />
+      {sidebarOpen && <Splitter axis="x" label="Resize the sidebar" onDrag={sidebar.adjust} onReset={sidebar.reset} />}
 
       <main className="main">
         {activeId === null || !tab ? (
@@ -1338,7 +1345,7 @@ export default function App() {
       {paletteOpen && (
         <CommandPalette onClose={() => setPaletteOpen(false)} commands={[
           ...([["new_query", "New query tab"], ["home", "Server home"], ["databases", "Databases"], ["search_data", "Search data in a database"], ["compare", "Compare schemas of the selected database"], ["advisor", "Index advisor for the selected database"], ["builder", "Visual query builder"], ["er", "ER diagram of the selected database"], ["structure", "Tables of the selected database"], ["new_table", "New table"], ["export", "Export data"], ["import", "Import data"],
-              ["backup", "Backup / restore"], ["users", "Users and privileges"], ["server_tools", "Server tools"], ["catalog", "Engines, charsets, replication"], ["refresh_tree", "Refresh object tree"],
+              ["backup", "Backup / restore"], ["users", "Users and privileges"], ["server_tools", "Server tools"], ["catalog", "Engines, charsets, replication"], ["refresh_tree", "Refresh object tree"], ["toggle_sidebar", "Show or hide the sidebar"],
               ["theme_dark", "Theme: dark"], ["theme_light", "Theme: light"], ["theme_system", "Theme: system"], ...THEMES.map((t) => [`theme_${t.id}`, `Theme: ${t.label}`] as const), ["preferences", "Preferences"], ["manual", "User manual"], ["tour", "Quick tour"], ["check_updates", "Check for updates"], ["about", "About MyLoDB"], ["new_connection", "New connection"], ["edit_connection", "Edit connection"]] as const)
             .map(([id, label]): Command => ({ id, label, hint: "action", run: () => menuHandler.current(id) })),
           { id: "snippet-save", label: "Save editor text as my snippet…", hint: "selection, or the whole editor", run: () => {

@@ -21,7 +21,7 @@ const bySize = await tables();
 assert.deepEqual(byName, ["customers", "orders"]);
 assert.deepEqual(bySize, ["orders", "customers"], "largest first");
 assert.equal(await page.evaluate(() => localStorage.getItem("mylodb.treeSort")), "size");
-await page.click("button[aria-pressed=true]");
+await page.click(".sidebar button[aria-pressed=true]");
 assert.deepEqual(await tables(), byName, "name order comes back");
 ok("tables can be sorted by size (largest first) and back to name order");
 

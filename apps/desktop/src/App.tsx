@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Select from "./Select";
 import { open as pickPath, save as savePath } from "@tauri-apps/plugin-dialog";
-import { capabilitiesApi, type Capabilities, fileApi, onMenuAction, api, describeError, editorApi, planApi, queryApi, schemaApi, serverApi, type PlanOp, type ConnectError, type Favorite, type FormatOptions, type Kind, type Environment, type Maintenance, type Review, type Node, type SavedConnection, type TableOp } from "./api";
+import { capabilitiesApi, type Capabilities, fileApi, onMenuAction, api, describeError, isVaultLocked, secretsApi, editorApi, planApi, queryApi, schemaApi, serverApi, type PlanOp, type ConnectError, type Favorite, type FormatOptions, type Kind, type Environment, type Maintenance, type Review, type Node, type SavedConnection, type TableOp } from "./api";
 import AnalysisPane, { type Analysis } from "./AnalysisPane";
 import ConnectionDialog from "./ConnectionDialog";
 import ContextMenu, { type MenuItem } from "./ContextMenu";
@@ -24,6 +24,7 @@ import StructurePage from "./StructurePage";
 import HomePage from "./HomePage";
 import CatalogPage from "./CatalogPage";
 import PreferencesDialog from "./PreferencesDialog";
+import UnlockDialog from "./UnlockDialog";
 import TasksPanel from "./TasksPanel";
 import CommandPalette, { type Command } from "./CommandPalette";
 import { SNIPPETS } from "./snippets";
@@ -169,12 +170,16 @@ export default function App() {
   const capTitle = (k: "server_tools" | "users" | "dump_restore", on: string) => (caps?.[k].available === false ? (caps[k].reason ?? "Not available for this connection") : on);
   const [aboutOpen, setAboutOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  /** The encrypted password file needs its master password; `retry` is the connection to open again once it is unlocked. */
+  const [vaultPrompt, setVaultPrompt] = useState<{ retry: number | null } | null>(null);
   // updates: the one on offer (a dialog), and whether the check runs by itself
   const [update, setUpdate] = useState<Update | null>(null);
   const [autoUpdate, setAutoUpdate] = useState(() => localStorage.getItem("mylodb.autoUpdate") !== "0");
   const [manualOpen, setManualOpen] = useState(false);
   // the first-run guide starts by itself once, shortly after the window is up
   const [tourOpen, setTourOpen] = useState(false);
+  // passwords kept in the encrypted file: ask for the master password once at start (it can be dismissed and asked again later)
+  useEffect(() => { secretsApi.status().then((s) => { if (s.mode === "file" && !s.unlocked) setVaultPrompt({ retry: null }); }).catch(() => {}); }, []);
   useEffect(() => { if (tourSeen()) return; const t = setTimeout(() => setTourOpen(true), 600); return () => clearTimeout(t); }, []);
   /** Ask the release server for a newer version. A silent check offers nothing the user already skipped and stays quiet on failure; a manual one always answers. */
   const checkUpdates = useCallback(async (manual: boolean) => {
@@ -269,6 +274,9 @@ export default function App() {
       } else if (typeof err === "object" && err?.kind === "host_key_changed") {
         setStatus(`The SSH host key of ${err.host} changed`);
         setHostPrompt({ id, host: err.host, fingerprint: err.actual, changed: err.expected });
+      } else if (isVaultLocked(e)) {
+        setStatus("Unlock the saved passwords to connect");
+        setVaultPrompt({ retry: id });
       } else setStatus(`Error: ${describeError(e)}`);
     } finally {
       clearTimeout(spinner);
@@ -1335,6 +1343,7 @@ export default function App() {
       {aboutOpen && <AboutDialog onClose={() => setAboutOpen(false)} onManual={() => { setAboutOpen(false); setManualOpen(true); }}
         autoUpdate={autoUpdate} onAutoUpdate={(on) => { localStorage.setItem("mylodb.autoUpdate", on ? "1" : "0"); setAutoUpdate(on); }}
         onCheckUpdates={() => { setAboutOpen(false); void checkUpdates(true); }} />}
+      {vaultPrompt && <UnlockDialog onClose={() => setVaultPrompt(null)} onUnlocked={() => { const r = vaultPrompt.retry; setVaultPrompt(null); if (r !== null) open(r); }} />}
       {shortcutsOpen && <ShortcutsDialog onClose={() => setShortcutsOpen(false)} />}
       {update && <UpdateDialog update={update}
         onLater={() => { update.close().catch(() => {}); setUpdate(null); }}

@@ -6,6 +6,12 @@ use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
+pub mod secrets;
+pub mod vault;
+pub use secrets::{Mode, SecretRouter};
+
+pub(crate) fn vault_key(slot: Slot, id: i64) -> String { vault::key(slot, id) }
+
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("sqlite: {0}")]
@@ -14,6 +20,13 @@ pub enum Error {
     Keychain(#[from] keyring::Error),
     #[error("stored SSH settings are unreadable: {0}")]
     Json(#[from] serde_json::Error),
+    /// The passwords are in the encrypted file and it has not been unlocked in this run. The text starts with a code the window looks for.
+    #[error("vault_locked: unlock the saved passwords with your master password")]
+    Locked,
+    #[error("vault_wrong_password: that master password is not right")]
+    WrongPassword,
+    #[error("{0}")]
+    Vault(String),
 }
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -27,7 +40,7 @@ pub enum Slot {
 
 impl Slot {
     /// The database password keeps its original entry name so existing keychain items stay valid.
-    fn account(self, id: i64) -> String {
+    pub(crate) fn account(self, id: i64) -> String {
         match self {
             Slot::DbPassword => id.to_string(),
             Slot::SshPassword => format!("{id}:ssh-password"),
@@ -362,6 +375,13 @@ impl Store {
     }
 
     /// A saved connection (without secrets) by id.
+    /// Every (connection, slot) pair that could hold a secret: what moving between the Keychain and the file has to copy.
+    pub fn secret_keys(&self) -> Result<Vec<(i64, Slot)>> {
+        let mut st = self.db.prepare("SELECT id FROM connections")?;
+        let ids: Vec<i64> = st.query_map([], |r| r.get(0))?.collect::<std::result::Result<_, _>>()?;
+        Ok(ids.into_iter().flat_map(|id| ALL_SLOTS.into_iter().map(move |s| (id, s))).collect())
+    }
+
     pub fn connection(&self, id: i64) -> Result<Option<SavedConnection>> {
         Ok(self.list()?.into_iter().find(|c| c.id == Some(id)))
     }

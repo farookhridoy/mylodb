@@ -1,9 +1,10 @@
+import SecuritySettings from "./SecuritySettings";
 import { useMemo, useState } from "react";
 import Select from "./Select";
 import { AREA_LABEL, DEFAULTS, FAMILIES, SCHEMES, SIZE_RANGE, applyPrefs, savePrefs, type Area, type Prefs } from "./prefs";
 import { THEMES, themeById, type ThemePref } from "./theme";
 
-type PageId = "theme" | "font-ui" | "font-tree" | "font-grid" | "font-editor" | "colours";
+type PageId = "theme" | "font-ui" | "font-tree" | "font-grid" | "font-editor" | "colours" | "passwords";
 interface Page { id: PageId; group: string; label: string; words: string }
 const PAGES: Page[] = [
   { id: "theme", group: "Appearance", label: "Theme", words: "light dark system mode colour" },
@@ -11,6 +12,7 @@ const PAGES: Page[] = [
   { id: "font-tree", group: "Fonts", label: "Sidebar", words: "font family size bold object tree navigator" },
   { id: "font-grid", group: "Fonts", label: "Data grid", words: "font family size bold results table cells" },
   { id: "font-editor", group: "Fonts", label: "Query editor", words: "font family size bold line height sql code" },
+  { id: "passwords", group: "Security", label: "Saved passwords", words: "keychain master password encrypted file prompt unlock security" },
   { id: "colours", group: "Editor", label: "Syntax colours", words: "editor colour scheme highlight solarized contrast vivid multi-colour" },
 ];
 
@@ -108,6 +110,7 @@ export default function PreferencesDialog(props: {
                 <div className="dim small">{themeById(props.theme) ? `${themeById(props.theme)!.label}: the SQL editor uses this theme's syntax colours unless you pick a scheme under Editor → Syntax colours.` : "System follows macOS. Pick a colour theme below, or one of the plain Light and Dark."}</div>
               </div>
             )}
+            {current?.id === "passwords" && <SecuritySettings />}
             {current?.id === "font-ui" && fontPage("ui")}
             {current?.id === "font-tree" && fontPage("tree")}
             {current?.id === "font-grid" && fontPage("grid")}

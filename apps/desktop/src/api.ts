@@ -56,6 +56,20 @@ export const describeError = (e: unknown): string => {
   return String(e);
 };
 
+export interface SecretsStatus { mode: "keychain" | "file"; unlocked: boolean }
+/** Where saved passwords are kept: the macOS Keychain, or an encrypted file behind a master password. */
+export const secretsApi = {
+  status: () => invoke<SecretsStatus>("secrets_status"),
+  unlock: (password: string) => invoke<SecretsStatus>("secrets_unlock", { password }),
+  useFile: (password: string) => invoke<number>("secrets_use_file", { password }),
+  useKeychain: () => invoke<number>("secrets_use_keychain"),
+  changePassword: (old: string, next: string) => invoke<void>("secrets_change_password", { old, new: next }),
+  reset: () => invoke<void>("secrets_reset"),
+};
+/** The server's error text without the machine-readable code in front (`vault_locked: …`). */
+export const plainError = (e: unknown) => describeError(e).replace(/^vault_[a-z_]+: /, "");
+export const isVaultLocked = (e: unknown) => describeError(e).startsWith("vault_locked");
+
 export const api = {
   listConnections: () => invoke<SavedConnection[]>("list_connections"),
   saveConnection: (connection: SavedConnection) => invoke<number>("save_connection", { connection }),

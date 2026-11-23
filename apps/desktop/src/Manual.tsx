@@ -229,6 +229,20 @@ const SECTIONS: Section[] = [
       <Shot src={shot_erDiagram} alt="ER diagram of a database" />
       <Shot src={shot_queryBuilder} alt="The visual query builder" />
     </>) },
+  { id: "passwords", title: "Saved passwords", body: (
+    <>
+      <p>Passwords for saved connections (database, SSH password, SSH key passphrase) are never stored in MyLoDB's own database. Where they go is your choice, under <b>Preferences → Security → Saved passwords</b>.</p>
+      <ul>
+        <li><b>macOS Keychain</b> (the default). Convenient. Because MyLoDB is not signed with a paid Apple certificate, macOS asks for your login password again for each saved connection after an update. Choose <b>Always Allow</b> to quiet it for that version.</li>
+        <li><b>Encrypted file</b>. Choose a master password (at least 8 characters). Every saved password moves out of the Keychain into one encrypted file in MyLoDB's data folder, and the Keychain copies are removed. You type the master password once per session and there are no Keychain prompts. The file uses XChaCha20-Poly1305 with a key made from your password by Argon2id, and it never leaves your Mac.</li>
+      </ul>
+      <p>With the encrypted file, MyLoDB asks for the master password when it starts, or when you open a connection while it is still locked. Press Esc to skip; the question comes back when a connection needs a password.</p>
+      <ul>
+        <li><b>Change the master password</b> needs the current one. <b>Move passwords back to the Keychain</b> needs the file unlocked and deletes the file.</li>
+        <li><b>If you forget the master password, nobody can open the file</b>, including us. In the unlock window choose <i>I forgot the master password</i> to delete it: your connections stay and you type each password again.</li>
+        <li>Anyone who can read the file and guess a weak master password could open it, so pick a long one. Back it up with your other private files if you like; it is useless without the password.</li>
+      </ul>
+    </>) },
   { id: "safety", title: "Staying safe on production", body: (
     <>
       <ul>
@@ -266,6 +280,7 @@ const SECTIONS: Section[] = [
         <li><b>Theme</b>: System, Light, Dark, or a colour theme: Monokai, GitHub Dark and Light, Dracula, One Dark, Nord, Solarized Dark and Light, Tokyo Night. The SQL editor takes the theme's syntax colours.</li>
         <li><b>Fonts</b> for the interface, sidebar, data grid and query editor, each with its own family, size and weight.</li>
         <li><b>Syntax colours</b>: keep the theme's own, or force Multi-colour, Solarized or High contrast in the editor.</li>
+        <li><b>Saved passwords</b>: keep them in the macOS Keychain or in an encrypted file behind a master password. See Saved passwords.</li>
       </ul>
       <Shot src={shot_preferences} alt="Preferences" />
       <Shot src={shot_darkTheme} alt="The dark theme" />

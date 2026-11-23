@@ -609,3 +609,13 @@ table.kv th { text-align: left; font-weight: 500; color: var(--dim); width: 170p
 .shortcut-groups dt { text-align: right; } .shortcut-groups dd { margin: 0; color: var(--text); }
 .shortcut-groups kbd { font-family: var(--font-editor, monospace); background: var(--hover); border: 1px solid var(--line); border-radius: 4px; padding: 1px 6px; font-size: .92em; white-space: nowrap; }
 @media (max-width: 760px) { .shortcut-groups { grid-template-columns: 1fr; } }
+
+/* saved-password settings and the unlock window */
+.unlock-dialog{width:min(420px,92vw)}
+.unlock-dialog label{display:block;margin:.75rem 0 .5rem}
+.unlock-dialog input{width:100%;margin-top:.25rem}
+.unlock-dialog .banner{margin:.5rem 0}
+.security-page h5{margin:1rem 0 .25rem}
+.security-page label{display:block;margin:.4rem 0;max-width:340px}
+.security-page label input{display:block;width:100%;margin-top:.2rem}
+.security-page .banner{margin:.6rem 0}

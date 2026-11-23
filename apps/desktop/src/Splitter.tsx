@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useLayoutEffect, useState } from "react";
 
 /** A size in pixels that is remembered between sessions and kept within limits. `adjust` adds to the current size (safe to call on every mouse move). */
 export function useSize(key: string, initial: number, min: number, max: () => number) {
@@ -7,7 +7,8 @@ export function useSize(key: string, initial: number, min: number, max: () => nu
     const saved = Number(localStorage.getItem(key));
     return clamp(Number.isFinite(saved) && saved > 0 ? saved : initial);
   });
-  useEffect(() => { localStorage.setItem(key, String(Math.round(size))); }, [key, size]);
+  // a layout effect runs inside the same commit as the new size, so the last drag is saved even if the window closes or reloads right after
+  useLayoutEffect(() => { localStorage.setItem(key, String(Math.round(size))); }, [key, size]);
   const adjust = (delta: number) => setSizeState((prev) => clamp(prev + delta));
   const reset = () => setSizeState(clamp(initial));
   return { size, adjust, reset };

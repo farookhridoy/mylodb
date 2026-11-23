@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+**Added**
+* **One-command install** (`scripts/install.sh`): picks the build for your Mac, checks its SHA-256, installs into Applications and removes the download flag, so there is no "could not verify" step. Also `docs/INSTALL.md` with every way to install, the install box on the website, and a Homebrew cask file (`packaging/homebrew/mylodb.rb`) ready for a tap repository.
+
+**Planned**
+* The roadmap has phases 19 to 25 (install without a paid Apple account, smarter autocomplete, visual explain, scheduled jobs, SQLite completed, PostgreSQL, sync and teams).
+
 ## 0.4.4 (2026-11-23)
 
 **Changed**

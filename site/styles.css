@@ -203,3 +203,6 @@ h3 { font-size: 1.18rem; line-height: 1.25; font-weight: 700; letter-spacing: -0
 }
 @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } *, *::before, *::after { animation: none !important; transition: none !important; } }
 [hidden] { display: none !important; }
+
+.gate.one-line{margin-bottom:1rem}
+.gate .cmd{display:block;overflow-x:auto;white-space:nowrap;padding:.6rem .75rem;border-radius:6px;background:rgba(0,0,0,.06);font-size:.8rem;user-select:all}

@@ -124,6 +124,22 @@ Why this order: phase 11 is what you asked for next and what makes MyLoDB usable
 on purpose: the version matrix finds MariaDB and older-MySQL differences while the codebase still has one engine, and the abstraction in
 phase 15 is much safer with CI behind it. If a release matters sooner than new engines, do 14 and 18 next: phases 1 to 13 are finished, so the remaining release blockers are only the first green CI run, signing and notarisation, the Intel build, the Homebrew cask and the user documentation.
 
+### Phases 19 to 25: from the comparison with industrial tools (added at 0.4.4)
+
+Compared with DataGrip, DBeaver, Navicat, SQLyog and Workbench, these are the gaps, in the order that pays off most. Tick them off one release at a time. Rows that need money or a paid account are marked.
+
+| Phase | Theme | What | Status |
+|---|---|---|---|
+| 19 🟡 | **Install without a paid Apple account** | Done (no app release needed): `scripts/install.sh` one-command install (checksum, quarantine flag removed), `docs/INSTALL.md`, the install box on the website, a Homebrew cask file. Open: **19a** create the tap repository `farookhridoy/homebrew-mylodb` and publish the cask (owner action); **19c** an optional password file instead of the Keychain, encrypted with a master password, so there is no prompt per build; **19b** real signing and notarisation, which needs the paid Apple Developer Program | 🟡 |
+| 20 | **Smarter SQL editor** | Autocomplete that knows the schema, aliases and joins (suggest the foreign key on `JOIN … ON`); errors underlined as you type; rename a table or column and see every use; snippets with tab stops | ❌ |
+| 21 | **Explain and profile, visually** | Explain plan as a tree with costs and the slowest step marked; Performance Schema and slow-log summary pages; compare two runs of the same query | ❌ |
+| 22 | **Scheduled jobs** | Scheduled backups, exports and imports with a log and retention (keep the last N); run saved transfer configurations; reports saved to a folder | ❌ |
+| 23 | **SQLite completed** | Table designer, export from a table, cancel a running query, `VACUUM` and integrity check | ❌ |
+| 24 | **PostgreSQL** | Connect, browse, run SQL, grid with edits, export. The `Backend` trait and `Capabilities` already exist, so this is the first engine that reuses them | ❌ |
+| 25 | **Sync and teams** | Data compare and sync, copy a database between connections, export and import connections and snippets as a file (team sharing without a server), an audit log file | ❌ |
+
+Not planned for now: a stored-procedure debugger, an extension API, SSO and LDAP.
+
 ---
 
 ## 5. Object browser (left sidebar), against the original brief

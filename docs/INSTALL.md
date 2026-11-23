@@ -14,10 +14,13 @@ It picks the right file for your Mac (Apple Silicon or Intel), checks its checks
 
 ```sh
 brew tap farookhridoy/mylodb
+brew trust farookhridoy/mylodb
 brew install --cask mylodb
 ```
 
-This needs the tap repository `farookhridoy/homebrew-mylodb` (the cask is kept in [packaging/homebrew/mylodb.rb](../packaging/homebrew/mylodb.rb)). The app updates itself, so you do not need `brew upgrade`.
+Newer Homebrew refuses casks from a third-party tap until you trust it (`brew trust`). The tap is [farookhridoy/homebrew-mylodb](https://github.com/farookhridoy/homebrew-mylodb); read its one file first. Not yet tested end to end: please report any error.
+
+The cask is also kept in [packaging/homebrew/mylodb.rb](../packaging/homebrew/mylodb.rb). The app updates itself, so you do not need `brew upgrade`.
 
 ## 3. The .dmg, by hand
 

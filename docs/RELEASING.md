@@ -21,3 +21,8 @@ To build a signed package locally: `cd apps/desktop && TAURI_SIGNING_PRIVATE_KEY
 ## Signing and notarisation
 
 The app is not signed with an Apple Developer ID. Gatekeeper warns on the first manual install (the release notes and README explain **Open Anyway**); updates installed by MyLoDB itself are not quarantined and open without that warning. Signing and notarisation need an Apple Developer ID and are on the roadmap.
+
+## Homebrew cask and install script
+
+* `scripts/install.sh` needs no change per release: it reads the latest release and its `.sha256` file.
+* `packaging/homebrew/mylodb.rb` holds the version and both checksums. After each release, copy the two values from the `.sha256` files into it and commit it to the tap repository `farookhridoy/homebrew-mylodb` as `Casks/mylodb.rb`. (The repository has to be created once, by the owner.)

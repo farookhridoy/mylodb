@@ -67,6 +67,14 @@ A notarised build is on the [roadmap](docs/ROADMAP.md). Not sure which Mac you h
 
 **Updates.** From 0.4.0 MyLoDB offers new versions by itself (and under **Help → Check for Updates…**): it shows what is new and you choose **Update now** (downloads the signed update, replaces the app, restarts), **Later** or **Skip this version**. The automatic check can be switched off in **Help → About**. Copies older than 0.4.0 cannot update themselves: install 0.4.0 from the Releases page once.
 
+### One command install
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/farookhridoy/mylodb/main/scripts/install.sh | sh
+```
+
+This installs the right build for your Mac, checks its checksum and skips the "could not verify" step. All the ways to install (script, Homebrew, by hand) are in [docs/INSTALL.md](docs/INSTALL.md).
+
 ### How to install and open MyLoDB
 
 1. **Install.** Open the `.dmg` and drag **MyLoDB** into **Applications**.

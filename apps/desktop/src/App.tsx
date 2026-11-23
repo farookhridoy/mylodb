@@ -30,7 +30,7 @@ import { loadMySnippets, saveMySnippet, deleteMySnippet, type MySnippet } from "
 import { loadPrefs, type Prefs } from "./prefs";
 import TableDesigner from "./TableDesigner";
 import ServerTools from "./ServerTools";
-import { useTheme, type ThemePref } from "./theme";
+import { useTheme, themeById, THEMES, type ThemePref } from "./theme";
 import TransferTools, { type TransferPreset } from "./TransferTools";
 import UsersManager from "./UsersManager";
 import Editor, { type EditorHandle } from "./Editor";
@@ -205,11 +205,13 @@ export default function App() {
   const databases = useMemo(() => index.filter((n) => n.kind === "database").map((n) => n.name), [index]);
 
   // ---- connect / session restore ----
-  const open = async (id: number, trust?: string) => {
+  /** `reuse`: the connection is already open, so switch to it without reconnecting. */
+  const open = async (id: number, trust?: string, reuse = false) => {
     setStatus("Connecting…");
-    setConnecting(connectionsRef.current.find((c) => c.id === id)?.name ?? "the server");
+    // the spinner only appears when connecting actually takes a moment; switching to an open connection is instant
+    const spinner = setTimeout(() => setConnecting(connectionsRef.current.find((c) => c.id === id)?.name ?? "the server"), 250);
     try {
-      const idx = await api.connect(id, trust);
+      const idx = await api.connect(id, trust, reuse);
       // what was expanded and selected last time on this connection (only what still exists on the server)
       let savedBrowser: { open: string[]; db: string | null; table: string | null } = { open: [], db: null, table: null };
       try { savedBrowser = { ...savedBrowser, ...JSON.parse(localStorage.getItem(`mylodb.browser.${id}`) ?? "{}") }; } catch { /* a damaged entry is ignored */ }
@@ -264,6 +266,7 @@ export default function App() {
         setHostPrompt({ id, host: err.host, fingerprint: err.actual, changed: err.expected });
       } else setStatus(`Error: ${describeError(e)}`);
     } finally {
+      clearTimeout(spinner);
       setConnecting(null);
     }
   };
@@ -466,7 +469,7 @@ export default function App() {
     const rest = openIds.filter((x) => x !== id);
     setOpenIds(rest);
     if (id !== activeId) return;
-    if (rest.length) return void open(rest[rest.length - 1]);
+    if (rest.length) return void open(rest[rest.length - 1], undefined, true);
     setActiveId(null); setIndex([]); setTabs([newTab(1)]); setSelectedDb(null); setSelectedTable(null); setStatus("Disconnected");
   };
   const disconnectActive = async () => {
@@ -477,6 +480,8 @@ export default function App() {
   // ---- native menu bar: the Rust side reports the item id, this decides what it means right now ----
   const menuHandler = useRef<(id: string) => void>(() => {});
   menuHandler.current = (id) => {
+    const named = THEMES.find((t) => `theme_${t.id}` === id);
+    if (named) return theme.setPref(named.id);
     const connected = activeId !== null;
     const need = (f: () => void) => { if (connected) f(); else setStatus("Connect first"); };
     // a feature the connected engine lacks says why instead of failing later
@@ -998,9 +1003,9 @@ export default function App() {
         <button title={capTitle("users", "Users and privileges")} disabled={activeId === null || capOff("users")} onClick={openUsers}><Icon name="user" /> Users</button>
         <button title={capTitle("server_tools", "Server: processes, variables, status, maintenance, logs")} disabled={activeId === null || capOff("server_tools")} onClick={openServer}><Icon name="pulse" /> Server</button>
         <span className="grow" />
-        <button className="theme-toggle" title={`Theme: ${theme.pref} (click to change)`}
+        <button className="theme-toggle" title={`Theme: ${themeById(theme.pref)?.label ?? theme.pref} (click to change; more themes in Preferences)`}
           onClick={() => { const order: ThemePref[] = ["system", "light", "dark"]; theme.setPref(order[(order.indexOf(theme.pref) + 1) % 3]); }}>
-          <Icon name={theme.pref === "system" ? "auto" : theme.pref === "light" ? "sun" : "moon"} />
+          <Icon name={theme.pref === "system" ? "auto" : theme.resolved === "light" ? "sun" : "moon"} />
         </button>
         <button title="Preferences (⌘,)" aria-label="Preferences" onClick={() => setPrefsOpen(true)}><Icon name="settings" /></button>
       </header>
@@ -1011,7 +1016,7 @@ export default function App() {
             if (!c) return null;
             return (
               <div key={id} role="tab" aria-selected={id === activeId} className={`conn-tab env-${c.environment ?? "development"} ${id === activeId ? "active" : ""}`}>
-                <button className="conn-tab-name" title={`${c.name}: switch to this connection`} onClick={() => id !== activeId && open(id)}><Icon name="server" size={12} /> {c.name}</button>
+                <button className="conn-tab-name" title={`${c.name}: switch to this connection`} onClick={() => id !== activeId && open(id, undefined, true)}><Icon name="server" size={12} /> {c.name}</button>
                 <button className="conn-tab-close" title={`Disconnect ${c.name}`} aria-label={`Disconnect ${c.name}`} onClick={() => closeConnection(id)}><Icon name="close" size={10} /></button>
               </div>
             );
@@ -1021,7 +1026,7 @@ export default function App() {
       <div className="app-body">
       <aside className="sidebar" style={{ width: sidebar.size }} onMouseDownCapture={() => { fromEditor.current = !!(document.activeElement as HTMLElement | null)?.closest?.(".editor"); }}>
         <div className="conn-bar">
-          <Select value={activeId ?? ""} onChange={(e) => e.target.value && open(Number(e.target.value))}>
+          <Select value={activeId ?? ""} onChange={(e) => e.target.value && open(Number(e.target.value), undefined, openIds.includes(Number(e.target.value)))}>
             <option value="">Select connection…</option>
             {connections.filter((c) => !c.group?.trim()).map((c) => <option key={c.id} value={c.id!}>{c.name}</option>)}
             {connectionGroups.map((g) => (
@@ -1186,7 +1191,7 @@ export default function App() {
                   </label>
                 </div>
                 <div className="editor-wrap" style={{ height: consoleSize.size }}>
-                  <Editor ref={editor} tabId={editorTab.id} initialDoc={editorTab.sql} onChange={(sql) => patchTab(editorTab.id, { sql })} onRun={run} onFormat={formatSql} connectionId={activeId} database={editorTab.database} dark={theme.resolved === "dark"} scheme={prefsOpen ? livePrefs.editorScheme : prefs.editorScheme} />
+                  <Editor ref={editor} tabId={editorTab.id} initialDoc={editorTab.sql} onChange={(sql) => patchTab(editorTab.id, { sql })} onRun={run} onFormat={formatSql} connectionId={activeId} database={editorTab.database} dark={theme.resolved === "dark"} theme={theme.palette} scheme={prefsOpen ? livePrefs.editorScheme : prefs.editorScheme} />
                 </div>
                 <Splitter axis="y" label="Resize the console" onDrag={consoleSize.adjust} onReset={consoleSize.reset} />
                 <ResultsPane
@@ -1334,7 +1339,7 @@ export default function App() {
         <CommandPalette onClose={() => setPaletteOpen(false)} commands={[
           ...([["new_query", "New query tab"], ["home", "Server home"], ["databases", "Databases"], ["search_data", "Search data in a database"], ["compare", "Compare schemas of the selected database"], ["advisor", "Index advisor for the selected database"], ["builder", "Visual query builder"], ["er", "ER diagram of the selected database"], ["structure", "Tables of the selected database"], ["new_table", "New table"], ["export", "Export data"], ["import", "Import data"],
               ["backup", "Backup / restore"], ["users", "Users and privileges"], ["server_tools", "Server tools"], ["catalog", "Engines, charsets, replication"], ["refresh_tree", "Refresh object tree"],
-              ["theme_dark", "Theme: dark"], ["theme_light", "Theme: light"], ["theme_system", "Theme: system"], ["preferences", "Preferences"], ["manual", "User manual"], ["tour", "Quick tour"], ["check_updates", "Check for updates"], ["about", "About MyLoDB"], ["new_connection", "New connection"], ["edit_connection", "Edit connection"]] as const)
+              ["theme_dark", "Theme: dark"], ["theme_light", "Theme: light"], ["theme_system", "Theme: system"], ...THEMES.map((t) => [`theme_${t.id}`, `Theme: ${t.label}`] as const), ["preferences", "Preferences"], ["manual", "User manual"], ["tour", "Quick tour"], ["check_updates", "Check for updates"], ["about", "About MyLoDB"], ["new_connection", "New connection"], ["edit_connection", "Edit connection"]] as const)
             .map(([id, label]): Command => ({ id, label, hint: "action", run: () => menuHandler.current(id) })),
           { id: "snippet-save", label: "Save editor text as my snippet…", hint: "selection, or the whole editor", run: () => {
             const text = editor.current?.runnableText().trim();

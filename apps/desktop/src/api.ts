@@ -60,7 +60,8 @@ export const api = {
   listConnections: () => invoke<SavedConnection[]>("list_connections"),
   saveConnection: (connection: SavedConnection) => invoke<number>("save_connection", { connection }),
   deleteConnection: (id: number) => invoke<void>("delete_connection", { id }),
-  connect: (id: number, trustFingerprint?: string) => invoke<Node[]>("connect", { id, trustFingerprint: trustFingerprint ?? null }),
+  /** `reuse`: when the connection is already open, keep its session (switching between open connections) instead of reconnecting. */
+  connect: (id: number, trustFingerprint?: string, reuse?: boolean) => invoke<Node[]>("connect", { id, trustFingerprint: trustFingerprint ?? null, reuse: reuse ?? false }),
   testConnection: (connection: SavedConnection, trustFingerprint?: string) => invoke<TestResult>("test_connection", { connection, trustFingerprint: trustFingerprint ?? null }),
   forgetSshHost: (id: number) => invoke<void>("forget_ssh_host", { id }),
   disconnect: (id: number) => invoke<void>("disconnect", { id }),

@@ -192,7 +192,14 @@ async fn establish(
 
 /// Connect, build the name index, and return it to the UI.
 #[tauri::command]
-async fn connect(state: tauri::State<'_, AppState>, id: i64, trust_fingerprint: Option<String>) -> Result<Vec<Node>, ConnectError> {
+async fn connect(state: tauri::State<'_, AppState>, id: i64, trust_fingerprint: Option<String>, reuse: Option<bool>) -> Result<Vec<Node>, ConnectError> {
+    // Switching back to a connection that is already open keeps its session: no new pool or tunnel, no keychain read, no waiting.
+    // Connecting after editing a connection leaves `reuse` off, so the new settings take effect.
+    if reuse == Some(true) {
+        if let Some(s) = state.sessions.lock().unwrap().get(&id) {
+            return Ok(s.index.clone());
+        }
+    }
     let saved = state.store.lock().unwrap().connection(id).map_err(err)?;
     if let Some(c) = saved.as_ref().filter(|c| c.engine == myq_store::EngineKind::Sqlite) {
         // a SQLite file: no network, no tunnel. Writable unless the connection says read-only (then the file is opened read-only too)
@@ -1705,7 +1712,7 @@ pub fn run() {
         .setup(|app| {
             let dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&dir)?;
-            let store = Store::open(&dir.join("mylodb.sqlite"), Box::new(Keychain))?;
+            let store = Store::open(&dir.join("mylodb.sqlite"), Box::new(Keychain::default()))?;
             app.manage(AppState { store: Mutex::new(store), sessions: Mutex::new(HashMap::new()), running: Mutex::new(HashMap::new()), jobs: Mutex::new(HashMap::new()) });
             Ok(())
         })

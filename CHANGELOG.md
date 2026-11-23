@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.4.1 (2026-11-23)
+
+**Added**
+* **Colour themes.** Preferences → Theme now offers Monokai, GitHub Dark, GitHub Light, Dracula, One Dark, Nord, Solarized Dark, Solarized Light and Tokyo Night, as cards with a swatch. The SQL editor takes each theme's syntax colours (a scheme picked under Syntax colours still overrides them). ⌘K lists every theme.
+* The in-app manual (Help → User Manual) now shows its screenshots, and has a section on Preferences and themes.
+
+**Fixed**
+* **Switching between open connections no longer reconnects.** Clicking a connection tab or choosing an open connection in the picker keeps its session: no new pool or SSH tunnel, no wait, and no macOS keychain prompt each time. Editing a connection still reconnects so the new settings apply.
+* Saved passwords are read from the keychain once per run and kept in memory, so even choosing "Allow" (not "Always Allow") asks at most once per connection per launch.
+* The "Connecting to …" spinner appears only when connecting takes more than a moment.
+
+**Changed**
+* The project website is redesigned (live review-dialog demo, theme preview, release notes, downloads for Apple Silicon and Intel).
+
+**Known limits**
+* macOS asks for the keychain password once per saved connection after each new build, until the app is signed with an Apple Developer ID.
+* SQLite: no table designer yet, no export from a table, no cancel of a running query. Unsigned and not notarised (updates are signed). MySQL 5.7 is unsupported.
+
 ## 0.4.0 (2026-11-23)
 
 **Added**

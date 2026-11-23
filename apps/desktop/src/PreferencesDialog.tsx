@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import Select from "./Select";
 import { AREA_LABEL, DEFAULTS, FAMILIES, SCHEMES, SIZE_RANGE, applyPrefs, savePrefs, type Area, type Prefs } from "./prefs";
-import type { ThemePref } from "./theme";
+import { THEMES, themeById, type ThemePref } from "./theme";
 
 type PageId = "theme" | "font-ui" | "font-tree" | "font-grid" | "font-editor" | "colours";
 interface Page { id: PageId; group: string; label: string; words: string }
@@ -90,9 +90,22 @@ export default function PreferencesDialog(props: {
               <div className="prefs-page">
                 <label>Theme
                   <Select value={props.theme} title="Theme" aria-label="Theme" onChange={(e) => props.onTheme(e.target.value as ThemePref)}>
-                    <option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option>
+                    <optgroup label="Automatic"><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></optgroup>
+                    <optgroup label="Dark themes">{THEMES.filter((t) => t.base === "dark").map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}</optgroup>
+                    <optgroup label="Light themes">{THEMES.filter((t) => t.base === "light").map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}</optgroup>
                   </Select>
                 </label>
+                <div className="theme-grid" role="radiogroup" aria-label="Colour themes">
+                  {THEMES.map((t) => (
+                    <button key={t.id} role="radio" aria-checked={props.theme === t.id} className={`theme-card ${props.theme === t.id ? "on" : ""}`} onClick={() => props.onTheme(t.id)} title={`${t.label} (${t.base})`}>
+                      <span className="theme-swatch" style={{ background: t.swatch[0], borderColor: t.swatch[1] }}>
+                        <i style={{ background: t.swatch[1] }} /><i style={{ background: t.swatch[2] }} /><i style={{ background: t.swatch[3] }} />
+                      </span>
+                      {t.label}
+                    </button>
+                  ))}
+                </div>
+                <div className="dim small">{themeById(props.theme) ? `${themeById(props.theme)!.label}: the SQL editor uses this theme's syntax colours unless you pick a scheme under Editor → Syntax colours.` : "System follows macOS. Pick a colour theme below, or one of the plain Light and Dark."}</div>
               </div>
             )}
             {current?.id === "font-ui" && fontPage("ui")}

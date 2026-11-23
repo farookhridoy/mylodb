@@ -43,25 +43,40 @@ pub trait SecretStore: Send + Sync {
     fn delete(&self, id: i64, slot: Slot) -> Result<()>;
 }
 
-pub struct Keychain;
+/// The macOS Keychain (and its equivalents). Each secret is read from the system store once per run and kept in memory afterwards:
+/// every read of an item the app is not yet trusted for shows the system's password prompt, so re-reading on each connect or switch
+/// would ask again and again. `set` and `delete` keep the copy in step.
+#[derive(Default)]
+pub struct Keychain {
+    cache: std::sync::Mutex<std::collections::HashMap<(i64, Slot), Option<String>>>,
+}
 const SERVICE: &str = "dev.mylodb.connection";
 
 impl SecretStore for Keychain {
     fn set(&self, id: i64, slot: Slot, secret: &str) -> Result<()> {
-        Ok(keyring::Entry::new(SERVICE, &slot.account(id))?.set_password(secret)?)
+        keyring::Entry::new(SERVICE, &slot.account(id))?.set_password(secret)?;
+        self.cache.lock().unwrap().insert((id, slot), Some(secret.to_string()));
+        Ok(())
     }
     fn get(&self, id: i64, slot: Slot) -> Result<Option<String>> {
-        match keyring::Entry::new(SERVICE, &slot.account(id))?.get_password() {
-            Ok(p) => Ok(Some(p)),
-            Err(keyring::Error::NoEntry) => Ok(None),
-            Err(e) => Err(e.into()),
+        if let Some(hit) = self.cache.lock().unwrap().get(&(id, slot)) {
+            return Ok(hit.clone());
         }
+        let found = match keyring::Entry::new(SERVICE, &slot.account(id))?.get_password() {
+            Ok(p) => Some(p),
+            Err(keyring::Error::NoEntry) => None,
+            Err(e) => return Err(e.into()),
+        };
+        self.cache.lock().unwrap().insert((id, slot), found.clone());
+        Ok(found)
     }
     fn delete(&self, id: i64, slot: Slot) -> Result<()> {
         match keyring::Entry::new(SERVICE, &slot.account(id))?.delete_credential() {
-            Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
-            Err(e) => Err(e.into()),
+            Ok(()) | Err(keyring::Error::NoEntry) => {}
+            Err(e) => return Err(e.into()),
         }
+        self.cache.lock().unwrap().insert((id, slot), None);
+        Ok(())
     }
 }
 

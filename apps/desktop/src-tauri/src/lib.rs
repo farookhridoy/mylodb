@@ -8,7 +8,7 @@ use myq_schema::ddl::TableDef;
 use myq_core::Backend;
 use myq_driver::{kill_query, pool, Pool, StatementResult};
 use myq_schema::filter::{Filter, Kind, Node};
-use myq_store::{Favorite, HistoryEntry, Keychain, SavedConnection, Store};
+use myq_store::{vault::Vault, Favorite, HistoryEntry, Keychain, Mode, SavedConnection, SecretRouter, Store};
 use std::{collections::HashMap, sync::Mutex};
 use tauri::{Emitter, Manager};
 
@@ -106,6 +106,8 @@ impl Session {
 
 struct AppState {
     store: Mutex<Store>,
+    /// Where saved passwords live: the Keychain, or an encrypted file behind a master password.
+    secrets: std::sync::Arc<SecretRouter>,
     sessions: Mutex<HashMap<i64, Session>>,
     /// Cancel flags of the running backup / restore / import jobs, by job id.
     jobs: Mutex<HashMap<String, std::sync::Arc<std::sync::atomic::AtomicBool>>>,
@@ -135,6 +137,60 @@ fn list_connections(state: tauri::State<AppState>) -> Result<Vec<SavedConnection
 #[tauri::command]
 fn save_connection(state: tauri::State<AppState>, connection: SavedConnection) -> Result<i64, String> {
     state.store.lock().unwrap().save(&connection).map_err(err)
+}
+
+// ---- where saved passwords are kept ----
+
+#[derive(serde::Serialize)]
+struct SecretsStatus {
+    /// "keychain" or "file".
+    mode: &'static str,
+    /// For "file": whether the master password has been typed in this run.
+    unlocked: bool,
+}
+
+fn secrets_status_of(r: &SecretRouter) -> SecretsStatus {
+    SecretsStatus { mode: if r.mode() == Mode::File { "file" } else { "keychain" }, unlocked: r.mode() == Mode::Keychain || r.unlocked() }
+}
+
+#[tauri::command]
+fn secrets_status(state: tauri::State<AppState>) -> SecretsStatus {
+    secrets_status_of(&state.secrets)
+}
+
+/// Type the master password: opens the encrypted file for this run.
+#[tauri::command]
+async fn secrets_unlock(state: tauri::State<'_, AppState>, password: String) -> Result<SecretsStatus, String> {
+    let r = state.secrets.clone();
+    // key derivation takes a moment by design, so it stays off the UI thread
+    tauri::async_runtime::spawn_blocking(move || r.unlock(&password).map(|_| secrets_status_of(&r))).await.map_err(err)?.map_err(err)
+}
+
+/// Move every saved password out of the Keychain into the encrypted file. Returns how many were moved.
+#[tauri::command]
+async fn secrets_use_file(state: tauri::State<'_, AppState>, password: String) -> Result<usize, String> {
+    let keys = state.store.lock().unwrap().secret_keys().map_err(err)?;
+    let r = state.secrets.clone();
+    tauri::async_runtime::spawn_blocking(move || r.use_file(&password, &keys)).await.map_err(err)?.map_err(err)
+}
+
+/// Move the passwords back into the Keychain and delete the file. Needs the file to be unlocked.
+#[tauri::command]
+fn secrets_use_keychain(state: tauri::State<AppState>) -> Result<usize, String> {
+    let keys = state.store.lock().unwrap().secret_keys().map_err(err)?;
+    state.secrets.use_keychain(&keys).map_err(err)
+}
+
+#[tauri::command]
+async fn secrets_change_password(state: tauri::State<'_, AppState>, old: String, new: String) -> Result<(), String> {
+    let r = state.secrets.clone();
+    tauri::async_runtime::spawn_blocking(move || { r.unlock(&old)?; r.change_password(&new) }).await.map_err(err)?.map_err(err)
+}
+
+/// For a forgotten master password: delete the file. Saved passwords are lost; connections stay and ask for theirs again.
+#[tauri::command]
+fn secrets_reset(state: tauri::State<AppState>) -> Result<(), String> {
+    state.secrets.reset().map_err(err)
 }
 
 #[tauri::command]
@@ -1714,8 +1770,9 @@ pub fn run() {
         .setup(|app| {
             let dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&dir)?;
-            let store = Store::open(&dir.join("mylodb.sqlite"), Box::new(Keychain::default()))?;
-            app.manage(AppState { store: Mutex::new(store), sessions: Mutex::new(HashMap::new()), running: Mutex::new(HashMap::new()), jobs: Mutex::new(HashMap::new()) });
+            let secrets = std::sync::Arc::new(SecretRouter::open(&dir, Box::new(Keychain::default()), Vault::new(&dir.join("secrets.json"))));
+            let store = Store::open(&dir.join("mylodb.sqlite"), Box::new(secrets.clone()))?;
+            app.manage(AppState { store: Mutex::new(store), secrets, sessions: Mutex::new(HashMap::new()), running: Mutex::new(HashMap::new()), jobs: Mutex::new(HashMap::new()) });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -1730,6 +1787,12 @@ pub fn run() {
             list_connections,
             save_connection,
             delete_connection,
+            secrets_status,
+            secrets_unlock,
+            secrets_use_file,
+            secrets_use_keychain,
+            secrets_change_password,
+            secrets_reset,
             connect,
             disconnect,
             filter_index,

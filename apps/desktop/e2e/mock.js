@@ -1,6 +1,7 @@
 try { if (!window.__tour) localStorage.setItem("mylodb.tourDone", "1"); } catch {}
 // Fake Tauri bridge: in-memory tables + a call log, so the real React UI can be exercised in a browser.
 window.__calls = [];
+window.__vault = window.__vault || { mode: "keychain", unlocked: true, pw: "" };
 window.__cbs = {}; window.__cbSeq = 0; window.__listeners = [];
 window.__TAURI_EVENT_PLUGIN_INTERNALS__ = { unregisterListener() {} };
 window.__emit = (event, payload) => window.__listeners.filter((l) => l.event === event).forEach((l) => window.__cbs[l.handler]({ event, id: l.id, payload }));
@@ -144,7 +145,14 @@ const handlers = {
   ], identical: 2, warnings: [] },
   capabilities: () => (window.__caps ?? { flavor: "mysql", schemas: { available: false, reason: "MySQL and MariaDB have databases, not schemas" }, routines: { available: true, reason: null }, triggers: { available: true, reason: null }, events: { available: true, reason: null }, users: { available: true, reason: null }, replication: { available: true, reason: null }, explain_analyze: { available: true, reason: null }, read_only_session: { available: true, reason: null }, row_estimates: { available: true, reason: null }, server_tools: { available: true, reason: null }, dump_restore: { available: true, reason: null }, writes: { available: true, reason: null } }),
   list_connections: () => [{ id: 1, name: "Local", color: "#4f8cff", host: "127.0.0.1", port: 3306, user: "root", database: null, ssl: "disabled" }],
+  secrets_status: () => ({ mode: window.__vault.mode, unlocked: window.__vault.mode === "keychain" || window.__vault.unlocked }),
+  secrets_unlock: (a) => { if (a.password !== window.__vault.pw) throw "vault_wrong_password: that master password is not right"; window.__vault.unlocked = true; return { mode: "file", unlocked: true }; },
+  secrets_use_file: (a) => { if (a.password.length < 8) throw "The master password needs at least 8 characters."; Object.assign(window.__vault, { mode: "file", unlocked: true, pw: a.password }); return 2; },
+  secrets_use_keychain: () => { if (!window.__vault.unlocked) throw "vault_locked: unlock the saved passwords with your master password"; Object.assign(window.__vault, { mode: "keychain", pw: "" }); return 2; },
+  secrets_change_password: (a) => { if (a.old !== window.__vault.pw) throw "vault_wrong_password: that master password is not right"; window.__vault.pw = a.new; },
+  secrets_reset: () => { Object.assign(window.__vault, { mode: "keychain", pw: "", unlocked: true }); },
   connect: (a) => {
+    if (window.__vault.mode === "file" && !window.__vault.unlocked) throw { kind: "failed", message: "vault_locked: unlock the saved passwords with your master password" };
     window.__loaded = new Set(); window.__index = nodes();
     window.__connectTrust = (window.__connectTrust || []).concat([a.trustFingerprint]);
     if (window.__sshMode === "unknown" && !a.trustFingerprint) throw { kind: "unknown_host", host: "bastion:22", fingerprint: "SHA256:abc123" };

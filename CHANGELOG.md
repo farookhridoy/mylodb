@@ -6,6 +6,7 @@
 * **The width of a resized pane is saved at once.** It was written in a delayed step, so a quit or reload right after a drag could keep an older width.
 
 **Added**
+* **Saved passwords can live in an encrypted file** instead of the macOS Keychain (Preferences, Security, Saved passwords). One master password per session replaces the Keychain prompt that came back after every update. The file is XChaCha20-Poly1305 with an Argon2id key; changing the password, moving back to the Keychain, and resetting after a forgotten password are all there. The Keychain stays the default.
 * **One-command install** (`scripts/install.sh`): picks the build for your Mac, checks its SHA-256, installs into Applications and removes the download flag, so there is no "could not verify" step. Also `docs/INSTALL.md` with every way to install, the install box on the website, and a Homebrew cask file (`packaging/homebrew/mylodb.rb`) ready for a tap repository.
 
 **Planned**

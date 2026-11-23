@@ -43,7 +43,7 @@ The first column must equal the text in the `.sha256` file.
 
 ## About the Keychain prompt
 
-Because the app is not signed with a stable certificate, macOS asks for your login password again for each saved connection after an update. Choose **Always Allow** to stop it for that build. A fix that does not need a paid certificate (an optional password file instead of the Keychain) is planned in phase 19c of the [roadmap](ROADMAP.md).
+Because the app is not signed with a stable certificate, macOS asks for your login password again for each saved connection after an update. Choose **Always Allow** to stop it for that build. To avoid it without a paid certificate, open **Preferences → Security → Saved passwords** and move your passwords to an encrypted file: you type one master password per session instead.
 
 ## Updates
 

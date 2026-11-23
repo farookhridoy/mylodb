@@ -184,6 +184,10 @@ Only tables are compared, not views, routines, triggers or events. It uses the s
 * A **query time limit** kills runaway statements.
 * Destructive statements (DROP, TRUNCATE, DELETE or UPDATE without WHERE) are reviewed with an estimate of the rows affected before they run.
 
+### Saved passwords
+
+Under **Preferences → Security → Saved passwords** you choose where connection passwords are kept. The **macOS Keychain** is the default; because MyLoDB is not signed with a paid Apple certificate, macOS asks again for each saved connection after an update. The **encrypted file** moves every saved password out of the Keychain into one file locked by a master password (at least 8 characters; XChaCha20-Poly1305, key from Argon2id). You type it once per session and the Keychain prompts stop. You can change the master password, or move everything back to the Keychain, from the same page. **If you forget the master password the file cannot be opened by anyone**: the unlock window offers to delete it, your connections stay, and you type each password again.
+
 ## 8. Backup, restore, import and export
 
 File → **Backup / Restore…** and **Import Data… / Export Data…**.

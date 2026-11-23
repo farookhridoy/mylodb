@@ -1,6 +1,6 @@
 # MyLoDB user manual
 
-Version 0.4.1. The same text is inside the app: **Help → User Manual**. Screenshots show the real interface running on demo data (a fake `shop` database), not a real server.
+Version 0.4.2. The same text is inside the app: **Help → User Manual**. Screenshots show the real interface running on demo data (a fake `shop` database), not a real server.
 
 ## Contents
 
@@ -102,7 +102,7 @@ Updates are signed by the project's key and refused if the signature does not ma
 
 ![A table: console above, data grid below](images/table-data.png)
 
-* The grid pages through the data on the server. Edit a cell by double-clicking; edits are **staged** and written together in one transaction when you save. Rows are matched by primary or unique key; a table without one is read-only.
+* The grid pages through the data on the server. The **SL** column is the row number: drag its edge to resize it, click it to sort by the primary key (ascending, descending, off). Edit a cell by double-clicking; edits are **staged** and written together in one transaction when you save. Rows are matched by primary or unique key; a table without one is read-only.
 * Filter row (contains, =, ≠, starts/ends with, <, ≤, >, ≥, between, in, regexp, NULL, empty), a free-form WHERE, and multi-column sort.
 * Foreign-key cells open a picker; ⌘-click jumps to the referenced row. The value panel shows text, JSON, hex and images, and uploads or saves BLOBs.
 * Export the table or any SELECT to CSV, JSON, JSON Lines (optionally gzip), SQL, XML, HTML or Excel, as a cancellable background job with progress. Running jobs appear under **Tasks** in the footer.
@@ -212,6 +212,7 @@ Measured on 2026-11-21 against a local MySQL 9.7.2 with a 10-million-row table o
 | ⌘↵ | Run selection or script |
 | ⇧⌘F | Format SQL |
 | ⇧⌘B | Search objects |
+| ⌘B | Show or hide the sidebar |
 | ⌘K | Command palette |
 | ⌘, | Preferences |
 | F5 | Refresh the object tree |

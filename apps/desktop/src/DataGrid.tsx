@@ -550,8 +550,21 @@ export default function DataGrid(props: {
     patchView({ sort: next ? [...others, next] : others });
   };
 
+  // The row-number column ("SL") sorts by the primary key (ascending, descending, off) and is resizable like the others.
+  const RN = "\u0000rownum";
+  const rnSort = (() => {
+    const pk = meta?.primary_key ?? [];
+    if (pk.length === 0 || view.sort.length !== pk.length || !pk.every((k, i) => view.sort[i]?.column === k)) return null;
+    return view.sort[0].desc ? ("desc" as const) : ("asc" as const);
+  })();
+  const toggleRowSort = () => {
+    const pk = meta?.primary_key ?? [];
+    if (pk.length === 0) { setNotice("Sorting by row number needs a primary key: this table has none."); return; }
+    const next = rnSort === null ? false : rnSort === "asc" ? true : null;
+    patchView({ sort: next === null ? [] : pk.map((column) => ({ column, desc: next })) });
+  };
   const startResize = (name: string, startX: number, startW: number) => {
-    const move = (e: MouseEvent) => setWidths((w) => ({ ...w, [name]: Math.max(50, startW + e.clientX - startX) }));
+    const move = (e: MouseEvent) => setWidths((w) => ({ ...w, [name]: Math.max(name === RN ? 36 : 50, startW + e.clientX - startX) }));
     const up = () => { window.removeEventListener("mousemove", move); window.removeEventListener("mouseup", up); };
     window.addEventListener("mousemove", move);
     window.addEventListener("mouseup", up);
@@ -674,12 +687,16 @@ export default function DataGrid(props: {
           {page && (
             <table className="grid dg" style={{ width: 44 + visibleCols.reduce((n, { c }) => n + widthOf(c.name, c.type_name), 0) }}>
               <colgroup>
-                <col style={{ width: 44 }} />
+                <col style={{ width: widths[RN] ?? 44 }} />
                 {visibleCols.map(({ c }) => <col key={c.name} style={{ width: widthOf(c.name, c.type_name) }} />)}
               </colgroup>
               <thead ref={thead}>
                 <tr>
-                  <th className="rownum" />
+                  <th className="rownum" onClick={toggleRowSort} title={meta?.primary_key.length ? "Row number. Click to sort by the primary key: ascending, descending, off" : "Row number (this table has no primary key to sort by)"}>
+                    <div className="th rn-head"><span className="rn-label">SL</span>{rnSort && <span className="sortmark">{rnSort === "desc" ? "▼" : "▲"}</span>}</div>
+                    <div className="resizer" onClick={(e) => e.stopPropagation()}
+                         onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); startResize(RN, e.clientX, widths[RN] ?? 44); }} />
+                  </th>
                   {visibleCols.map(({ c }) => {
                     const m = colMeta(c.name);
                     const s = view.sort.findIndex((x) => x.column === c.name);

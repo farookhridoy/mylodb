@@ -1681,6 +1681,8 @@ fn build_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::
             .build()?)
         .build()?;
     let view = SubmenuBuilder::new(app, "View")
+        .item(&item("toggle_sidebar", "Toggle Sidebar", Some("CmdOrCtrl+B"))?)
+        .separator()
         .item(&with_icon("theme_system", "Theme: System", icon!("auto"))?)
         .item(&with_icon("theme_light", "Theme: Light", icon!("sun"))?)
         .item(&with_icon("theme_dark", "Theme: Dark", icon!("moon"))?)

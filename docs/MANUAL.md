@@ -1,6 +1,6 @@
 # MyLoDB user manual
 
-Version 0.4.0. The same text is inside the app: **Help → User Manual**. Screenshots show the real interface running on demo data (a fake `shop` database), not a real server.
+Version 0.4.1. The same text is inside the app: **Help → User Manual**. Screenshots show the real interface running on demo data (a fake `shop` database), not a real server.
 
 ## Contents
 

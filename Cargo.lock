@@ -2877,7 +2877,7 @@ checksum = "743fb55ba31b18fb1ecef6bdc9aa2743314978ac084044301a7eee33fb99a20d"
 
 [[package]]
 name = "mylodb-desktop"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "base64 0.22.1",
  "myq-admin",
@@ -2903,7 +2903,7 @@ dependencies = [
 
 [[package]]
 name = "myq-admin"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "myq-core",
  "myq-driver",
@@ -2916,14 +2916,14 @@ dependencies = [
 
 [[package]]
 name = "myq-core"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "myq-data"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "base64 0.22.1",
  "flate2",
@@ -2940,7 +2940,7 @@ dependencies = [
 
 [[package]]
 name = "myq-driver"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "myq-core",
  "myq-schema",
@@ -2953,7 +2953,7 @@ dependencies = [
 
 [[package]]
 name = "myq-profile"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "myq-driver",
  "myq-sql",
@@ -2965,7 +2965,7 @@ dependencies = [
 
 [[package]]
 name = "myq-schema"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "myq-core",
  "regex",
@@ -2974,7 +2974,7 @@ dependencies = [
 
 [[package]]
 name = "myq-sql"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "myq-core",
  "myq-schema",
@@ -2984,7 +2984,7 @@ dependencies = [
 
 [[package]]
 name = "myq-sqlite"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "myq-core",
  "myq-data",
@@ -2995,7 +2995,7 @@ dependencies = [
 
 [[package]]
 name = "myq-store"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "keyring",
  "myq-driver",
@@ -3008,7 +3008,7 @@ dependencies = [
 
 [[package]]
 name = "myq-transfer"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "csv",
  "encoding_rs",
@@ -3026,7 +3026,7 @@ dependencies = [
 
 [[package]]
 name = "myq-tunnel"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "myq-driver",
  "russh",

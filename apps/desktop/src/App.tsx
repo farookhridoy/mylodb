@@ -89,6 +89,7 @@ const quote = (s: string) => "`" + s.replace(/`/g, "``") + "`";
 
 export default function App() {
   const [connections, setConnections] = useState<SavedConnection[]>([]);
+  const [connecting, setConnecting] = useState<string | null>(null); // name of the connection being opened (shows the centred spinner)
   const [activeId, setActiveId] = useState<number | null>(null);
   const [index, setIndex] = useState<Node[]>([]);
   const [status, setStatus] = useState("Not connected");
@@ -184,6 +185,7 @@ export default function App() {
   // ---- connect / session restore ----
   const open = async (id: number, trust?: string) => {
     setStatus("Connecting…");
+    setConnecting(connectionsRef.current.find((c) => c.id === id)?.name ?? "the server");
     try {
       const idx = await api.connect(id, trust);
       // what was expanded and selected last time on this connection (only what still exists on the server)
@@ -239,6 +241,8 @@ export default function App() {
         setStatus(`The SSH host key of ${err.host} changed`);
         setHostPrompt({ id, host: err.host, fingerprint: err.actual, changed: err.expected });
       } else setStatus(`Error: ${describeError(e)}`);
+    } finally {
+      setConnecting(null);
     }
   };
 
@@ -1256,6 +1260,11 @@ export default function App() {
         {activeId !== null && env !== "development" && <span className={`env-chip env-${env}`}>{ENV_LABEL[env]}{readOnly ? " · read-only" : ""}</span>}
       </footer>
 
+      {connecting !== null && (
+        <div className="overlay connecting" role="status" aria-live="polite" data-testid="connecting">
+          <div className="connecting-box"><div className="spinner" /><div>Connecting to <b>{connecting}</b>…</div></div>
+        </div>
+      )}
       {hostPrompt && (
         <div className="overlay">
           <div className="dialog">

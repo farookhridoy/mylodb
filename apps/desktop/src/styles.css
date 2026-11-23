@@ -143,7 +143,7 @@ button.link { background: none; border: 0; color: var(--accent); text-align: lef
 table.dg { table-layout: fixed; }
 table.dg th { padding: 0; }
 .dg .th { display: flex; align-items: center; gap: 4px; padding: 4px 8px; overflow: hidden; white-space: nowrap; cursor: pointer; user-select: none; }
-.dg .th-name { overflow: hidden; text-overflow: ellipsis; } .dg .th-type { font-weight: 400; font-size: 10px; overflow: hidden; text-overflow: ellipsis; }
+.dg .th-name { overflow: hidden; text-overflow: ellipsis; }
 .dg .sortmark { margin-left: auto; color: var(--accent); }
 .dg th { position: sticky; top: 0; z-index: 2; } .dg thead tr.filter-row th { top: 27px; z-index: 2; background: var(--subpanel); }
 .resizer { position: absolute; right: 0; top: 0; bottom: 0; width: 5px; cursor: col-resize; } .resizer:hover { background: var(--accent); }
@@ -497,7 +497,7 @@ table.kv th { text-align: left; font-weight: 500; color: var(--dim); width: 170p
 .conn-tab.active { background: var(--control); border-top-color: var(--accent); font-weight: 600; } .conn-tab.env-production { border-top-color: #e5484d; } .conn-tab.env-staging { border-top-color: #c98a1b; }
 .conn-tab button { background: transparent; border: 0; min-height: 22px; padding: 1px 8px; display: inline-flex; align-items: center; gap: 4px; } .conn-tab-close { padding: 1px 5px !important; color: var(--dim); } .conn-tab-close:hover { color: var(--text); }
 .tasks { position: relative; } .tasks-btn { background: transparent; border: 0; min-height: 0; padding: 0 6px; font-size: 11px; color: var(--dim); display: inline-flex; align-items: center; gap: 4px; } .tasks-btn.busy { color: var(--accent); font-weight: 600; }
-.tasks-pop { position: absolute; bottom: 22px; right: 0; width: 420px; max-height: 360px; overflow: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 8px 30px rgba(0,0,0,.25); z-index: 60; padding: 6px 8px; }
+.tasks-pop { position: absolute; bottom: 22px; right: 0; width: 420px; max-height: 360px; overflow: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 8px 30px var(--shadow); z-index: 60; padding: 6px 8px; }
 .tasks-head { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; } .tasks-pop ul { list-style: none; margin: 0; padding: 0; } .task { padding: 5px 0; border-top: 1px solid var(--line); } .task-line { display: flex; align-items: center; gap: 6px; } .task-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 220px; }
 .task.failed .task-label { color: var(--bad-text); }
 
@@ -537,3 +537,8 @@ table.kv th { text-align: left; font-weight: 500; color: var(--dim); width: 170p
 .chart-cursor { stroke: var(--dim); stroke-dasharray: 3 3; }
 .chart-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 11px; }
 .chart-legend i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 4px; }
+
+.overlay.connecting { z-index: 1200; cursor: progress; }
+.connecting-box { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 22px 32px; border-radius: 10px; background: var(--panel); color: var(--text); border: 1px solid var(--line); box-shadow: 0 8px 30px var(--shadow); }
+.spinner { width: 34px; height: 34px; border-radius: 50%; border: 3px solid rgba(128,128,128,.3); border-top-color: var(--accent); animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }

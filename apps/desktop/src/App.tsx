@@ -13,6 +13,7 @@ import QueryBuilderPage from "./QueryBuilderPage";
 import SchemaComparePage from "./SchemaComparePage";
 import AboutDialog from "./AboutDialog";
 import UpdateDialog from "./UpdateDialog";
+import ShortcutsDialog from "./ShortcutsDialog";
 import { check as checkForUpdate, type Update } from "@tauri-apps/plugin-updater";
 import Manual from "./Manual";
 import Tour, { tourSeen } from "./Tour";
@@ -167,6 +168,7 @@ export default function App() {
   const capOff = (k: "server_tools" | "users" | "dump_restore") => caps?.[k].available === false;
   const capTitle = (k: "server_tools" | "users" | "dump_restore", on: string) => (caps?.[k].available === false ? (caps[k].reason ?? "Not available for this connection") : on);
   const [aboutOpen, setAboutOpen] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
   // updates: the one on offer (a dialog), and whether the check runs by itself
   const [update, setUpdate] = useState<Update | null>(null);
   const [autoUpdate, setAutoUpdate] = useState(() => localStorage.getItem("mylodb.autoUpdate") !== "0");
@@ -531,7 +533,7 @@ export default function App() {
       case "users": return need(() => gate("users", openUsers));
       case "server_tools": return need(() => gate("server_tools", openServer));
       case "catalog": return need(() => gate("server_tools", openCatalog));
-      case "about_shortcuts": return setStatus("⌘T new tab · ⌘W close tab · ⌘↵ run · ⇧⌘F format · ⇧⌘B search objects · F5 refresh · ⌘, preferences");
+      case "about_shortcuts": return setShortcutsOpen(true);
     }
   };
   useEffect(() => {
@@ -987,6 +989,7 @@ export default function App() {
       }
       if (e.metaKey && e.key.toLowerCase() === "k") { e.preventDefault(); setPaletteOpen(true); return; }
       if (e.metaKey && e.key === ",") { e.preventDefault(); setPrefsOpen(true); return; }
+      if (e.metaKey && e.key === "/") { e.preventDefault(); setShortcutsOpen((o) => !o); return; }
       if (e.metaKey && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "b") { e.preventDefault(); toggleSidebar(); return; }
       if (!e.metaKey || activeId === null) return;
       if (e.shiftKey && e.key.toLowerCase() === "b") { e.preventDefault(); setSidebarOpen(true); localStorage.setItem("mylodb.sidebarOpen", "1"); setSide("objects"); const focus = () => filterInput.current?.focus(); focus(); setTimeout(focus, 0); /* the second call covers the objects tab not being mounted yet */ return; }
@@ -1332,6 +1335,7 @@ export default function App() {
       {aboutOpen && <AboutDialog onClose={() => setAboutOpen(false)} onManual={() => { setAboutOpen(false); setManualOpen(true); }}
         autoUpdate={autoUpdate} onAutoUpdate={(on) => { localStorage.setItem("mylodb.autoUpdate", on ? "1" : "0"); setAutoUpdate(on); }}
         onCheckUpdates={() => { setAboutOpen(false); void checkUpdates(true); }} />}
+      {shortcutsOpen && <ShortcutsDialog onClose={() => setShortcutsOpen(false)} />}
       {update && <UpdateDialog update={update}
         onLater={() => { update.close().catch(() => {}); setUpdate(null); }}
         onSkip={() => { localStorage.setItem("mylodb.skipUpdate", update.version); update.close().catch(() => {}); setUpdate(null); setStatus(`Version ${update.version} skipped. Help → Check for Updates offers it again.`); }} />}
@@ -1345,7 +1349,7 @@ export default function App() {
       {paletteOpen && (
         <CommandPalette onClose={() => setPaletteOpen(false)} commands={[
           ...([["new_query", "New query tab"], ["home", "Server home"], ["databases", "Databases"], ["search_data", "Search data in a database"], ["compare", "Compare schemas of the selected database"], ["advisor", "Index advisor for the selected database"], ["builder", "Visual query builder"], ["er", "ER diagram of the selected database"], ["structure", "Tables of the selected database"], ["new_table", "New table"], ["export", "Export data"], ["import", "Import data"],
-              ["backup", "Backup / restore"], ["users", "Users and privileges"], ["server_tools", "Server tools"], ["catalog", "Engines, charsets, replication"], ["refresh_tree", "Refresh object tree"], ["toggle_sidebar", "Show or hide the sidebar"],
+              ["backup", "Backup / restore"], ["users", "Users and privileges"], ["server_tools", "Server tools"], ["catalog", "Engines, charsets, replication"], ["refresh_tree", "Refresh object tree"], ["toggle_sidebar", "Show or hide the sidebar"], ["about_shortcuts", "Keyboard shortcuts"],
               ["theme_dark", "Theme: dark"], ["theme_light", "Theme: light"], ["theme_system", "Theme: system"], ...THEMES.map((t) => [`theme_${t.id}`, `Theme: ${t.label}`] as const), ["preferences", "Preferences"], ["manual", "User manual"], ["tour", "Quick tour"], ["check_updates", "Check for updates"], ["about", "About MyLoDB"], ["new_connection", "New connection"], ["edit_connection", "Edit connection"]] as const)
             .map(([id, label]): Command => ({ id, label, hint: "action", run: () => menuHandler.current(id) })),
           { id: "snippet-save", label: "Save editor text as my snippet…", hint: "selection, or the whole editor", run: () => {

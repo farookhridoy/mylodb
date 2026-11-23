@@ -1,6 +1,6 @@
 # MyLoDB user manual
 
-Version 0.4.2. The same text is inside the app: **Help → User Manual**. Screenshots show the real interface running on demo data (a fake `shop` database), not a real server.
+Version 0.4.3. The same text is inside the app: **Help → User Manual**. Screenshots show the real interface running on demo data (a fake `shop` database), not a real server.
 
 ## Contents
 
@@ -205,17 +205,48 @@ Measured on 2026-11-21 against a local MySQL 9.7.2 with a 10-million-row table o
 
 ## 11. Keyboard shortcuts
 
+The same list opens anywhere with **⌘/** (Help → Keyboard Shortcuts).
+
+**Everywhere**
+
+| Shortcut | Action |
+|---|---|
+| ⌘K | Command palette: every action, table and theme |
+| ⌘, | Preferences |
+| ⌘B | Show or hide the sidebar |
+| ⇧⌘B | Search objects in the sidebar |
+| F5 | Refresh the object tree |
+| ⌘/ | This list of shortcuts |
+| Esc | Close a window, or cancel an edit |
+
+**Tabs and the SQL editor**
+
 | Shortcut | Action |
 |---|---|
 | ⌘T | New SQL script |
-| ⌘W | Close tab |
-| ⌘↵ | Run selection or script |
+| ⌘W | Close the tab |
+| ⌘↵ | Run the selection, or the whole script |
 | ⇧⌘F | Format SQL |
-| ⇧⌘B | Search objects |
-| ⌘B | Show or hide the sidebar |
-| ⌘K | Command palette |
-| ⌘, | Preferences |
-| F5 | Refresh the object tree |
+
+**Object tree**
+
+| Shortcut | Action |
+|---|---|
+| F2 | Rename the selected table |
+| F4 | Open the selected table's properties |
+
+**Data grid**
+
+| Shortcut | Action |
+|---|---|
+| Enter or F2 | Edit the cell (long text and JSON open in a window) |
+| Tab | Save the cell and move right |
+| ⌘↵ | Submit the pending changes |
+| ⌘C | Copy the cell |
+| Delete | Delete the selected rows |
+| Arrows, PageUp, PageDown | Move between cells |
+| ⌘Home, ⌘End | First and last row of the page |
+| ⌘ click | Follow a foreign key to the row it points to |
 
 ## 12. Troubleshooting
 

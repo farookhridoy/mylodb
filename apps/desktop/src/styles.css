@@ -507,13 +507,13 @@ table.kv th { text-align: left; font-weight: 500; color: var(--dim); width: 170p
 .about-head h3 { margin: 0; font-size: 20px; }
 .ext-link { color: var(--accent); text-decoration: none; cursor: pointer; }
 .ext-link:hover { text-decoration: underline; }
-.dialog.manual { position: relative; display: flex; width: min(900px, 92vw); height: min(640px, 86vh); padding: 0; overflow: hidden; }
+.dialog.manual { position: relative; display: flex; flex-direction: row; gap: 0; width: min(900px, 92vw); height: min(640px, 86vh); padding: 0; overflow: hidden; }
 .manual nav { flex: none; width: 210px; border-right: 1px solid var(--line); background: var(--panel); padding: 12px 8px; display: flex; flex-direction: column; gap: 2px; overflow: auto; }
 .manual nav h3 { margin: 0 6px 8px; }
 .manual nav button { text-align: left; background: transparent; border: 0; padding: 5px 8px; border-radius: 4px; }
 .manual nav button.active { background: var(--accent); color: #fff; }
 .manual nav .tour-link { margin-top: auto; color: var(--accent); }
-.manual article { flex: 1; overflow: auto; padding: 18px 28px 28px; line-height: 1.55; user-select: text; }
+.manual article { flex: 1; min-width: 0; min-height: 0; overflow: auto; padding: 18px 28px 28px; line-height: 1.55; user-select: text; }
 .manual article h2 { margin-top: 0; }
 .manual article code, .manual kbd { font-family: var(--font-editor, monospace); background: var(--hover, rgba(127,127,127,.15)); padding: 1px 5px; border-radius: 3px; font-size: 0.92em; }
 .manual-close { position: absolute; top: 8px; right: 10px; background: transparent; border: 0; }
@@ -600,3 +600,12 @@ table.kv th { text-align: left; font-weight: 500; color: var(--dim); width: 170p
 .sidebar[hidden] { display: none; } .sidebar-toggle { min-width: 30px; }
 .sidebar-toggle[aria-pressed="false"] { color: var(--dim); }
 .dg th.rownum .rn-head { justify-content: flex-end; }
+
+.manual article h3 { margin: 18px 0 6px; font-size: 13px; }
+.dialog.shortcuts-dialog { width: min(720px, 92vw); max-height: 86vh; }
+.shortcut-groups { overflow: auto; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 28px; padding-right: 4px; }
+.shortcut-groups section { break-inside: avoid; } .shortcut-groups h4 { margin: 12px 0 6px; font-size: 12px; color: var(--dim); }
+.shortcut-groups dl { margin: 0; display: grid; gap: 4px; } .shortcut-groups dl > div { display: grid; grid-template-columns: 9.5rem 1fr; gap: 10px; align-items: baseline; }
+.shortcut-groups dt { text-align: right; } .shortcut-groups dd { margin: 0; color: var(--text); }
+.shortcut-groups kbd { font-family: var(--font-editor, monospace); background: var(--hover); border: 1px solid var(--line); border-radius: 4px; padding: 1px 6px; font-size: .92em; white-space: nowrap; }
+@media (max-width: 760px) { .shortcut-groups { grid-template-columns: 1fr; } }

@@ -71,6 +71,39 @@ assert.deepEqual((await calls("open_url")).at(-1), { url: "https://thelarasoft.c
 await page.click("[aria-label='About MyLoDB'] a:has-text('farookhridoy.com')");
 assert.deepEqual((await calls("open_url")).at(-1), { url: "https://farookhridoy.com" });
 ok("About shows the version and the author links, which open through the backend");
+// the manual is a side-by-side layout: the section list on the left, the text beside it, and every screenshot stays inside the window
+await page.evaluate(() => window.__emit("menu-action", "manual"));
+await page.waitForSelector(".dialog.manual");
+const geo = async () => page.evaluate(() => {
+  const d = document.querySelector(".dialog.manual").getBoundingClientRect(), n = document.querySelector(".manual nav").getBoundingClientRect(), a = document.querySelector(".manual article").getBoundingClientRect();
+  return { d, n, a, imgs: [...document.querySelectorAll(".manual article img")].map((i) => i.getBoundingClientRect().right) };
+});
+for (const section of ["Getting started", "Running SQL", "Table designer and admin pages", "Preferences and themes"]) {
+  await page.locator(".manual nav button", { hasText: section }).first().click();
+  await page.waitForTimeout(300);
+  const g = await geo();
+  assert.ok(g.a.left >= g.n.right - 1, `${section}: the text sits beside the list, not under it`);
+  assert.ok(g.a.top <= g.d.top + 2 && g.a.bottom <= g.d.bottom + 1, `${section}: the text stays inside the window`);
+  assert.ok(g.imgs.every((r) => r <= g.d.right), `${section}: screenshots stay inside the window`);
+}
+await page.keyboard.press("Escape");
+ok("the manual shows the section list beside the text, and its screenshots stay inside the window");
+
+// Help → Keyboard Shortcuts opens a window with every group; ⌘/ toggles it; Esc closes it
+await page.evaluate(() => window.__emit("menu-action", "about_shortcuts"));
+await page.waitForSelector(".shortcuts-dialog");
+const groups = await page.locator(".shortcuts-dialog h4").allInnerTexts();
+assert.deepEqual(groups, ["Everywhere", "Tabs and the SQL editor", "Object tree", "Data grid"]);
+assert.ok((await page.locator(".shortcuts-dialog dl > div").count()) >= 18);
+assert.match(await page.locator(".shortcuts-dialog").innerText(), /Show or hide the sidebar/);
+await page.keyboard.press("Escape");
+assert.equal(await page.locator(".shortcuts-dialog").count(), 0);
+await page.keyboard.press("Meta+/");
+await page.waitForSelector(".shortcuts-dialog");
+await page.keyboard.press("Meta+/");
+assert.equal(await page.locator(".shortcuts-dialog").count(), 0);
+ok("Keyboard Shortcuts opens a window listing every shortcut by group; ⌘/ toggles it and Esc closes it");
+
 assert.deepEqual(errors, []);
 await browser.close();
 console.log("ALL HELP UI CHECKS PASSED");

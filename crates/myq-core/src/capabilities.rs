@@ -93,8 +93,8 @@ impl Capabilities {
         }
     }
 
-    /// For a SQLite file. It is opened read-only in this version, so `writes` is off.
-    pub fn sqlite() -> Capabilities {
+    /// For a SQLite file. `writable` is false when the connection opens it read-only, which turns `writes` off.
+    pub fn sqlite(writable: bool) -> Capabilities {
         Capabilities {
             flavor: Flavor::Sqlite,
             schemas: Cap::no("a SQLite file has one main database (attached files are not listed yet)"),
@@ -108,7 +108,7 @@ impl Capabilities {
             row_estimates: Cap::no("SQLite keeps no row statistics; counts are exact"),
             server_tools: Cap::no("SQLite is a file, not a server: there is no process list, variables or log"),
             dump_restore: Cap::no("backup and restore of SQL dumps is MySQL-only for now"),
-            writes: Cap::no("SQLite files open read-only in this version"),
+            writes: if writable { Cap::yes() } else { Cap::no("this SQLite file is open read-only") },
         }
     }
 }
@@ -138,9 +138,10 @@ mod tests {
 
     #[test]
     fn a_sqlite_file_says_what_it_lacks_and_why() {
-        let c = Capabilities::sqlite();
+        let c = Capabilities::sqlite(false);
         assert_eq!(c.flavor, Flavor::Sqlite);
         assert!(c.triggers.available && c.read_only_session.available);
+        assert!(Capabilities::sqlite(true).writes.available);
         for (name, cap) in [("users", &c.users), ("events", &c.events), ("routines", &c.routines), ("server_tools", &c.server_tools), ("writes", &c.writes)] {
             assert!(!cap.available && cap.reason.as_deref().is_some_and(|r| !r.is_empty()), "{name}");
         }

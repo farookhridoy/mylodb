@@ -14,35 +14,60 @@ fn failed(e: impl std::fmt::Display) -> BackendError {
     BackendError(e.to_string())
 }
 
-/// A SQLite file. Every call opens its own read-only connection (cheap for a file), so there is no pool and no shared state to lose.
+/// A SQLite file. Every call opens its own connection (cheap for a file), so there is no pool and no shared state to lose.
+/// A read-only backend opens the file by the read-only flag and `PRAGMA query_only`; a writable one opens it read-write
+/// (an existing file only: opening never creates one).
 #[derive(Clone, Debug)]
 pub struct SqliteBackend {
     path: PathBuf,
+    writable: bool,
 }
 
-pub(crate) fn open(path: &Path) -> rusqlite::Result<Connection> {
-    let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX)?;
-    conn.pragma_update(None, "query_only", true)?;
-    Ok(conn)
+/// One connection to the file. `writable` opens it read-write with foreign keys enforced and a 5 s wait on a locked file.
+pub(crate) fn open(path: &Path, writable: bool) -> rusqlite::Result<Connection> {
+    if writable {
+        let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX)?;
+        conn.busy_timeout(std::time::Duration::from_secs(5))?;
+        conn.pragma_update(None, "foreign_keys", true)?;
+        Ok(conn)
+    } else {
+        let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX)?;
+        conn.pragma_update(None, "query_only", true)?;
+        Ok(conn)
+    }
 }
 
 impl SqliteBackend {
-    /// Opens the file once to check that it is a readable SQLite database.
+    /// Opens the file once, read-only, to check that it is a SQLite database.
     pub fn open(path: impl Into<PathBuf>) -> Result<SqliteBackend, String> {
+        SqliteBackend::open_mode(path, false)
+    }
+
+    /// Like `open`, but later calls may change the file. The file must already exist and be writable by this user.
+    pub fn open_writable(path: impl Into<PathBuf>) -> Result<SqliteBackend, String> {
+        SqliteBackend::open_mode(path, true)
+    }
+
+    fn open_mode(path: impl Into<PathBuf>, writable: bool) -> Result<SqliteBackend, String> {
         let path = path.into();
-        let conn = open(&path).map_err(|e| format!("cannot open {}: {e}", path.display()))?;
+        let conn = open(&path, writable).map_err(|e| format!("cannot open {}{}: {e}", path.display(), if writable { " for writing (is the file read-only? use the Read-only option)" } else { "" }))?;
         conn.query_row("SELECT count(*) FROM sqlite_master", [], |r| r.get::<_, i64>(0)).map_err(|e| format!("{} is not a SQLite database: {e}", path.display()))?;
-        Ok(SqliteBackend { path })
+        Ok(SqliteBackend { path, writable })
     }
 
     pub fn path(&self) -> &Path {
         &self.path
     }
 
+    /// Whether this backend may change the file.
+    pub fn writable(&self) -> bool {
+        self.writable
+    }
+
     async fn blocking<T: Send + 'static>(&self, f: impl FnOnce(&Connection) -> rusqlite::Result<T> + Send + 'static) -> BackendResult<T> {
-        let path = self.path.clone();
+        let (path, writable) = (self.path.clone(), self.writable);
         tokio::task::spawn_blocking(move || {
-            let conn = open(&path)?;
+            let conn = open(&path, writable)?;
             f(&conn)
         })
         .await
@@ -94,7 +119,7 @@ impl Backend for SqliteBackend {
     }
 
     async fn capabilities(&self) -> BackendResult<Capabilities> {
-        Ok(Capabilities::sqlite())
+        Ok(Capabilities::sqlite(self.writable))
     }
 
     async fn index(&self, include_system: bool) -> BackendResult<Vec<Node>> {

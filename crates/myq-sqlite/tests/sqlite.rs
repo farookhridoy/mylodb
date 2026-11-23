@@ -1,8 +1,8 @@
 //! The SQLite engine against real files in a temp directory (no server needed).
 
 use myq_core::{Backend, Kind};
-use myq_data::{ColumnFilter, Op, PageSpec, Sort};
-use myq_sqlite::{count_rows, fetch_page, table_meta, SqliteBackend, MAIN};
+use myq_data::{Assign, CellValue, Change, ColumnFilter, Op, PageSpec, Sort};
+use myq_sqlite::{apply_changes, count_rows, fetch_page, preview_changes, table_meta, SqliteBackend, MAIN};
 use rusqlite::Connection;
 use std::path::PathBuf;
 
@@ -83,14 +83,14 @@ async fn running_sql_reports_results_nulls_blobs_and_errors_and_cannot_write() {
 #[test]
 fn the_grid_pages_filters_sorts_and_counts() {
     let path = fixture("grid");
-    let meta = table_meta(&path, "customers").unwrap();
+    let meta = table_meta(&path, "customers", false).unwrap();
     assert_eq!((meta.primary_key.clone(), meta.row_key.clone()), (vec!["id".to_string()], vec!["id".to_string()]));
     assert!(meta.read_only_reason.is_some() && !meta.is_view);
     assert!(meta.columns.iter().find(|c| c.name == "avatar").unwrap().binary);
-    let orders = table_meta(&path, "orders").unwrap();
+    let orders = table_meta(&path, "orders", false).unwrap();
     assert_eq!(orders.foreign_keys.len(), 1);
     assert_eq!((orders.foreign_keys[0].columns.clone(), orders.foreign_keys[0].ref_table.clone(), orders.foreign_keys[0].ref_columns.clone()), (vec!["customer_id".to_string()], "customers".to_string(), vec!["id".to_string()]));
-    assert!(table_meta(&path, "missing").is_err());
+    assert!(table_meta(&path, "missing", false).is_err());
 
     let page = fetch_page(&path, &meta, &PageSpec { limit: 2, ..Default::default() }).unwrap();
     assert_eq!((page.rows.len(), page.has_more, page.has_prev, page.keyset), (2, true, false, false));
@@ -125,4 +125,97 @@ fn a_file_that_is_not_a_database_is_refused_clearly() {
     assert!(e.contains("not a SQLite database") || e.contains("cannot open"), "{e}");
     assert!(SqliteBackend::open(dir.join("missing.db")).is_err());
     assert!(!dir.join("missing.db").exists(), "opening never creates a file");
+}
+
+fn t(c: &str, v: &str) -> Assign {
+    Assign { column: c.into(), value: CellValue::Text(v.into()) }
+}
+
+fn count(path: &PathBuf, sql: &str) -> String {
+    use rusqlite::types::Value;
+    match Connection::open(path).unwrap().query_row(sql, [], |r| r.get::<_, Value>(0)).unwrap() {
+        Value::Integer(i) => i.to_string(),
+        Value::Text(t) => t,
+        v => format!("{v:?}"),
+    }
+}
+
+#[tokio::test]
+async fn a_writable_file_runs_sql_that_changes_it_and_a_read_only_one_still_cannot() {
+    let path = fixture("write_sql");
+    let w = SqliteBackend::open_writable(&path).unwrap();
+    assert!(w.writable() && w.capabilities().await.unwrap().writes.available);
+    let r = w.run(None, "INSERT INTO customers (id, name) VALUES (9, 'Zed'); UPDATE customers SET note = 'x' WHERE id = 9; CREATE TABLE extra (a INTEGER)").await.unwrap();
+    assert!(r.iter().all(|s| s.error.is_none()), "{r:?}");
+    assert_eq!(r[0].affected_rows, 1);
+    assert_eq!(count(&path, "SELECT note FROM customers WHERE id = 9"), "x");
+    // foreign keys are enforced on a writable connection
+    let fk = w.run(None, "INSERT INTO orders VALUES (50, 999, 1, 'x')").await.unwrap();
+    assert!(fk[0].error.as_deref().is_some_and(|e| e.to_lowercase().contains("foreign key")), "{fk:?}");
+    let ro = SqliteBackend::open(&path).unwrap();
+    assert!(!ro.writable() && !ro.capabilities().await.unwrap().writes.available);
+    assert!(ro.run(None, "DELETE FROM customers").await.unwrap()[0].error.is_some());
+    assert_eq!(count(&path, "SELECT count(*) FROM customers"), "4");
+}
+
+#[test]
+fn staged_edits_apply_in_one_transaction_with_the_same_change_type_as_mysql() {
+    let path = fixture("write_grid");
+    let meta = table_meta(&path, "customers", true).unwrap();
+    assert!(meta.read_only_reason.is_none());
+    let changes = vec![
+        Change::Update { key: vec![t("id", "1")], set: vec![t("name", "Anne"), Assign { column: "note".into(), value: CellValue::Null }, t("avatar", "0xBEEF")] },
+        Change::Insert { values: vec![t("name", "O'Neil"), Assign { column: "note".into(), value: CellValue::Default }] },
+        Change::Delete { key: vec![t("id", "3")] },
+    ];
+    let sql = preview_changes(&meta, &changes).unwrap();
+    assert_eq!(sql[0], "UPDATE \"customers\" SET \"name\" = 'Anne', \"note\" = NULL, \"avatar\" = X'BEEF' WHERE \"id\" = '1'");
+    assert_eq!(sql[1], "INSERT INTO \"customers\" (\"name\") VALUES ('O''Neil')", "a DEFAULT column is left out, quotes are doubled");
+    assert_eq!(sql[2], "DELETE FROM \"customers\" WHERE \"id\" = '3'");
+    let out = apply_changes(&path, &meta, &changes).unwrap();
+    assert_eq!((out.applied, out.insert_ids.clone()), (3, vec![4]));
+    assert_eq!(count(&path, "SELECT name FROM customers WHERE id = 1"), "Anne");
+    assert_eq!(count(&path, "SELECT hex(avatar) FROM customers WHERE id = 1"), "BEEF");
+    assert_eq!(count(&path, "SELECT name FROM customers WHERE id = 4"), "O'Neil");
+    assert_eq!(count(&path, "SELECT count(*) FROM customers WHERE id = 3"), "0");
+    // the key typed as text still finds an INTEGER key
+    let empty = vec![Change::Insert { values: vec![] }];
+    assert!(apply_changes(&path, &meta, &empty).is_err(), "name is NOT NULL, so an all-default row fails");
+}
+
+#[test]
+fn a_failing_change_rolls_the_whole_batch_back_and_stale_rows_are_reported() {
+    let path = fixture("write_rollback");
+    let meta = table_meta(&path, "customers", true).unwrap();
+    let batch = vec![Change::Update { key: vec![t("id", "1")], set: vec![t("name", "Changed")] }, Change::Insert { values: vec![t("name", "Bo_b")] }];
+    let e = apply_changes(&path, &meta, &batch).unwrap_err();
+    assert!(e.starts_with("change 2:") && e.to_lowercase().contains("unique"), "{e}");
+    assert_eq!(count(&path, "SELECT name FROM customers WHERE id = 1"), "Ann", "the first change was rolled back");
+    let gone = vec![Change::Delete { key: vec![t("id", "77")] }];
+    assert!(apply_changes(&path, &meta, &gone).unwrap_err().contains("no longer exists"));
+    let bad_key = vec![Change::Delete { key: vec![t("name", "Ann")] }];
+    assert!(apply_changes(&path, &meta, &bad_key).unwrap_err().contains("row key must be exactly (id)"));
+    let dflt = vec![Change::Update { key: vec![t("id", "1")], set: vec![Assign { column: "note".into(), value: CellValue::Default }] }];
+    assert!(apply_changes(&path, &meta, &dflt).unwrap_err().contains("DEFAULT"));
+}
+
+#[test]
+fn read_only_files_views_and_keyless_tables_cannot_be_edited() {
+    let path = fixture("write_refuse");
+    let ro = table_meta(&path, "customers", false).unwrap();
+    assert!(ro.read_only_reason.as_deref().is_some_and(|r| r.contains("read-only")));
+    let del = vec![Change::Delete { key: vec![t("id", "1")] }];
+    assert!(apply_changes(&path, &ro, &del).is_err() && preview_changes(&ro, &del).is_err());
+    assert_eq!(count(&path, "SELECT count(*) FROM customers"), "3");
+    assert!(table_meta(&path, "v_big", true).unwrap().read_only_reason.as_deref().is_some_and(|r| r.contains("view")));
+    Connection::open(&path).unwrap().execute_batch("CREATE TABLE loose (a TEXT, b TEXT)").unwrap();
+    assert!(table_meta(&path, "loose", true).unwrap().read_only_reason.as_deref().is_some_and(|r| r.contains("primary key")));
+}
+
+#[test]
+fn opening_for_writing_never_creates_a_file() {
+    let dir = std::env::temp_dir().join(format!("mylodb_itest_sqlite_{}_nocreate", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    assert!(SqliteBackend::open_writable(dir.join("missing.db")).is_err());
+    assert!(!dir.join("missing.db").exists());
 }

@@ -82,7 +82,7 @@ export default function ConnectionDialog(props: {
         <label>Database type
           <Select value={c.engine ?? "mysql"} onChange={(e) => { const engine = e.target.value as "mysql" | "sqlite"; setC({ ...c, engine, ...(engine === "sqlite" ? { host: "", user: "", port: 0 } : { host: c.host || "127.0.0.1", user: c.user || "root", port: c.port || 3306 }) }); setTab("general"); }}>
             <option value="mysql">MySQL / MariaDB</option>
-            <option value="sqlite">SQLite file (read-only)</option>
+            <option value="sqlite">SQLite file</option>
           </Select>
         </label>
         {sqlite ? (
@@ -93,7 +93,8 @@ export default function ConnectionDialog(props: {
               <datalist id="connection-groups">{(props.groups ?? []).map((g) => <option key={g} value={g} />)}</datalist>
             </label>
             <PathField label="Database file" value={c.file} placeholder="/path/to/data.sqlite" onChange={(v) => set("file", v)} filters={[{ name: "SQLite database", extensions: ["db", "sqlite", "sqlite3", "db3", "s3db", "sl3"] }]} />
-            <div className="dim small">The file is opened read-only: MyLoDB cannot change it in this version. Users, events, server tools and backup do not apply to SQLite.</div>
+            <label className="check"><input type="checkbox" checked={!!c.read_only} onChange={(e) => set("read_only", e.target.checked)} /> Open read-only</label>
+            <div className="dim small">Unless read-only is ticked, SQL you run and rows you edit in the grid change the file. It must already exist: opening never creates one. Users, events, server tools and backup do not apply to SQLite.</div>
           </>
         ) : null}
         {!sqlite && <div className="dz-tabs">

@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+**Planned**
+* The roadmap has phases 19 to 25 (install without a paid Apple account, smarter autocomplete, visual explain, scheduled jobs, SQLite completed, PostgreSQL, sync and teams).
+
 ## 0.4.4 (2026-11-23)
 
 **Changed**

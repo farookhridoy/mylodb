@@ -29,7 +29,7 @@
   "applicationCategory": "DeveloperApplication",
   "operatingSystem": "macOS (Apple Silicon and Intel)",
   "description": "An open-source MySQL, MariaDB and SQLite manager for macOS.",
-  "softwareVersion": "0.4.1",
+  "softwareVersion": "0.4.2",
   "license": "https://www.apache.org/licenses/LICENSE-2.0",
   "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
   "author": { "@type": "Person", "name": "Omar Farook Hridoy", "url": "https://farookhridoy.com" },
@@ -65,7 +65,7 @@
           <a class="btn primary" id="dl-arm" href="https://github.com/farookhridoy/mylodb/releases/latest">Download for Apple Silicon</a>
           <a class="btn" id="dl-intel" href="https://github.com/farookhridoy/mylodb/releases/latest">Download for Intel</a>
         </p>
-        <p class="fine" id="dl-meta">Version <span data-version>0.4.1</span>. Free and open source under Apache-2.0. It updates itself, and it sends no telemetry.</p>
+        <p class="fine" id="dl-meta">Version <span data-version>0.4.2</span>. Free and open source under Apache-2.0. It updates itself, and it sends no telemetry.</p>
       </div>
 
       <div class="stage" aria-label="A demonstration of the review dialog">
@@ -251,18 +251,18 @@
   <section id="download" class="download">
     <div class="wrap dl-in">
       <div class="dl-main">
-      <h2>Download MyLoDB <span data-version>0.4.1</span></h2>
+      <h2>Download MyLoDB <span data-version>0.4.2</span></h2>
       <p class="lede">Free, and open source under Apache-2.0. Not sure which Mac you have? Open the Apple menu and choose About This Mac: <i>Chip: Apple M…</i> means Apple Silicon, <i>Processor: Intel…</i> means Intel.</p>
       <div class="dl-pair">
         <a class="dl-tile" id="dl-arm-2" href="https://github.com/farookhridoy/mylodb/releases/latest">
           <b>Apple Silicon</b>
           <span>For M1 and later</span>
-          <code data-file="aarch64">MyLoDB_0.4.1_aarch64.dmg</code>
+          <code data-file="aarch64">MyLoDB_0.4.2_aarch64.dmg</code>
         </a>
         <a class="dl-tile" id="dl-intel-2" href="https://github.com/farookhridoy/mylodb/releases/latest">
           <b>Intel</b>
           <span>For Macs with an Intel processor</span>
-          <code data-file="x64">MyLoDB_0.4.1_x64.dmg</code>
+          <code data-file="x64">MyLoDB_0.4.2_x64.dmg</code>
         </a>
       </div>
       <p class="fine" id="dl-detail">Each file has a SHA-256 checksum next to it on the <a href="https://github.com/farookhridoy/mylodb/releases/latest" id="dl-rel">release page</a>.</p>
@@ -280,7 +280,7 @@
         <p>Prefer Terminal? <code>xattr -dr com.apple.quarantine /Applications/MyLoDB.app</code></p>
         <p>macOS also asks for your login keychain password the first time MyLoDB reads a saved connection password. Choose <b>Always Allow</b> and it stays quiet until the next update.</p>
       </div>
-      <p class="fine">After that, MyLoDB looks for new versions by itself (Help, then Check for Updates). Copies older than 0.4.0 cannot do this yet, so install 0.4.x by hand once. Passwords live in the macOS Keychain. You can also <a href="https://github.com/farookhridoy/mylodb#build-it-yourself">build it from source</a>.</p>
+      <p class="fine">After that, MyLoDB looks for new versions by itself (Help, then Check for Updates). Copies older than 0.4.0 cannot do this yet, so install the latest version by hand once. Passwords live in the macOS Keychain. You can also <a href="https://github.com/farookhridoy/mylodb#build-it-yourself">build it from source</a>.</p>
       </div>
     </div>
   </section>
@@ -292,6 +292,10 @@
         <p class="fine">Every version, with its known limits, is in the <a href="https://github.com/farookhridoy/mylodb/blob/main/CHANGELOG.md">changelog</a>.</p>
       </div>
       <ol class="log">
+        <li>
+          <h3>0.4.2 <time datetime="2026-11-23">23 Nov 2026</time></h3>
+          <p>Hide and show the sidebar with the button before Home, or with ⌘B. The row-number column of Table Data is titled SL, resizes like the others, and sorts by the primary key. A table tab shows only its data until you run a query, then Results, Profile, Messages, Info and History appear.</p>
+        </li>
         <li>
           <h3>0.4.1 <time datetime="2026-11-23">23 Nov 2026</time></h3>
           <p>Nine colour themes (Monokai, GitHub Dark and Light, Dracula, One Dark, Nord, Solarized Dark and Light, Tokyo Night). The in-app manual now shows its screenshots. Switching between open connections no longer reconnects, so it stops asking for the keychain password each time.</p>

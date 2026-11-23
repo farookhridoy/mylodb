@@ -5,7 +5,7 @@ attaches the `.dmg` files (with SHA-256 checksums), the update packages and `lat
 section of `CHANGELOG.md`, checks `latest.json`, and publishes the release. Installed copies (0.4.0 and later) then offer the update.
 
 1. Pick the version (semver). Set it in `Cargo.toml` (`[workspace.package]`), `apps/desktop/package.json`, `apps/desktop/package-lock.json` and `apps/desktop/src-tauri/tauri.conf.json`. The About box and manual read it from `package.json`; the workflow refuses a tag that does not match them.
-2. In `CHANGELOG.md` rename **Unreleased** to `## <version> (<date>)`. This section is what installed copies show as "What is new", so write it for users.
+2. Add the version to the **Release notes** list in `site/index.html` (newest first) and update the version numbers there; `node scripts/check-site.mjs` fails until it matches. In `CHANGELOG.md` rename **Unreleased** to `## <version> (<date>)`. This section is what installed copies show as "What is new", so write it for users.
 3. Check: `cargo test --workspace` (against a test database, see CLAUDE.md), `npm run e2e` (with `npm run dev` running and `CHROME_PATH` set), `npx tsc --noEmit`.
 4. Regenerate screenshots if the UI changed: `node scripts/screenshots.mjs`.
 5. Merge to `main` through a pull request (`main` is protected).

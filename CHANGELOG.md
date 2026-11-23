@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+**Fixed**
+* **The width of a resized pane is saved at once.** It was written in a delayed step, so a quit or reload right after a drag could keep an older width.
+
 **Added**
 * **One-command install** (`scripts/install.sh`): picks the build for your Mac, checks its SHA-256, installs into Applications and removes the download flag, so there is no "could not verify" step. Also `docs/INSTALL.md` with every way to install, the install box on the website, and a Homebrew cask file (`packaging/homebrew/mylodb.rb`) ready for a tap repository.
 

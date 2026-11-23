@@ -41,6 +41,8 @@ const Editor = forwardRef<EditorHandle, {
   dark: boolean;
   /** Syntax colour scheme chosen in Preferences. */
   scheme?: EditorScheme;
+  /** The colour theme in effect (Monokai, GitHub Dark…), whose syntax colours the editor uses unless a scheme is chosen. */
+  theme?: string | null;
 }>(function Editor(props, ref) {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
@@ -50,7 +52,7 @@ const Editor = forwardRef<EditorHandle, {
   cb.current = props;
   // the colour theme sits in a compartment so it can change without recreating the editor or losing undo history
   const themeSlot = useRef(new Compartment());
-  const themeFor = (dark: boolean) => [dark ? oneDark : [], Prec.high(schemeExtension(cb.current.scheme ?? "default", dark))];
+  const themeFor = (dark: boolean) => [dark ? oneDark : [], Prec.high(schemeExtension(cb.current.scheme ?? "default", dark, cb.current.theme))];
 
   /** Ask the Rust engine for candidates. Ranked and capped there, so CodeMirror must not filter again. */
   const completionSource = async (ctx: CompletionContext): Promise<CompletionResult | null> => {
@@ -108,7 +110,7 @@ const Editor = forwardRef<EditorHandle, {
   useEffect(() => {
     view.current?.dispatch({ effects: themeSlot.current.reconfigure(themeFor(props.dark)) });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [props.dark, props.scheme]);
+  }, [props.dark, props.scheme, props.theme]);
 
   useImperativeHandle(ref, () => ({
     runnableText() {

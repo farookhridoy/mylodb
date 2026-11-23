@@ -1,7 +1,26 @@
 import { useState, type ReactNode } from "react";
 import { ExtLink } from "./AboutDialog";
+import shot_tour from "../../../docs/images/tour.png";
+import shot_connDialog from "../../../docs/images/connection-dialog.png";
+import shot_connSafety from "../../../docs/images/connection-safety.png";
+import shot_sqliteDialog from "../../../docs/images/sqlite-dialog.png";
+import shot_browserInfo from "../../../docs/images/browser-info.png";
+import shot_query from "../../../docs/images/query.png";
+import shot_palette from "../../../docs/images/command-palette.png";
+import shot_tableData from "../../../docs/images/table-data.png";
+import shot_databases from "../../../docs/images/databases.png";
+import shot_structure from "../../../docs/images/structure.png";
+import shot_erDiagram from "../../../docs/images/er-diagram.png";
+import shot_queryBuilder from "../../../docs/images/query-builder.png";
+import shot_preferences from "../../../docs/images/preferences.png";
+import shot_darkTheme from "../../../docs/images/dark-theme.png";
 
 interface Section { id: string; title: string; body: ReactNode }
+
+/** A screenshot of the real interface (the same files the written manual uses). */
+const Shot = ({ src, alt }: { src: string; alt: string }) => (
+  <figure className="manual-shot"><img src={src} alt={alt} loading="lazy" /><figcaption>{alt}</figcaption></figure>
+);
 
 const K = ({ children }: { children: ReactNode }) => <kbd>{children}</kbd>;
 
@@ -16,6 +35,9 @@ const SECTIONS: Section[] = [
         <li>Save. The connection opens on the server <b>Home</b> page with a query tab beside it.</li>
       </ol>
       <p>Passwords are stored in the macOS Keychain, never in the app's own database or in logs.</p>
+      <Shot src={shot_connDialog} alt="The new connection dialog" />
+      <Shot src={shot_connSafety} alt="The Safety tab: environment, read-only, time limit" />
+      <Shot src={shot_tour} alt="The quick tour" />
     </>) },
   { id: "updates", title: "Updates", body: (
     <>
@@ -37,6 +59,7 @@ const SECTIONS: Section[] = [
         <li>Users, server tools, events, routines and dump-based backup do not exist for a file: those buttons are disabled and their tooltips say why.</li>
         <li>Not yet: the table designer, export from a table, and cancelling a running query.</li>
       </ul>
+      <Shot src={shot_sqliteDialog} alt="A SQLite connection in the connection dialog" />
     </>) },
   { id: "browse", title: "Browsing objects", body: (
     <>
@@ -48,6 +71,7 @@ const SECTIONS: Section[] = [
         <li>The <b>Info</b> tab under the editor shows facts about what is selected in the tree.</li>
         <li><K>F5</K> refreshes the tree.</li>
       </ul>
+      <Shot src={shot_browserInfo} alt="The Info tab shows facts about the object selected in the tree" />
     </>) },
   { id: "query", title: "Running SQL", body: (
     <>
@@ -60,6 +84,8 @@ const SECTIONS: Section[] = [
         <li><K>⌘K</K> opens the command palette: every action, every table, SQL snippets, and your own saved snippets (<i>Save editor text as my snippet…</i>).</li>
         <li>Open and save <code>.sql</code> files from the File menu. History and Favorites live in the sidebar tabs.</li>
       </ul>
+      <Shot src={shot_query} alt="A query and its results" />
+      <Shot src={shot_palette} alt="The command palette (⌘K)" />
     </>) },
   { id: "grid", title: "Editing table data", body: (
     <>
@@ -70,6 +96,7 @@ const SECTIONS: Section[] = [
         <li>Use the filter row, a free-form WHERE, and multi-column sort. Foreign-key cells open a picker; <K>⌘</K>-click jumps to the referenced row.</li>
         <li>Export the table or any SELECT to CSV, JSON, JSON Lines, SQL, XML, HTML or Excel, as a cancellable background job.</li>
       </ul>
+      <Shot src={shot_tableData} alt="A table: console above, data grid below" />
     </>) },
   { id: "design", title: "Table designer and admin pages", body: (
     <>
@@ -81,6 +108,10 @@ const SECTIONS: Section[] = [
         <li><b>Users and Privileges</b> shows the exact GRANT and REVOKE changes with passwords masked. <b>Server Tools</b> has processes, variables, status, maintenance and logs.</li>
         <li><b>Alter database</b> (tree menu) changes the default collation. <b>Rename…</b> on a procedure or function creates it under the new name and then drops the old one.</li>
       </ul>
+      <Shot src={shot_databases} alt="The Databases page" />
+      <Shot src={shot_structure} alt="The Structure page" />
+      <Shot src={shot_erDiagram} alt="ER diagram of a database" />
+      <Shot src={shot_queryBuilder} alt="The visual query builder" />
     </>) },
   { id: "safety", title: "Staying safe on production", body: (
     <>
@@ -111,6 +142,17 @@ const SECTIONS: Section[] = [
       </tbody></table>
       <p>The grid draws only the rows you can see, so a page of 5,000 rows draws about 30. Row counts are estimates until you press <b>Count</b>; filtered estimates can be far off, which is why the grid marks them with ≈. Keyset paging needs a primary key made of integer, text or date columns; other tables fall back to OFFSET automatically.</p>
       <p className="dim small">Single runs on one machine; the full method, the limits and what is not covered are in docs/BENCHMARKS.md in the repository.</p>
+    </>) },
+  { id: "themes", title: "Preferences and themes", body: (
+    <>
+      <p>Open <b>Preferences</b> with <K>⌘,</K>. Changes apply as you make them; Cancel puts the old values back.</p>
+      <ul>
+        <li><b>Theme</b>: System, Light, Dark, or a colour theme: Monokai, GitHub Dark and Light, Dracula, One Dark, Nord, Solarized Dark and Light, Tokyo Night. The SQL editor takes the theme's syntax colours.</li>
+        <li><b>Fonts</b> for the interface, sidebar, data grid and query editor, each with its own family, size and weight.</li>
+        <li><b>Syntax colours</b>: keep the theme's own, or force Multi-colour, Solarized or High contrast in the editor.</li>
+      </ul>
+      <Shot src={shot_preferences} alt="Preferences" />
+      <Shot src={shot_darkTheme} alt="The dark theme" />
     </>) },
   { id: "keys", title: "Keyboard shortcuts", body: (
     <table className="info kv"><tbody>

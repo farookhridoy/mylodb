@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.3 (2026-11-23)
+
+**Fixed**
+* **The user manual layout.** The section list sat above the text instead of beside it, so the page looked broken and the screenshots spilled outside the window. The list is on the left again and the text scrolls beside it.
+* **Help → Keyboard Shortcuts did nothing visible** (it only wrote a line in the status bar). It now opens a window listing every shortcut by group, and ⌘/ opens it from anywhere.
+
+**Changed**
+* The manual's shortcut section uses the same list, which now also covers the object tree and the data grid.
+
 ## 0.4.2 (2026-11-23)
 
 **Added**

@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { ExtLink } from "./AboutDialog";
+import { SHORTCUT_GROUPS } from "./shortcuts";
 import shot_tour from "../../../docs/images/tour.png";
 import shot_connDialog from "../../../docs/images/connection-dialog.png";
 import shot_connSafety from "../../../docs/images/connection-safety.png";
@@ -155,10 +156,17 @@ const SECTIONS: Section[] = [
       <Shot src={shot_darkTheme} alt="The dark theme" />
     </>) },
   { id: "keys", title: "Keyboard shortcuts", body: (
-    <table className="info kv"><tbody>
-      {[["⌘T", "New SQL script"], ["⌘W", "Close tab"], ["⌘↵", "Run selection or script"], ["⇧⌘F", "Format SQL"], ["⇧⌘B", "Search objects"], ["⌘B", "Show or hide the sidebar"], ["⌘K", "Command palette"], ["⌘,", "Preferences"], ["F5", "Refresh the object tree"]]
-        .map(([k, v]) => <tr key={k}><th><K>{k}</K></th><td>{v}</td></tr>)}
-    </tbody></table>) },
+    <>
+      <p>The same list opens anywhere with <K>⌘/</K> (Help → Keyboard Shortcuts).</p>
+      {SHORTCUT_GROUPS.map((g) => (
+        <div key={g.title}>
+          <h3>{g.title}</h3>
+          <table className="info kv"><tbody>
+            {g.keys.map(([k, v]) => <tr key={k + v}><th><K>{k}</K></th><td>{v}</td></tr>)}
+          </tbody></table>
+        </div>
+      ))}
+    </>) },
   { id: "help", title: "Troubleshooting", body: (
     <>
       <ul>

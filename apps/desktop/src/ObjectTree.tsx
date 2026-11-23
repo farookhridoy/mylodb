@@ -305,6 +305,8 @@ function ColumnList({ onPick, ensure, detail, indexes, fallback, query, filterin
   matched: Set<number> | null; tableHasMatch: boolean; terms: string[];
 }) {
   useEffect(() => { ensure(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // the indexes sit in a group that starts closed: a table can have dozens, and the columns are what people look for
+  const [indexesOpen, setIndexesOpen] = useState(false);
   if (Array.isArray(detail)) {
     const shown = detail.filter((c) => columnMatches(query, c));
     return (
@@ -320,8 +322,10 @@ function ColumnList({ onPick, ensure, detail, indexes, fallback, query, filterin
         {shown.length > 500 && <li className="empty small">{shown.length - 500} more — type to narrow</li>}
         {!query && indexes && indexes.length > 0 && (
           <>
-            <li className="row-item col idx-head">Indexes<span className="badge">{indexes.length}</span></li>
-            {indexes.map((i) => (
+            <li className="row-item col idx-head" onClick={() => setIndexesOpen((o) => !o)} title={indexesOpen ? "Hide the indexes" : "Show the indexes"} aria-expanded={indexesOpen}>
+              <Chev open={indexesOpen} onClick={(e) => { e.stopPropagation(); setIndexesOpen((o) => !o); }} />Indexes<span className="badge">{indexes.length}</span>
+            </li>
+            {indexesOpen && indexes.map((i) => (
               <li key={i.name} className="row-item col idx" title={`${i.unique ? "Unique " : ""}${i.kind} index ${i.name} on (${i.columns.join(", ")})`}>
                 <span className="key">{i.name === "PRIMARY" ? <Icon name="key" size={12} className="ico-pk" /> : i.unique ? <Icon name="unique" size={11} /> : <Icon name="index" size={11} />}</span>
                 <span className="name">{i.name}</span>

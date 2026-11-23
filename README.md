@@ -60,9 +60,12 @@ Get the installer from the **[Releases page](https://github.com/farookhridoy/myl
 
 | Your computer | File |
 |---|---|
-| Mac with Apple Silicon (M1 and later) | `MyLoDB_0.3.0_aarch64.dmg` |
+| Mac with Apple Silicon (M1 and later) | `MyLoDB_<version>_aarch64.dmg` |
+| Mac with an Intel processor (from 0.4.0) | `MyLoDB_<version>_x64.dmg` |
 
-An Intel build and a signed build are on the [roadmap](docs/ROADMAP.md). Not sure which Mac you have? Apple menu → **About This Mac**.
+A notarised build is on the [roadmap](docs/ROADMAP.md). Not sure which Mac you have? Apple menu → **About This Mac**: *Chip: Apple M…* is Apple Silicon, *Processor: Intel…* is Intel.
+
+**Updates.** From 0.4.0 MyLoDB offers new versions by itself (and under **Help → Check for Updates…**): it shows what is new and you choose **Update now** (downloads the signed update, replaces the app, restarts), **Later** or **Skip this version**. The automatic check can be switched off in **Help → About**. Copies older than 0.4.0 cannot update themselves: install 0.4.0 from the Releases page once.
 
 ### How to install and open MyLoDB
 
@@ -129,7 +132,7 @@ Single runs on one machine, so treat them as indications. The method, the limits
 
 ## Status
 
-Version **0.3.0** adds a visual query builder, an ER diagram, schema compare, data search, an index advisor, server charts and JSON import. 0.2.0 added SQLite files (read-only) and fixed MariaDB 10.11 / 11.4; 0.1.0 was the first public release. Phases 1 to 13 and most of 16 and 17 of the [roadmap](docs/ROADMAP.md) are done: connection manager, object browser, SQL editor, data grid, table designer, users, server tools, backup and import, production safety, large-table engine, admin console, shell and preferences, workspace features. The Rust suite passes in CI on MySQL 8.0, 8.4 and 9 and MariaDB 10.11 and 11.4, and locally on MySQL 9.7 and MariaDB 13. MySQL 5.7 still fails some integration tests and is unsupported ([details](docs/SERVER_COMPATIBILITY.md)). Not yet: the SQLite table designer, PostgreSQL and SQL Server (design and progress in [docs/ENGINE_ABSTRACTION.md](docs/ENGINE_ABSTRACTION.md)), Windows and Linux builds, and a signed and notarised build.
+Version **0.4.0** adds automatic updates, an Intel build, SQLite writes and an editor window for long text and JSON. 0.3.0 added a visual query builder, an ER diagram, schema compare, data search, an index advisor, server charts and JSON import. 0.2.0 added SQLite files (read-only) and fixed MariaDB 10.11 / 11.4; 0.1.0 was the first public release. Phases 1 to 13 and most of 16 and 17 of the [roadmap](docs/ROADMAP.md) are done: connection manager, object browser, SQL editor, data grid, table designer, users, server tools, backup and import, production safety, large-table engine, admin console, shell and preferences, workspace features. The Rust suite passes in CI on MySQL 8.0, 8.4 and 9 and MariaDB 10.11 and 11.4, and locally on MySQL 9.7 and MariaDB 13. MySQL 5.7 still fails some integration tests and is unsupported ([details](docs/SERVER_COMPATIBILITY.md)). Not yet: the SQLite table designer, PostgreSQL and SQL Server (design and progress in [docs/ENGINE_ABSTRACTION.md](docs/ENGINE_ABSTRACTION.md)), Windows and Linux builds, and a signed and notarised build.
 
 ## Build it yourself
 

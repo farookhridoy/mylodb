@@ -62,7 +62,8 @@ await page.waitForFunction((q) => (document.querySelector(".palette li")?.innerT
 await page.keyboard.press("Enter");
 await page.waitForSelector("[aria-label='About MyLoDB']");
 const about = await page.locator("[aria-label='About MyLoDB']").innerText();
-assert.match(about, /Version 0\.3\.0/);
+const version = JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf8")).version;
+assert.ok(about.includes(`Version ${version}`), `About shows the package version ${version}`);
 assert.match(about, /farookhridoy\.com/);
 assert.match(about, /thelarasoft\.com/);
 await page.click("[aria-label='About MyLoDB'] a:has-text('thelarasoft.com')");

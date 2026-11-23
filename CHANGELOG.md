@@ -1,16 +1,21 @@
 # Changelog
 
-## Unreleased
+## 0.4.0 (2026-11-23)
 
 **Added**
+* **Automatic updates.** MyLoDB checks for a new release after it starts and every six hours (Help → Check for Updates… checks at once; About switches the automatic check off). A dialog shows what changed, and **Update now** downloads the signed update, replaces the app and restarts it; **Later** and **Skip this version** are there too. Copies older than 0.4.0 cannot update themselves: install 0.4.0 by hand once.
+* **Intel Macs.** Each release now also ships `MyLoDB_<version>_x64.dmg`, built by a release workflow that signs the updates and publishes `latest.json`.
 * **SQLite writes.** A SQLite connection is now writable unless you tick **Open read-only** in the connection dialog (existing SQLite connections become writable; tick the box to keep them read-only). SQL in the editor can change the file, and grid edits are staged, previewed and applied in one transaction. Foreign keys are enforced; a table needs a primary key to be edited in the grid, and views stay read-only. Opening never creates a file.
+* **Editor window for long values.** TEXT, MEDIUMTEXT, LONGTEXT and JSON cells in Table Data open in a large editor window (double-click, Enter or F2) with Apply (⌘↵), Set NULL, Copy, and for JSON a validity badge, Format and Minify. Long values are fetched in full; read-only connections get a viewer. In SQLite files a `text` column opens it only when the value is long or has line breaks.
 * A centred "Connecting to …" spinner while a connection opens.
 
 **Changed**
+* A table's **Indexes** in the sidebar are a group that starts closed; click it to open.
 * Data grid column headers show only the column name (the full type is still in the tooltip).
 
 **Known limits**
 * SQLite: no table designer yet, no export from a table, no cancel of a running query.
+* Unsigned and not notarised (updates are signed). MySQL 5.7 is unsupported.
 
 ## 0.3.0 (2026-11-21)
 

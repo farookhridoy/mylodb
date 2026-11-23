@@ -1686,6 +1686,7 @@ fn build_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::
         .item(&with_icon("tour", "Quick Tour", icon!("play"))?)
         .item(&item("about_shortcuts", "Keyboard Shortcuts", None)?)
         .separator()
+        .item(&item("check_updates", "Check for Updates…", None)?)
         .item(&with_icon("about", "About MyLoDB", icon!("info"))?)
         .build()?;
     MenuBuilder::new(app).items(&[&app_menu, &file, &edit, &search, &sql_editor, &database, &view, &window, &help]).build()
@@ -1694,6 +1695,8 @@ fn build_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .menu(build_menu)
         .on_menu_event(|app, event| {
             use tauri::Emitter;

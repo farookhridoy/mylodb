@@ -1,0 +1,125 @@
+name: Release
+
+# Pushing a tag v<version> builds MyLoDB for Apple Silicon and Intel Macs, signs the update packages, attaches the .dmg files, the update
+# packages and latest.json to a GitHub release (the notes are that version's section of CHANGELOG.md), and publishes it. Installed copies
+# read latest.json (https://github.com/farookhridoy/mylodb/releases/latest/download/latest.json) and offer the update.
+#
+# Needs two repository secrets: TAURI_SIGNING_PRIVATE_KEY (the updater private key, its text) and TAURI_SIGNING_PRIVATE_KEY_PASSWORD.
+# The matching public key is in apps/desktop/src-tauri/tauri.conf.json. Lose the private key and installed copies can no longer update.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to build (for example v0.4.0)"
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  TAG: ${{ github.event.inputs.tag || github.ref_name }}
+
+jobs:
+  build:
+    name: Build · ${{ matrix.name }}
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      # one after the other: both builds merge their platform into the same latest.json, which would race if they ran together
+      max-parallel: 1
+      matrix:
+        include:
+          - { name: "Apple Silicon", target: aarch64-apple-darwin, arch: aarch64 }
+          - { name: "Intel", target: x86_64-apple-darwin, arch: x64 }
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: The tag matches the version in the project
+        run: |
+          v="${TAG#v}"
+          for f in apps/desktop/package.json apps/desktop/src-tauri/tauri.conf.json; do
+            grep -q "\"version\": \"$v\"" "$f" || { echo "$f is not at version $v"; exit 1; }
+          done
+          grep -q "^version = \"$v\"" Cargo.toml || { echo "Cargo.toml is not at version $v"; exit 1; }
+
+      - name: Release notes from CHANGELOG.md
+        id: notes
+        run: |
+          v="${TAG#v}"
+          awk -v v="$v" 'index($0, "## " v " ") == 1 { f = 1; next } /^## / { f = 0 } f' CHANGELOG.md > notes.md
+          test -s notes.md || { echo "CHANGELOG.md has no section for $v"; exit 1; }
+          { echo 'body<<EOF_NOTES'; cat notes.md; echo 'EOF_NOTES'; } >> "$GITHUB_OUTPUT"
+
+      - run: npm ci
+        working-directory: apps/desktop
+
+      - uses: tauri-apps/tauri-action@v0
+        id: tauri
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: apps/desktop
+          tauriScript: npx tauri
+          args: --target ${{ matrix.target }} --bundles app,dmg
+          tagName: ${{ env.TAG }}
+          releaseName: MyLoDB __VERSION__
+          releaseBody: ${{ steps.notes.outputs.body }}
+          releaseDraft: true
+          prerelease: false
+          includeUpdaterJson: true
+          updaterJsonPreferNsis: false
+
+      # a draft release cannot be addressed by its tag, so the checksum goes up through the release id the build reported
+      - name: Checksum of the disk image
+        run: |
+          cd target/${{ matrix.target }}/release/bundle/dmg
+          for f in *.dmg; do
+            shasum -a 256 "$f" > "$f.sha256"
+            gh api --method POST "https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/${{ steps.tauri.outputs.releaseId }}/assets?name=$f.sha256" -H "Content-Type: text/plain" --input "$f.sha256" > /dev/null
+          done
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  publish:
+    name: Publish the release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check latest.json, then publish
+        run: |
+          id=$(gh api "repos/$GITHUB_REPOSITORY/releases" --paginate --jq ".[] | select(.tag_name == \"$TAG\") | .id" | head -1)
+          test -n "$id" || { echo "no release for $TAG"; exit 1; }
+          asset=$(gh api "repos/$GITHUB_REPOSITORY/releases/$id/assets" --paginate --jq '.[] | select(.name == "latest.json") | .id' | head -1)
+          test -n "$asset" || { echo "the release has no latest.json"; exit 1; }
+          gh api -H "Accept: application/octet-stream" "repos/$GITHUB_REPOSITORY/releases/assets/$asset" > latest.json
+          python3 - <<'PY'
+          import json, os
+          j = json.load(open("latest.json"))
+          want = {"darwin-aarch64", "darwin-x86_64"}
+          have = set(j["platforms"])
+          assert want <= have, f"latest.json lacks {want - have}"
+          assert all(p.get("signature") and p.get("url") for p in j["platforms"].values()), "a platform has no signature or url"
+          assert j["version"] == os.environ["TAG"].lstrip("v"), j["version"]
+          print("latest.json ok:", j["version"], sorted(have))
+          PY
+          gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$id" -F draft=false -f make_latest=true > /dev/null
+          echo "published $TAG"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

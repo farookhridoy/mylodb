@@ -12,6 +12,8 @@ import ErDiagramPage from "./ErDiagramPage";
 import QueryBuilderPage from "./QueryBuilderPage";
 import SchemaComparePage from "./SchemaComparePage";
 import AboutDialog from "./AboutDialog";
+import UpdateDialog from "./UpdateDialog";
+import { check as checkForUpdate, type Update } from "@tauri-apps/plugin-updater";
 import Manual from "./Manual";
 import Tour, { tourSeen } from "./Tour";
 import { AlterDatabaseDialog, PromptDialog, TypeConfirmDialog } from "./Dialogs";
@@ -162,10 +164,30 @@ export default function App() {
   const capOff = (k: "server_tools" | "users" | "dump_restore") => caps?.[k].available === false;
   const capTitle = (k: "server_tools" | "users" | "dump_restore", on: string) => (caps?.[k].available === false ? (caps[k].reason ?? "Not available for this connection") : on);
   const [aboutOpen, setAboutOpen] = useState(false);
+  // updates: the one on offer (a dialog), and whether the check runs by itself
+  const [update, setUpdate] = useState<Update | null>(null);
+  const [autoUpdate, setAutoUpdate] = useState(() => localStorage.getItem("mylodb.autoUpdate") !== "0");
   const [manualOpen, setManualOpen] = useState(false);
   // the first-run guide starts by itself once, shortly after the window is up
   const [tourOpen, setTourOpen] = useState(false);
   useEffect(() => { if (tourSeen()) return; const t = setTimeout(() => setTourOpen(true), 600); return () => clearTimeout(t); }, []);
+  /** Ask the release server for a newer version. A silent check offers nothing the user already skipped and stays quiet on failure; a manual one always answers. */
+  const checkUpdates = useCallback(async (manual: boolean) => {
+    try {
+      const u = await checkForUpdate();
+      if (!u) { if (manual) setStatus(`MyLoDB ${__APP_VERSION__} is up to date`); return; }
+      if (!manual && localStorage.getItem("mylodb.skipUpdate") === u.version) { await u.close().catch(() => {}); return; }
+      setUpdate((old) => { old?.close().catch(() => {}); return u; });
+    } catch (e) {
+      if (manual) setStatus(`Could not check for updates: ${describeError(e)}`);
+    }
+  }, []);
+  useEffect(() => {
+    if (!autoUpdate) return;
+    const first = setTimeout(() => { checkUpdates(false); }, 4000);
+    const again = setInterval(() => { checkUpdates(false); }, 6 * 60 * 60 * 1000);
+    return () => { clearTimeout(first); clearInterval(again); };
+  }, [autoUpdate, checkUpdates]);
   const [alterDb, setAlterDb] = useState<string | null>(null);
   const pendingSave = useRef<{ id: number; payload: string } | null>(null);
   const connectionsRef = useRef(connections);
@@ -474,6 +496,7 @@ export default function App() {
       case "about": return setAboutOpen(true);
       case "manual": return setManualOpen(true);
       case "tour": return setTourOpen(true);
+      case "check_updates": return void checkUpdates(true);
       case "new_query_db": return need(() => addTab("", selectedDb));
       case "disconnect": return disconnectActive();
       case "close_tab": return tab ? closeTab(tab.id) : undefined;
@@ -1177,7 +1200,7 @@ export default function App() {
                   data={isTable(editorTab) && editorTab.id === tab.id && (tab.view ?? "data") === "data" && editorTab.table?.name ? (
                     <DataGrid key={`${activeId}:${editorTab.id}`} connectionId={activeId} db={editorTab.table.db} table={editorTab.table.name}
                       initial={editorTab.grid ?? defaultView()} onViewChange={(grid) => patchTab(editorTab.id, { grid })}
-                      readOnlyConnection={readOnly} confirmCommit={env === "production" ? "Production database:" : undefined}
+                      readOnlyConnection={readOnly} confirmCommit={env === "production" ? "Production database:" : undefined} sqlite={caps?.flavor === "sqlite"}
                       onOpenTable={(d, t, f) => openTable(d, t, f)} />
                   ) : undefined}
                 />
@@ -1294,7 +1317,12 @@ export default function App() {
         </div>
       )}
       {pendingReview && <ReviewDialog review={pendingReview.review} onCancel={() => setPendingReview(null)} onRun={pendingReview.go} />}
-      {aboutOpen && <AboutDialog onClose={() => setAboutOpen(false)} onManual={() => { setAboutOpen(false); setManualOpen(true); }} />}
+      {aboutOpen && <AboutDialog onClose={() => setAboutOpen(false)} onManual={() => { setAboutOpen(false); setManualOpen(true); }}
+        autoUpdate={autoUpdate} onAutoUpdate={(on) => { localStorage.setItem("mylodb.autoUpdate", on ? "1" : "0"); setAutoUpdate(on); }}
+        onCheckUpdates={() => { setAboutOpen(false); void checkUpdates(true); }} />}
+      {update && <UpdateDialog update={update}
+        onLater={() => { update.close().catch(() => {}); setUpdate(null); }}
+        onSkip={() => { localStorage.setItem("mylodb.skipUpdate", update.version); update.close().catch(() => {}); setUpdate(null); setStatus(`Version ${update.version} skipped. Help → Check for Updates offers it again.`); }} />}
       {manualOpen && <Manual onClose={() => setManualOpen(false)} onTour={() => { setManualOpen(false); setTourOpen(true); }} />}
       {tourOpen && <Tour onClose={() => setTourOpen(false)} />}
       {prompt && <PromptDialog {...prompt} />}
@@ -1306,7 +1334,7 @@ export default function App() {
         <CommandPalette onClose={() => setPaletteOpen(false)} commands={[
           ...([["new_query", "New query tab"], ["home", "Server home"], ["databases", "Databases"], ["search_data", "Search data in a database"], ["compare", "Compare schemas of the selected database"], ["advisor", "Index advisor for the selected database"], ["builder", "Visual query builder"], ["er", "ER diagram of the selected database"], ["structure", "Tables of the selected database"], ["new_table", "New table"], ["export", "Export data"], ["import", "Import data"],
               ["backup", "Backup / restore"], ["users", "Users and privileges"], ["server_tools", "Server tools"], ["catalog", "Engines, charsets, replication"], ["refresh_tree", "Refresh object tree"],
-              ["theme_dark", "Theme: dark"], ["theme_light", "Theme: light"], ["theme_system", "Theme: system"], ["preferences", "Preferences"], ["manual", "User manual"], ["tour", "Quick tour"], ["about", "About MyLoDB"], ["new_connection", "New connection"], ["edit_connection", "Edit connection"]] as const)
+              ["theme_dark", "Theme: dark"], ["theme_light", "Theme: light"], ["theme_system", "Theme: system"], ["preferences", "Preferences"], ["manual", "User manual"], ["tour", "Quick tour"], ["check_updates", "Check for updates"], ["about", "About MyLoDB"], ["new_connection", "New connection"], ["edit_connection", "Edit connection"]] as const)
             .map(([id, label]): Command => ({ id, label, hint: "action", run: () => menuHandler.current(id) })),
           { id: "snippet-save", label: "Save editor text as my snippet…", hint: "selection, or the whole editor", run: () => {
             const text = editor.current?.runnableText().trim();

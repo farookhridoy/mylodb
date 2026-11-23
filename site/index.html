@@ -3,20 +3,23 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>MyLoDB: an open-source MySQL, MariaDB and SQLite manager for macOS</title>
-<meta name="description" content="MyLoDB is a free, open-source database manager for macOS written in Rust. Browse and edit MySQL and MariaDB, open SQLite files, build queries visually, compare schemas, and stay safe on production.">
+<title>MyLoDB: a MySQL, MariaDB and SQLite manager for the Mac</title>
+<meta name="description" content="MyLoDB is a free, open-source database manager for macOS, written in Rust. Quick on huge tables, and it asks before it does anything you cannot undo. Built for people who miss SQLyog on the Mac.">
 <meta name="author" content="Omar Farook Hridoy">
-<meta name="theme-color" content="#0f172a">
+<meta name="theme-color" content="#eef0f6">
 <link rel="icon" href="favicon.png" type="image/png">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="canonical" href="https://farookhridoy.github.io/mylodb/">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="MyLoDB">
-<meta property="og:title" content="MyLoDB: an open-source MySQL, MariaDB and SQLite manager for macOS">
-<meta property="og:description" content="Fast, native, safe on production. Query builder, ER diagram, schema compare, data search, index advisor and more. Free and open source.">
+<meta property="og:title" content="MyLoDB: a MySQL, MariaDB and SQLite manager for the Mac">
+<meta property="og:description" content="Quick on huge tables, and it asks before it does anything you cannot undo. Free and open source.">
 <meta property="og:url" content="https://farookhridoy.github.io/mylodb/">
-<meta property="og:image" content="https://farookhridoy.github.io/mylodb/img/query.png">
+<meta property="og:image" content="https://farookhridoy.github.io/mylodb/img/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
 <meta name="twitter:card" content="summary_large_image">
+<link rel="preload" href="fonts/archivo-latin-wdth-normal.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="styles.css">
 <script type="application/ld+json">
 {
@@ -26,6 +29,7 @@
   "applicationCategory": "DeveloperApplication",
   "operatingSystem": "macOS (Apple Silicon and Intel)",
   "description": "An open-source MySQL, MariaDB and SQLite manager for macOS.",
+  "softwareVersion": "0.4.1",
   "license": "https://www.apache.org/licenses/LICENSE-2.0",
   "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
   "author": { "@type": "Person", "name": "Omar Farook Hridoy", "url": "https://farookhridoy.com" },
@@ -34,138 +38,314 @@
 </script>
 </head>
 <body>
-<a class="skip" href="#download">Skip to download</a>
+<a class="skip" href="#download">Skip to the download</a>
 
-<header class="nav">
-  <div class="wrap nav-in">
-    <a class="brand" href="./" aria-label="MyLoDB home"><img src="favicon.png" alt="" width="28" height="28"><span>MyLoDB</span></a>
+<header class="top">
+  <div class="wrap top-in">
+    <a class="brand" href="./" aria-label="MyLoDB home"><img src="favicon.png" alt="" width="30" height="30"><span>MyLoDB</span></a>
     <nav aria-label="Main">
       <a href="#features">Features</a>
-      <a href="#screens">Screenshots</a>
-      <a href="#speed">Performance</a>
-      <a href="#download">Download</a>
-      <a href="#about">About</a>
-      <a class="gh" href="https://github.com/farookhridoy/mylodb" rel="noopener">GitHub</a>
+      <a href="#safety">Safety</a>
+      <a href="#themes">Themes</a>
+      <a href="#speed">Speed</a>
+      <a href="#releases">Releases</a>
+      <a class="pill" href="#download">Download</a>
     </nav>
   </div>
 </header>
 
 <main>
+  <!-- the first screen: what it is, and the one thing it does that others skip -->
   <section class="hero">
     <div class="wrap hero-in">
-      <div>
-        <p class="kicker">Open source · Apache-2.0 · macOS</p>
-        <h1>The database manager<br>Mac developers were missing.</h1>
-        <p class="lede">MyLoDB is a fast, native client for <b>MySQL</b>, <b>MariaDB</b> and <b>SQLite</b>, written in Rust. Browse and edit data, design tables, build queries visually, compare schemas, and stay safe on production: with colour-coded environments, server-enforced read-only and a preview before anything destructive runs.</p>
+      <div class="hero-copy">
+        <h1>The Mac database manager for people who miss SQLyog.</h1>
+        <p class="lede">MyLoDB opens MySQL, MariaDB and SQLite files on your Mac. It stays quick on tables with millions of rows, and it asks before it does anything you cannot undo.</p>
         <p class="cta">
-          <a class="btn primary" id="dl" href="https://github.com/farookhridoy/mylodb/releases/latest">Download for Mac</a>
-          <a class="btn" id="dl-intel" href="https://github.com/farookhridoy/mylodb/releases/latest" hidden>Intel Mac</a>
-          <a class="btn" href="https://github.com/farookhridoy/mylodb">View source</a>
+          <a class="btn primary" id="dl-arm" href="https://github.com/farookhridoy/mylodb/releases/latest">Download for Apple Silicon</a>
+          <a class="btn" id="dl-intel" href="https://github.com/farookhridoy/mylodb/releases/latest">Download for Intel</a>
         </p>
-        <p class="meta" id="dl-meta">Apple Silicon (M1 and later) and Intel · updates itself · free · no telemetry</p>
+        <p class="fine" id="dl-meta">Version <span data-version>0.4.1</span>. Free and open source under Apache-2.0. It updates itself, and it sends no telemetry.</p>
       </div>
-      <figure class="hero-shot">
-        <img src="img/query.png" alt="MyLoDB showing the object tree, a SQL editor and its results" width="1700" height="1056" fetchpriority="high">
-      </figure>
+
+      <div class="stage" aria-label="A demonstration of the review dialog">
+        <div class="win" id="demo">
+          <div class="win-bar"><i></i><i></i><i></i><span>MyLoDB</span></div>
+          <div class="conn-tabs" role="presentation">
+            <span class="ctab dev">Local</span>
+            <span class="ctab prod on">RPL-PROD</span>
+          </div>
+          <div class="env-band" aria-hidden="true">Production</div>
+          <div class="editor" aria-label="SQL editor">
+            <div class="ln" aria-hidden="true"><span>1</span><span>2</span><span>3</span></div>
+            <pre class="code" id="demo-code" aria-live="off"><span class="c">-- clear out the test orders</span>
+<span id="demo-typed"></span><span class="caret" id="demo-caret"></span></pre>
+            <button class="run" id="demo-run" type="button" tabindex="-1">Run</button>
+          </div>
+          <div class="grid-ghost" aria-hidden="true">
+            <div><b>id</b><b>customer</b><b>total</b></div>
+            <div><span>48213</span><span>Ana Petrova</span><span>120.00</span></div>
+            <div><span>48212</span><span>Ben Okafor</span><span>89.50</span></div>
+          </div>
+
+          <div class="review" id="demo-review" role="alertdialog" aria-label="Review before running" hidden>
+            <h2>Review before running <span class="badge">Production</span></h2>
+            <p class="sub">This statement can destroy data. Nothing has been sent to the server yet.</p>
+            <div class="risk">
+              <div class="risk-h">Statement 1 <span>about 48,213 rows</span></div>
+              <code>DELETE FROM orders;</code>
+              <div class="risk-w">DELETE without a WHERE condition deletes every row</div>
+            </div>
+            <label class="type"><span>Type <b>production</b> to run it</span>
+              <input id="demo-input" autocomplete="off" spellcheck="false" placeholder="production" aria-label="Type production to confirm">
+            </label>
+            <div class="acts">
+              <button type="button" id="demo-cancel">Cancel</button>
+              <button type="button" id="demo-go" class="danger" disabled>Run anyway</button>
+            </div>
+            <p class="result" id="demo-result" role="status" hidden></p>
+          </div>
+        </div>
+        <p class="stage-note">A working copy of the real dialog. Type the word and see what changes.</p>
+      </div>
     </div>
   </section>
 
-  <section id="features" class="band">
+  <section class="tested wrap" aria-label="Supported databases">
+    <p>Tested in CI against MySQL 8.0, 8.4 and 9, and MariaDB 10.11 and 11.4. Opens and edits SQLite files. Apple Silicon and Intel.</p>
+  </section>
+
+  <section id="features" class="features">
     <div class="wrap">
-      <h2>Everything for daily database work</h2>
-      <div class="grid">
-        <article><h3>Object browser</h3><p>Databases, tables, views, routines, triggers and events with sizes, and a filter that understands <code>/regex/</code>, <code>type:view</code>, <code>db:shop</code> and <code>col:email</code>.</p></article>
-        <article><h3>SQL editor</h3><p>Autocomplete that knows your tables and aliases, a formatter, Explain and a profiler, history, favorites, your own snippets, and a command palette on <kbd>⌘K</kbd>.</p></article>
-        <article><h3>Editable data grid</h3><p>Server-side paging, filters, multi-column sort, staged edits written in one transaction, a foreign-key picker and a BLOB viewer.</p></article>
-        <article><h3>Visual query builder</h3><p>Pick tables, join them from foreign keys, choose columns and functions, add conditions. The SQL is built and quoted by the backend, so a mistake is explained instead of sent to the server.</p></article>
-        <article><h3>ER diagram</h3><p>Every table and foreign key of a database, laid out by key depth. Drag, zoom, filter, open a table, or copy the diagram as Mermaid.</p></article>
-        <article><h3>Schema compare</h3><p>Make one database match another, on the same or another connection. See each difference with its SQL, and apply it through a preview. Drops are never pre-selected.</p></article>
-        <article><h3>Data search</h3><p>Find a value in any table of a database, with per-column counts, progress and cancel. Click a hit to open the table filtered to it.</p></article>
-        <article><h3>Index advisor</h3><p>Duplicate, redundant and missing foreign-key indexes from your definitions, plus indexes the server never used. Fixes go through Preview SQL.</p></article>
-        <article><h3>Server tools &amp; charts</h3><p>Processes, variables, status, maintenance and logs, plus live per-second charts of queries, statements, connections and network.</p></article>
-        <article><h3>Safe on production</h3><p>Environment colours, a read-only session enforced by the server, query time limits, a review of destructive SQL with row estimates, and type-to-confirm.</p></article>
-        <article><h3>Backup &amp; import</h3><p>Consistent SQL backups, restore with a script preview, CSV and JSON import with column mapping, and export to CSV, JSON, SQL, XML, HTML and Excel.</p></article>
-        <article><h3>SQLite too</h3><p>Open a <code>.sqlite</code> or <code>.db</code> file: browse, query, edit rows in the grid and run SQL that changes it, or open it read-only. What a file cannot have is disabled, with the reason.</p></article>
-        <article><h3>Updates itself</h3><p>MyLoDB checks for a new version, shows what changed, and <b>Update now</b> downloads it, replaces the app and restarts. Updates are signed; skip a version or switch the check off in About.</p></article>
+      <h2 class="section-h">Everything a day with a database asks for</h2>
+
+      <article class="feat f-right">
+        <div class="feat-text">
+          <h3>See the whole schema at once</h3>
+          <p>Every table and foreign key of a database, laid out by key depth. Drag tables around, zoom, filter by name, open a table from the diagram, or copy the whole thing as Mermaid for your docs.</p>
+        </div>
+        <figure class="shot"><img src="img/er-diagram.png" alt="The ER diagram of a database: tables as boxes with foreign keys drawn between them" loading="lazy" width="1312" height="600"></figure>
+      </article>
+
+      <article class="feat f-left">
+        <figure class="shot"><img src="img/query-builder.png" alt="The visual query builder with joins, columns, conditions and the generated SQL" loading="lazy" width="1312" height="700"></figure>
+        <div class="feat-text">
+          <h3>Build a query by choosing, not typing</h3>
+          <p>Pick a table, add joins (the ON columns come from the foreign key), tick columns, add conditions. The SQL is written for you and updates as you go. Open it in the editor or run it right there.</p>
+        </div>
+      </article>
+
+      <article class="feat f-right">
+        <div class="feat-text">
+          <h3>Make one database match another</h3>
+          <p>Compare two databases, on the same server or on two different ones. Each difference is listed with the exact SQL that fixes it. Drops are never ticked for you, and nothing runs until you have read the script.</p>
+        </div>
+        <figure class="shot"><img src="img/schema-compare.png" alt="Schema compare listing the differences between two databases with their SQL" loading="lazy" width="1312" height="560"></figure>
+      </article>
+
+      <article class="feat f-left">
+        <figure class="shot"><img src="img/index-advisor.png" alt="The index advisor listing duplicate, redundant and missing indexes with reasons and fixes" loading="lazy" width="1312" height="640"></figure>
+        <div class="feat-text">
+          <h3>Find the indexes that do nothing</h3>
+          <p>Duplicate and redundant indexes, foreign keys with no index behind them, and indexes the server has never used. Every finding says why, and every fix goes through a preview.</p>
+        </div>
+      </article>
+
+      <div class="also">
+        <h3>And the rest of the toolbox</h3>
+        <dl>
+          <div><dt>Edit rows safely</dt><dd>Changes are staged and previewed as SQL, then saved in one transaction.</dd></div>
+          <div><dt>Long text and JSON</dt><dd>A big editor window for TEXT and JSON cells, with Format and a validity check.</dd></div>
+          <div><dt>Search every table</dt><dd>Find a value across a whole database, with counts per column and a cancel button.</dd></div>
+          <div><dt>Live server charts</dt><dd>Queries, statements, connections and network as per-second rates.</dd></div>
+          <div><dt>Table designer</dt><dd>Change columns and indexes with the ALTER TABLE shown as you go.</dd></div>
+          <div><dt>Users and privileges</dt><dd>Server, database, table and column scope.</dd></div>
+          <div><dt>Backup, restore, import</dt><dd>SQL backups with progress, CSV and JSON import with column mapping, exports to six formats.</dd></div>
+          <div><dt>SQLite files</dt><dd>Browse, query and edit. Open one read-only if you would rather not risk it.</dd></div>
+          <div><dt>Command palette</dt><dd>Press ⌘K to jump to any table, action or theme.</dd></div>
+          <div><dt>Quiet updates</dt><dd>It tells you when a new version is out, shows what changed, and installs it when you say so.</dd></div>
+        </dl>
       </div>
     </div>
   </section>
 
-  <section id="screens" class="wrap shots">
-    <h2>A look inside</h2>
-    <p class="note">Screenshots show the real interface running on demo data, not a real server.</p>
-    <div class="shot-grid">
-      <figure><img src="img/er-diagram.png" alt="The ER diagram of a database" loading="lazy" width="1700" height="1056"><figcaption>ER diagram: tables by key depth, relations drawn</figcaption></figure>
-      <figure><img src="img/query-builder.png" alt="The visual query builder" loading="lazy" width="1700" height="1056"><figcaption>Query builder: joins from foreign keys, SQL built for you</figcaption></figure>
-      <figure><img src="img/schema-compare.png" alt="Schema compare listing differences with their SQL" loading="lazy" width="1700" height="1056"><figcaption>Schema compare: every difference with its statements</figcaption></figure>
-      <figure><img src="img/structure.png" alt="The database structure page with a With selected menu" loading="lazy" width="1700" height="1056"><figcaption>Database structure: sizes, engines, bulk actions</figcaption></figure>
-      <figure><img src="img/index-advisor.png" alt="The index advisor" loading="lazy" width="1700" height="1056"><figcaption>Index advisor: findings, reasons and fixes</figcaption></figure>
-      <figure><img src="img/server-charts.png" alt="Live server charts" loading="lazy" width="1700" height="1056"><figcaption>Server charts: counters as per-second rates</figcaption></figure>
-      <figure><img src="img/data-search.png" alt="Data search results" loading="lazy" width="1700" height="1056"><figcaption>Data search: which tables and columns match</figcaption></figure>
-      <figure><img src="img/dark-theme.png" alt="The dark theme" loading="lazy" width="1700" height="1056"><figcaption>Light, dark and system themes</figcaption></figure>
+  <section id="safety" class="safety">
+    <div class="wrap safety-in">
+      <div>
+        <h2>Production deserves a second look</h2>
+        <p class="lede">Most database accidents are not hacks. They are a DELETE without a WHERE, run on the wrong tab at the end of a long day. MyLoDB is built so the wrong tab looks wrong, and the dangerous statement gets stopped.</p>
+        <ul class="guards">
+          <li><b>Environments you can see.</b> Development, staging and production each get their own colour on the tab and a band across the window.</li>
+          <li><b>Read-only, enforced by the server.</b> Tick it on a connection and the session itself refuses writes, whatever is sent.</li>
+          <li><b>A time limit on every query.</b> A runaway query is stopped, not left to lock the table.</li>
+          <li><b>A review before anything destructive.</b> DELETE and UPDATE without WHERE, DROP and TRUNCATE are listed with the server's row estimate before they run.</li>
+          <li><b>Type the word on production.</b> The Run button stays off until you type it.</li>
+        </ul>
+      </div>
+      <div class="envs" aria-hidden="true">
+        <div class="env e-dev"><i></i><b>Local</b><span>Development</span></div>
+        <div class="env e-stg"><i></i><b>shop-staging</b><span>Staging</span></div>
+        <div class="env e-prod"><i></i><b>RPL-PROD</b><span>Production, read-only</span></div>
+      </div>
     </div>
   </section>
 
-  <section id="speed" class="band">
+  <section id="themes" class="themes">
+    <div class="wrap themes-in">
+      <div class="themes-copy">
+        <h2>Colours you already work in</h2>
+        <p>Nine colour themes, the same ones you have in your editor, and the SQL editor takes each theme's syntax colours. Pick one in Preferences, or press ⌘K and type its name.</p>
+        <div class="chips" role="radiogroup" aria-label="Colour theme" id="theme-chips"></div>
+      </div>
+      <div class="tm" id="theme-mock" data-t="monokai" aria-label="A preview of the selected theme">
+        <div class="tm-side">
+          <p class="tm-h">shop</p>
+          <p class="tm-i on">customers</p>
+          <p class="tm-i">orders</p>
+          <p class="tm-i">products</p>
+          <p class="tm-i">invoices</p>
+        </div>
+        <div class="tm-main">
+          <pre class="tm-code"><span class="k">SELECT</span> c.name, <span class="k">COUNT</span>(o.id) <span class="k">AS</span> orders
+<span class="k">FROM</span> customers c
+<span class="k">JOIN</span> orders o <span class="k">ON</span> o.customer_id = c.id
+<span class="k">WHERE</span> o.placed &gt; <span class="s">'2026-01-01'</span>
+<span class="k">GROUP BY</span> c.id <span class="k">LIMIT</span> <span class="n">100</span>;  <span class="m">-- busiest first</span></pre>
+          <div class="tm-grid">
+            <div><b>name</b><b>orders</b></div>
+            <div><span>Ana Petrova</span><span>42</span></div>
+            <div><span>Ben Okafor</span><span>31</span></div>
+            <div><span>Carla Gomez</span><span>27</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="speed" class="speed">
     <div class="wrap">
-      <h2>Built for big tables</h2>
-      <p>Measured on a local MySQL 9.7.2 with a <b>10-million-row</b> table of about 1 GB, larger than the server's buffer pool. Single runs on one machine: treat them as indications. The <a href="https://github.com/farookhridoy/mylodb/blob/main/docs/BENCHMARKS.md">method, the limits and what was not measured</a> are published.</p>
-      <div class="table-wrap">
-        <table>
-          <thead><tr><th>Operation</th><th>Result</th></tr></thead>
-          <tbody>
-            <tr><td>First page (500 rows)</td><td>6 ms</td></tr>
-            <tr><td>Jump to the middle (keyset paging)</td><td>3.3 ms <span class="dim">(OFFSET: 1,190 ms)</span></td></tr>
-            <tr><td>Jump to the last page (keyset)</td><td>2.0 ms <span class="dim">(OFFSET: 2,336 ms)</span></td></tr>
-            <tr><td>Estimated row count</td><td>0.9 ms <span class="dim">(exact COUNT(*): 820 ms)</span></td></tr>
-            <tr><td>Export to CSV</td><td>9.4 s, about 1.06 million rows per second</td></tr>
-            <tr><td>Memory during a 1.4 GB export</td><td>5 to 11 MB</td></tr>
-          </tbody>
-        </table>
+      <h2>Big tables stay quick</h2>
+      <p class="lede">Measured on MySQL 9.7.2 with a table of 10 million rows, about 1 GB, larger than the server's buffer pool. The trick is not paging with OFFSET: MyLoDB pages by key, so the last page costs the same as the first.</p>
+      <div class="bars" role="table" aria-label="Time to jump within a 10 million row table, keyset paging against OFFSET">
+        <div class="bar-row" role="row">
+          <span class="bar-l" role="rowheader">Jump to the middle</span>
+          <div class="bar-t" role="cell"><i class="ours" style="width:0.14%"></i><b>3.3 ms</b></div>
+          <div class="bar-t" role="cell"><i class="them" style="width:51%"></i><b>1,190 ms</b></div>
+        </div>
+        <div class="bar-row" role="row">
+          <span class="bar-l" role="rowheader">Jump to the last page</span>
+          <div class="bar-t" role="cell"><i class="ours" style="width:0.09%"></i><b>2.0 ms</b></div>
+          <div class="bar-t" role="cell"><i class="them" style="width:100%"></i><b>2,336 ms</b></div>
+        </div>
+        <div class="bar-key"><span><i class="ours"></i>MyLoDB, keyset paging</span><span><i class="them"></i>The same page with OFFSET</span></div>
+      </div>
+      <ul class="facts">
+        <li><b>6 ms</b> to show the first 500 rows.</li>
+        <li><b>0.9 ms</b> for an estimated row count. The exact COUNT(*) took 820 ms, so you ask for it when you want it.</li>
+        <li><b>1.06 million rows a second</b> exporting to CSV, with memory staying between 5 and 11 MB during a 1.4 GB export.</li>
+      </ul>
+      <p class="fine">Single runs on one machine, so treat them as indications. <a href="https://github.com/farookhridoy/mylodb/blob/main/docs/BENCHMARKS.md">The method and the full numbers</a> are in the repository.</p>
+    </div>
+  </section>
+
+  <section id="download" class="download">
+    <div class="wrap dl-in">
+      <div class="dl-main">
+      <h2>Download MyLoDB <span data-version>0.4.1</span></h2>
+      <p class="lede">Free, and open source under Apache-2.0. Not sure which Mac you have? Open the Apple menu and choose About This Mac: <i>Chip: Apple M…</i> means Apple Silicon, <i>Processor: Intel…</i> means Intel.</p>
+      <div class="dl-pair">
+        <a class="dl-tile" id="dl-arm-2" href="https://github.com/farookhridoy/mylodb/releases/latest">
+          <b>Apple Silicon</b>
+          <span>For M1 and later</span>
+          <code data-file="aarch64">MyLoDB_0.4.1_aarch64.dmg</code>
+        </a>
+        <a class="dl-tile" id="dl-intel-2" href="https://github.com/farookhridoy/mylodb/releases/latest">
+          <b>Intel</b>
+          <span>For Macs with an Intel processor</span>
+          <code data-file="x64">MyLoDB_0.4.1_x64.dmg</code>
+        </a>
+      </div>
+      <p class="fine" id="dl-detail">Each file has a SHA-256 checksum next to it on the <a href="https://github.com/farookhridoy/mylodb/releases/latest" id="dl-rel">release page</a>.</p>
+
+      </div>
+      <div class="dl-side">
+      <div class="gate">
+        <h3>The first launch shows a macOS warning. That is expected.</h3>
+        <p>MyLoDB is not signed with a paid Apple Developer certificate yet. Nothing is wrong with your download, and you do this once:</p>
+        <ol>
+          <li>Drag <b>MyLoDB</b> into <b>Applications</b> and open it. When macOS says it could not verify the app, click <b>Done</b> (not <i>Move to Trash</i>).</li>
+          <li>Open <b>System Settings → Privacy &amp; Security</b>, scroll to <b>Security</b> and click <b>Open Anyway</b> next to MyLoDB.</li>
+          <li>Open MyLoDB again and click <b>Open</b>. A short tour starts by itself.</li>
+        </ol>
+        <p>Prefer Terminal? <code>xattr -dr com.apple.quarantine /Applications/MyLoDB.app</code></p>
+        <p>macOS also asks for your login keychain password the first time MyLoDB reads a saved connection password. Choose <b>Always Allow</b> and it stays quiet until the next update.</p>
+      </div>
+      <p class="fine">After that, MyLoDB looks for new versions by itself (Help, then Check for Updates). Copies older than 0.4.0 cannot do this yet, so install 0.4.x by hand once. Passwords live in the macOS Keychain. You can also <a href="https://github.com/farookhridoy/mylodb#build-it-yourself">build it from source</a>.</p>
       </div>
     </div>
   </section>
 
-  <section id="download" class="wrap dl">
-    <h2>Download</h2>
-    <p class="lede2">Get the installer from the <a href="https://github.com/farookhridoy/mylodb/releases/latest" id="dl2">latest release</a>: <code>MyLoDB_&lt;version&gt;_aarch64.dmg</code> for a Mac with Apple Silicon (M1 and later) or <code>MyLoDB_&lt;version&gt;_x64.dmg</code> for an Intel Mac (from 0.4.0). Not sure which you have? <b> → About This Mac</b> shows <i>Chip: Apple M…</i> or <i>Processor: Intel</i>. Each file has a SHA-256 checksum next to it.</p>
-    <p class="dim">Once installed, MyLoDB offers new versions by itself (<b>Help → Check for Updates</b>): you see what is new and choose <b>Update now</b>, <b>Later</b> or <b>Skip this version</b>. Copies older than 0.4.0 cannot do this yet: install 0.4.0 by hand once.</p>
-    <div class="callout">
-      <h3>The first launch shows a macOS warning. That is expected.</h3>
-      <p>MyLoDB is not signed with a paid Apple Developer certificate. Nothing is wrong with your download, and you do this once:</p>
-      <ol>
-        <li>Drag <b>MyLoDB</b> into <b>Applications</b> and open it. When macOS says it could not verify the app, click <b>Done</b> (not <i>Move to Trash</i>).</li>
-        <li>Open <b>System Settings → Privacy &amp; Security</b>, scroll to <b>Security</b> and click <b>Open Anyway</b> next to MyLoDB.</li>
-        <li>Open MyLoDB again and click <b>Open</b>. A short tour starts by itself.</li>
+  <section id="releases" class="releases">
+    <div class="wrap rel-in">
+      <div class="rel-head">
+        <h2>Release notes</h2>
+        <p class="fine">Every version, with its known limits, is in the <a href="https://github.com/farookhridoy/mylodb/blob/main/CHANGELOG.md">changelog</a>.</p>
+      </div>
+      <ol class="log">
+        <li>
+          <h3>0.4.1 <time datetime="2026-11-23">23 Nov 2026</time></h3>
+          <p>Nine colour themes (Monokai, GitHub Dark and Light, Dracula, One Dark, Nord, Solarized Dark and Light, Tokyo Night). The in-app manual now shows its screenshots. Switching between open connections no longer reconnects, so it stops asking for the keychain password each time.</p>
+        </li>
+        <li>
+          <h3>0.4.0 <time datetime="2026-11-23">23 Nov 2026</time></h3>
+          <p>Updates that install themselves, and an Intel build. SQLite files can now be edited. TEXT and JSON cells open in a large editor window. Indexes in the sidebar fold away.</p>
+        </li>
+        <li>
+          <h3>0.3.0 <time datetime="2026-11-21">21 Nov 2026</time></h3>
+          <p>Visual query builder, ER diagram, schema compare, data search, index advisor, live server charts and JSON import.</p>
+        </li>
+        <li>
+          <h3>0.2.0 <time datetime="2026-11-21">21 Nov 2026</time></h3>
+          <p>SQLite files, read-only at first. MariaDB 10.10 and later fixed.</p>
+        </li>
+        <li>
+          <h3>0.1.0 <time datetime="2026-11-21">21 Nov 2026</time></h3>
+          <p>The first public release: connections, object browser, SQL editor, editable grid, table designer, users, server tools, backup and import, and production safety.</p>
+        </li>
       </ol>
-      <p>Prefer Terminal? <code>xattr -dr com.apple.quarantine /Applications/MyLoDB.app</code></p>
     </div>
-    <p class="dim">Passwords are stored in the macOS Keychain. MyLoDB sends no telemetry and talks only to the servers you connect to. You can also <a href="https://github.com/farookhridoy/mylodb#build-it-yourself">build it from source</a>.</p>
   </section>
 
-  <section class="band">
+  <section class="honest">
     <div class="wrap">
-      <h2>Honest about where it is</h2>
+      <h2>Where it stands</h2>
       <ul class="plain">
-        <li><b>MySQL 8.0, 8.4, 9 and MariaDB 10.11, 11.4</b> pass the full integration suite in CI; MySQL 5.7 is not supported.</li>
-        <li><b>SQLite</b> files can be edited (rows and SQL), but there is no table designer for them yet. PostgreSQL and SQL Server are designed (see the <a href="https://github.com/farookhridoy/mylodb/blob/main/docs/ENGINE_ABSTRACTION.md">engine notes</a>) but not built.</li>
-        <li><b>Not yet:</b> data compare, copying a database between connections, a signed and notarised build (updates are signed, but the app is not notarised), Windows and Linux builds.</li>
-        <li>The full <a href="https://github.com/farookhridoy/mylodb/blob/main/docs/ROADMAP.md">roadmap</a>, the <a href="https://github.com/farookhridoy/mylodb/blob/main/docs/MANUAL.md">user manual</a> and the <a href="https://github.com/farookhridoy/mylodb/blob/main/CHANGELOG.md">changelog</a> are in the repository.</li>
+        <li><b>Databases:</b> MySQL and MariaDB are the main event. MySQL 5.7 is not supported. SQLite works, without a table designer yet. PostgreSQL and SQL Server are designed (see the <a href="https://github.com/farookhridoy/mylodb/blob/main/docs/ENGINE_ABSTRACTION.md">engine notes</a>) but not built.</li>
+        <li><b>Not yet:</b> comparing the data of two tables, copying a database between connections, a notarised build, and Windows and Linux versions.</li>
+        <li>The <a href="https://github.com/farookhridoy/mylodb/blob/main/docs/ROADMAP.md">roadmap</a> and the <a href="https://github.com/farookhridoy/mylodb/blob/main/docs/MANUAL.md">user manual</a> are in the repository. Bug reports and ideas are welcome as <a href="https://github.com/farookhridoy/mylodb/issues" rel="noopener">GitHub issues</a>.</li>
       </ul>
     </div>
   </section>
 
-  <section id="about" class="wrap about">
-    <h2>About the author</h2>
-    <p>MyLoDB is written by <b>Omar Farook Hridoy</b> (<a href="https://farookhridoy.com" rel="noopener">farookhridoy.com</a>) at <a href="https://thelarasoft.com" rel="noopener">thelarasoft.com</a>. Also by the author: <a href="https://github.com/farookhridoy/tavrix" rel="noopener">Tavrix</a>, an SSH terminal, file manager and editor for Mac and Windows.</p>
-    <p class="dim">MyLoDB is independent and is not affiliated with SQLyog or Webyog. Bug reports and ideas are welcome in <a href="https://github.com/farookhridoy/mylodb/issues" rel="noopener">GitHub Issues</a>.</p>
+  <section id="about" class="about">
+    <div class="wrap about-in">
+      <h2>Made by one person who wanted it</h2>
+      <p>MyLoDB is written by <b>Omar Farook Hridoy</b> (<a href="https://farookhridoy.com" rel="noopener">farookhridoy.com</a>) at <a href="https://thelarasoft.com" rel="noopener">thelarasoft.com</a>. The code is on <a href="https://github.com/farookhridoy/mylodb" rel="noopener">GitHub</a>, so you can read what it does with your passwords and your data. It sends no telemetry and talks only to the servers you connect to.</p>
+      <p class="fine">MyLoDB is independent and is not affiliated with SQLyog or Webyog.</p>
+    </div>
   </section>
 </main>
 
-<footer>
-  <div class="wrap foot">
-    <span>MyLoDB · Apache-2.0</span>
-    <span><a href="https://github.com/farookhridoy/mylodb">GitHub</a> · <a href="https://github.com/farookhridoy/mylodb/releases">Releases</a> · <a href="https://farookhridoy.com">farookhridoy.com</a> · <a href="https://thelarasoft.com">thelarasoft.com</a></span>
+<footer class="foot">
+  <div class="wrap foot-in">
+    <span>MyLoDB is open source under Apache-2.0.</span>
+    <nav aria-label="Footer">
+      <a href="https://github.com/farookhridoy/mylodb">GitHub</a>
+      <a href="https://github.com/farookhridoy/mylodb/releases">Releases</a>
+      <a href="https://github.com/farookhridoy/mylodb/blob/main/docs/MANUAL.md">Manual</a>
+      <a href="https://farookhridoy.com">farookhridoy.com</a>
+    </nav>
+    <span class="fine">Set in Archivo and JetBrains Mono, both under the SIL Open Font License.</span>
   </div>
 </footer>
 <script src="app.js" defer></script>

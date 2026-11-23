@@ -1,6 +1,6 @@
 # MyLoDB roadmap: what is done, what must be done, what would be nice
 
-Status of 2026-11-23 (version 0.4.4). This is the single page for "where are we": phases, what is done, what is left, and (sections 5 to 8) the
+Status of 2026-11-23 (version 0.5.0). This is the single page for "where are we": phases, what is done, what is left, and (sections 5 to 8) the
 coverage of the SQLyog reference and the product plan. It replaces the former `PLAN_VS_CURRENT.md`. Other docs: `ANALYSIS.md` (original
 scope, stack, architecture), `BENCHMARKS.md` (Phase 10 measurements), `PHPMYADMIN_AND_ENGINES.md` (analysis behind phases 11 to 15),
 `SERVER_COMPATIBILITY.md` (MySQL / MariaDB results).
@@ -124,13 +124,13 @@ Why this order: phase 11 is what you asked for next and what makes MyLoDB usable
 on purpose: the version matrix finds MariaDB and older-MySQL differences while the codebase still has one engine, and the abstraction in
 phase 15 is much safer with CI behind it. If a release matters sooner than new engines, do 14 and 18 next: phases 1 to 13 are finished, so the remaining release blockers are only the first green CI run, signing and notarisation, the Intel build, the Homebrew cask and the user documentation.
 
-### Phases 19 to 25: from the comparison with industrial tools (added at 0.4.4)
+### Phases 19 to 25: from the comparison with industrial tools (added at 0.5.0)
 
 Compared with DataGrip, DBeaver, Navicat, SQLyog and Workbench, these are the gaps, in the order that pays off most. Tick them off one release at a time. Rows that need money or a paid account are marked.
 
 | Phase | Theme | What | Status |
 |---|---|---|---|
-| 19 🟡 | **Install without a paid Apple account** | Done (no app release needed): `scripts/install.sh` one-command install (checksum, quarantine flag removed), `docs/INSTALL.md`, the install box on the website, a Homebrew cask file. Open: **19a** the tap `farookhridoy/homebrew-mylodb` exists with the 0.4.4 cask; still to test an install through it (Homebrew asks users to `brew trust` the tap); **19c** (done, unreleased) an optional encrypted password file instead of the Keychain, with a master password, so there is no prompt per build; **19b** real signing and notarisation, which needs the paid Apple Developer Program | 🟡 |
+| 19 🟡 | **Install without a paid Apple account** | Done (no app release needed): `scripts/install.sh` one-command install (checksum, quarantine flag removed), `docs/INSTALL.md`, the install box on the website, a Homebrew cask file. Open: **19a** the tap `farookhridoy/homebrew-mylodb` exists with the 0.5.0 cask; still to test an install through it (Homebrew asks users to `brew trust` the tap); **19c** (done, unreleased) an optional encrypted password file instead of the Keychain, with a master password, so there is no prompt per build; **19b** real signing and notarisation, which needs the paid Apple Developer Program | 🟡 |
 | 20 | **Smarter SQL editor** | Autocomplete that knows the schema, aliases and joins (suggest the foreign key on `JOIN … ON`); errors underlined as you type; rename a table or column and see every use; snippets with tab stops | ❌ |
 | 21 | **Explain and profile, visually** | Explain plan as a tree with costs and the slowest step marked; Performance Schema and slow-log summary pages; compare two runs of the same query | ❌ |
 | 22 | **Scheduled jobs** | Scheduled backups, exports and imports with a log and retention (keep the last N); run saved transfer configurations; reports saved to a folder | ❌ |

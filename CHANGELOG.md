@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.5.0 (2026-11-24)
 
 **Fixed**
 * **The width of a resized pane is saved at once.** It was written in a delayed step, so a quit or reload right after a drag could keep an older width.

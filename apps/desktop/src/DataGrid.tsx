@@ -651,7 +651,6 @@ export default function DataGrid(props: {
                           {meta?.primary_key.includes(c.name) && <span title="Primary key"><Icon name="key" size={12} className="ico-pk" /></span>}
                           {fkFor(c.name) && <span title={`→ ${fkFor(c.name)!.ref_table}`}><Icon name="link" size={12} /></span>}
                           <span className="th-name">{c.name}</span>
-                          <span className="dim th-type">{m?.column_type ?? ""}</span>
                           {s >= 0 && <span className="sortmark">{view.sort[s].desc ? "▼" : "▲"}{view.sort.length > 1 ? s + 1 : ""}</span>}
                         </div>
                         <div className="resizer" onClick={(e) => e.stopPropagation()}

@@ -33,10 +33,14 @@ ok("the database shows its total size and all six object groups");
 // ---- indexes under a table
 await page.click(".row-item.leaf:has-text('orders')");
 await page.waitForTimeout(300);          // the Tables group is already open
-await page.waitForSelector(".row-item.idx");
-assert.deepEqual(await text(page.locator(".row-item.idx")), ["PRIMARY (id)", "idx_customer_total (customer_id, total)"]);
+await page.waitForSelector(".idx-head");
 assert.match(await page.locator(".idx-head").innerText(), /indexes\s*2/i);
-ok("a table lists its indexes with their columns");
+assert.equal(await page.locator(".row-item.idx").count(), 0, "the Indexes group starts closed");
+await page.click(".idx-head");
+assert.deepEqual(await text(page.locator(".row-item.idx")), ["PRIMARY (id)", "idx_customer_total (customer_id, total)"]);
+await page.click(".idx-head");
+assert.equal(await page.locator(".row-item.idx").count(), 0, "and closes again");
+ok("a table's indexes are a group that starts closed and lists them with their columns when opened");
 
 
 // ---- show a view's definition: becomes a runnable CREATE OR REPLACE
@@ -98,7 +102,7 @@ await page.click(".row-item.leaf:has-text('orders')");
 await page.waitForTimeout(300);            // select the table
 await page.reload();
 await page.selectOption(".conn-bar select", "1");
-await page.waitForSelector(".row-item.idx", { timeout: 5000 });
+await page.waitForSelector(".idx-head", { timeout: 5000 });
 assert.equal(await page.locator(".filter input").getAttribute("placeholder"), "Filter tables", "the selection is restored, the lock is not");
 assert.ok(await page.locator(".row-item.group:has-text('Tables')").count() === 1);
 ok("what was expanded and selected is restored the next time the connection opens");

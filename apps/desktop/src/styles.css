@@ -542,3 +542,13 @@ table.kv th { text-align: left; font-weight: 500; color: var(--dim); width: 170p
 .connecting-box { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 22px 32px; border-radius: 10px; background: var(--panel); color: var(--text); border: 1px solid var(--line); box-shadow: 0 8px 30px var(--shadow); }
 .spinner { width: 34px; height: 34px; border-radius: 50%; border: 3px solid rgba(128,128,128,.3); border-top-color: var(--accent); animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
+.update-dialog { width: 560px; max-height: 80vh; } .update-dialog h3 { display: flex; align-items: center; gap: 6px; font-size: 14px; }
+.update-head { font-weight: 600; margin-top: 4px; }
+.update-notes { max-height: 280px; overflow: auto; border: 1px solid var(--line); border-radius: var(--radius); background: var(--subpanel); padding: 6px 12px; }
+.update-notes h4 { margin: 8px 0 2px; font-size: 12px; } .update-notes ul { margin: 2px 0 6px; padding-left: 18px; } .update-notes li { margin: 3px 0; } .update-notes p { margin: 4px 0; }
+
+.dialog.cell-modal { width: min(920px, 92vw); height: min(660px, 84vh); }
+.cell-modal-text { flex: 1; min-height: 0; resize: none; font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12.5px; line-height: 1.45; white-space: pre; overflow: auto; padding: 8px 10px; background: var(--control); color: var(--text); border: 1px solid var(--line); border-radius: var(--radius); }
+.cell-modal-foot { display: flex; align-items: center; gap: 8px; } .cell-modal .actions { display: flex; align-items: center; gap: 8px; } .spacer { flex: 1; }
+.json-badge { font-size: 11px; padding: 1px 7px; border-radius: 9px; max-width: 340px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.json-badge.good { background: var(--good-bg); color: var(--good-text); } .json-badge.bad { background: var(--bad-bg); color: var(--bad-text); }

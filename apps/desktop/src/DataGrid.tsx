@@ -3,7 +3,7 @@ import Select from "./Select";
 import Icon from "./Icon";
 import { save as saveDialog } from "@tauri-apps/plugin-dialog";
 import {
-  dataApi, EXPORT_FORMATS, queryApi, type Assign, type Cursor, type CellValue, type Change, type ExportFormat, type ForeignKey, type Page, type Sort, type TableMeta,
+  dataApi, EXPORT_FORMATS, queryApi, type Assign, type Cursor, type CellValue, type Change, type ColumnMeta, type ExportFormat, type ForeignKey, type Page, type Sort, type TableMeta,
 } from "./api";
 import ContextMenu, { type MenuItem } from "./ContextMenu";
 import FkPicker from "./FkPicker";
@@ -13,6 +13,7 @@ import {
 import { ConfirmDialog } from "./SidePanels";
 import { newJobId, ProgressBar, useJob } from "./Jobs";
 import ValuePanel from "./ValuePanel";
+import CellModal from "./CellModal";
 
 /** Persisted per table tab: everything the user set up that should survive a restart. */
 export interface GridView {
@@ -52,6 +53,8 @@ export default function DataGrid(props: {
   readOnlyConnection?: boolean;
   /** Ask before saving changes (production): the text shown in the confirmation. */
   confirmCommit?: string;
+  /** A SQLite file: its TEXT columns are often short, so they only open in the editor window when the value is long or has line breaks. */
+  sqlite?: boolean;
 }) {
   const { connectionId: cid, db, table } = props;
   const [meta, setMeta] = useState<TableMeta | null>(null);
@@ -262,6 +265,41 @@ export default function DataGrid(props: {
     return row.isNew ? !meta?.is_view : editable;
   };
 
+  /** Columns that hold long text open in an editor window, not in the one-line cell: TEXT, MEDIUMTEXT, LONGTEXT and JSON. */
+  const wantsModal = (m: ColumnMeta | undefined, text: string | null, long: boolean) => {
+    if (!m || m.binary) return false;
+    const t = m.data_type.toLowerCase();
+    if (!["text", "mediumtext", "longtext", "json", "jsonb", "clob"].includes(t)) return false;
+    if (!props.sqlite || t !== "text") return true;
+    return long || (text?.length ?? 0) > 100 || (text?.includes("\n") ?? false);
+  };
+  const [cellModal, setCellModal] = useState<{ r: number; c: number; initial: string | null; cut: boolean; editable: boolean } | null>(null);
+
+  /** Double-click, Enter or F2 on a cell: the editor window for long text and JSON, the in-cell editor for everything else. */
+  const openCell = async (r: number, c: number) => {
+    const row = rows[r];
+    if (!row || !page) return;
+    const m = colMeta(page.columns[c].name);
+    const { text, staged: st, long } = cellOf(row, c);
+    if (!wantsModal(m, text, long)) return startEdit(r, c);
+    let initial = st ? (st.kind === "text" ? st.value : null) : text;
+    let cut = false;
+    if (long && !st) {
+      const key = keyOf(row);
+      if (!key) cut = true; // the full value cannot be fetched without a row key: show what the grid has
+      else {
+        try {
+          const d = await dataApi.cell(cid, db, table, key, page.columns[c].name);
+          const t = d.base64 ? bytesToText(b64ToBytes(d.base64)) : "";
+          if (d.is_null) initial = null;
+          else if (d.truncated || t === null) cut = true;
+          else initial = t;
+        } catch (e) { setError(String(e)); return; }
+      }
+    }
+    setCellModal({ r, c, initial, cut, editable: canEditCell(row, c) });
+  };
+
   const startEdit = async (r: number, c: number) => {
     const row = rows[r];
     if (!row || !page || !canEditCell(row, c)) return;
@@ -463,7 +501,7 @@ export default function DataGrid(props: {
     const fk = fkFor(page.columns[c].name);
     const can = canEditCell(row, c);
     const items: MenuItem[] = [
-      { label: "Edit cell", disabled: !can, onClick: () => startEdit(r, c) },
+      { label: wantsModal(m, text, false) && !can ? "View value" : "Edit cell", disabled: !can && !wantsModal(m, text, false), onClick: () => openCell(r, c) },
       { label: "Set NULL", disabled: !can || !m?.nullable, onClick: () => stage(row, c, { kind: "null" }) },
       { label: "Set DEFAULT", disabled: !can, onClick: () => stage(row, c, { kind: "default" }) },
       { label: "Pick from referenced table…", disabled: !can || !fk || fk.columns.length !== 1, onClick: () => fk && setFkPick({ r, c, fk }) },
@@ -500,7 +538,7 @@ export default function DataGrid(props: {
     else if (e.key === "Home" && mod) go(0, active.c);
     else if (e.key === "End" && mod) go(rows.length - 1, active.c);
     else if (e.key === "Enter" && mod) { e.preventDefault(); if (pendingCount) requestSubmit(); }
-    else if (e.key === "Enter" || e.key === "F2") { e.preventDefault(); startEdit(active.r, active.c); }
+    else if (e.key === "Enter" || e.key === "F2") { e.preventDefault(); openCell(active.r, active.c); }
     else if (mod && e.key === "c") { e.preventDefault(); copyCell(active.r, active.c); }
     else if (e.key === "Delete") { e.preventDefault(); deleteRows(); }
   };
@@ -712,7 +750,7 @@ export default function DataGrid(props: {
                                 if (!(e.shiftKey || e.metaKey || e.ctrlKey)) setSelected(new Set([r]));
                                 if ((e.metaKey || e.ctrlKey) && fk) goToReferenced(r, ci);
                               }}
-                              onDoubleClick={() => startEdit(r, ci)}
+                              onDoubleClick={() => openCell(r, ci)}
                               onContextMenu={(e) => openMenu(e, r, ci)}>
                             {isEditing ? (
                               <div className="cell-edit">
@@ -806,6 +844,16 @@ export default function DataGrid(props: {
         <FkPicker connectionId={cid} fk={fkPick.fk} onClose={() => setFkPick(null)}
           onPick={(value) => { const row = rows[fkPick.r]; if (row) stage(row, fkPick.c, { kind: "text", value }); setFkPick(null); setEditing(null); }} />
       )}
+      {cellModal && page && (() => {
+        const m = colMeta(page.columns[cellModal.c].name);
+        const row = rows[cellModal.r];
+        return (
+          <CellModal column={page.columns[cellModal.c].name} type={m?.column_type ?? ""} isJson={m?.data_type.toLowerCase().startsWith("json") ?? false}
+                     initial={cellModal.initial} editable={cellModal.editable} nullable={!!m?.nullable} cut={cellModal.cut}
+                     onApply={(v) => { if (row) stage(row, cellModal.c, v); setCellModal(null); scroller.current?.focus(); }}
+                     onClose={() => { setCellModal(null); scroller.current?.focus(); }} />
+        );
+      })()}
       {confirmApply && (
         <ConfirmDialog message={`${props.confirmCommit} ${pendingCount} change${pendingCount === 1 ? "" : "s"} to ${db}.${table} will be saved.`} confirmLabel="Save changes"
                        onCancel={() => setConfirmApply(false)} onConfirm={() => { setConfirmApply(false); submit(); }} />

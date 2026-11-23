@@ -91,6 +91,8 @@ ok("WHERE box is sent and cleared");
 
 // ---- context menu: filter by value / exclude ----
 const cell = (r, c) => page.locator(`table.dg tbody tr:nth-child(${r}) td:nth-child(${c + 2})`);
+// a TEXT cell opens the editor window (CellModal); type the value there and apply it
+const editText = async (r, c, v) => { await cell(r, c).dblclick(); await page.fill(".cell-modal-text", v); await page.click(".cell-modal button.primary:has-text('Apply')"); };
 await cell(1, 2).click({ button: "right" });
 await page.click(".ctx-label:text-is('Filter by this value')");
 await settle();
@@ -104,9 +106,7 @@ await page.click("button[title='Clear all column filters']"); await settle();
 ok("context menu filters by value (NULL becomes IS NULL)");
 
 // ---- inline edit stages a change, submit sends exactly one update keyed by PK ----
-await cell(1, 3).dblclick();
-await page.fill(".cell-edit input", "edited note");
-await page.press(".cell-edit input", "Enter");
+await editText(1, 3, "edited note");
 assert.equal(await cell(1, 3).getAttribute("class").then((c) => c.includes("edited")), true);
 assert.match(await page.locator("button.primary:has-text('Submit')").innerText(), /Submit \(1\)/);
 await page.click("button.primary:has-text('Submit')");
@@ -117,8 +117,8 @@ assert.equal(await cell(1, 3).innerText(), "edited note");
 ok("inline edit -> staged -> submit sends a keyed update and reloads");
 
 // reverting the cell to its original value un-stages it
-await cell(1, 3).dblclick(); await page.fill(".cell-edit input", "changed"); await page.press(".cell-edit input", "Enter");
-await cell(1, 3).dblclick(); await page.fill(".cell-edit input", "edited note"); await page.press(".cell-edit input", "Enter");
+await editText(1, 3, "changed");
+await editText(1, 3, "edited note");
 assert.equal(await page.locator("button.primary:has-text('Submit')").isDisabled(), true);
 ok("editing back to the original value removes the pending change");
 
@@ -156,7 +156,7 @@ assert.deepEqual(ins[0].values, [{ column: "customer_id", value: { kind: "text",
 ok("new row only sends the columns the user filled (others use DEFAULT)");
 
 // ---- pending changes block navigation until confirmed ----
-await cell(1, 3).dblclick(); await page.fill(".cell-edit input", "pending!"); await page.press(".cell-edit input", "Enter");
+await editText(1, 3, "pending!");
 const before = (await calls("table_page")).length;
 await fInput("note").fill("zzz");
 await settle();

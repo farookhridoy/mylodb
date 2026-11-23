@@ -423,7 +423,7 @@ Object.assign(handlers, {
     else if (c && c.before) { const rest = rows.filter((r) => Number(r[0]) < Number(c.before[0])); page = rest.slice(-lim); hasPrev = rest.length > lim; hasMore = true; }
     else if (c === "end") { page = rows.slice(-lim); hasPrev = rows.length > lim; hasMore = false; }
     else { page = rows.slice(a.spec.offset, a.spec.offset + lim); hasMore = a.spec.offset + lim < rows.length; hasPrev = a.spec.offset > 0; }
-    return { columns: colsOf(a.table), rows: page, long_cells: [], has_more: hasMore, has_prev: hasPrev, keyset,
+    return { columns: colsOf(a.table), rows: page, long_cells: window.__longCells ?? [], has_more: hasMore, has_prev: hasPrev, keyset,
              first_key: keyset && page.length ? [page[0][0]] : null, last_key: keyset && page.length ? [page.at(-1)[0]] : null, elapsed_ms: 1, sql: `SELECT * FROM shop.${a.table}` };
   },
   table_count_estimate: (a) => { window.__estimateCalls = (window.__estimateCalls || 0) + 1; return window.__estimate !== undefined ? window.__estimate : filtered(a.table, { filters: a.filters, sort: [] }).length; },
@@ -519,3 +519,33 @@ handlers.server_catalog = () => ({
 });
 handlers.read_text_file = () => "SELECT 'from file';";
 handlers.write_text_file = () => null;
+
+// ---- in-app updates: window.__update = { version, date, body } offers one; the calls and their order are in window.__updateLog ----
+window.__TAURI_INTERNALS__.unregisterCallback = () => {};
+window.__updateLog = [];
+Object.assign(handlers, {
+  "plugin:updater|check": () => (window.__update ? { rid: 77, currentVersion: "0.3.0", rawJson: {}, ...window.__update } : null),
+  "plugin:updater|download": async (a) => {
+    window.__updateLog.push("download");
+    const send = (m) => a.onEvent.onmessage(m);
+    send({ event: "Started", data: { contentLength: 4194304 } });
+    send({ event: "Progress", data: { chunkLength: 1048576 } });
+    await new Promise((r) => setTimeout(r, window.__downloadMs ?? 400));
+    send({ event: "Progress", data: { chunkLength: 3145728 } });
+    send({ event: "Finished" });
+    return 78;
+  },
+  "plugin:updater|install": () => { window.__updateLog.push("install"); return null; },
+  "plugin:process|restart": () => { window.__updateLog.push("restart"); return null; },
+  "plugin:resources|close": () => null,
+});
+
+// ---- long cells: window.__longCells = [[row, col]] marks cells whose shown text is cut; window.__fullText is what fetch_cell returns ----
+Object.assign(handlers, {
+  fetch_cell: (a) => {
+    window.__cellFetches = (window.__cellFetches || []).concat([JSON.parse(JSON.stringify(a))]);
+    const t = window.__fullText ?? "";
+    return { is_null: false, len: t.length, truncated: false, base64: btoa(unescape(encodeURIComponent(t))) };
+  },
+});
+window.__meta = meta; window.__data = data; // for suites that add columns

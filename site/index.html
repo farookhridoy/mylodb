@@ -24,7 +24,7 @@
   "@type": "SoftwareApplication",
   "name": "MyLoDB",
   "applicationCategory": "DeveloperApplication",
-  "operatingSystem": "macOS (Apple Silicon)",
+  "operatingSystem": "macOS (Apple Silicon and Intel)",
   "description": "An open-source MySQL, MariaDB and SQLite manager for macOS.",
   "license": "https://www.apache.org/licenses/LICENSE-2.0",
   "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
@@ -59,9 +59,10 @@
         <p class="lede">MyLoDB is a fast, native client for <b>MySQL</b>, <b>MariaDB</b> and <b>SQLite</b>, written in Rust. Browse and edit data, design tables, build queries visually, compare schemas, and stay safe on production: with colour-coded environments, server-enforced read-only and a preview before anything destructive runs.</p>
         <p class="cta">
           <a class="btn primary" id="dl" href="https://github.com/farookhridoy/mylodb/releases/latest">Download for Mac</a>
+          <a class="btn" id="dl-intel" href="https://github.com/farookhridoy/mylodb/releases/latest" hidden>Intel Mac</a>
           <a class="btn" href="https://github.com/farookhridoy/mylodb">View source</a>
         </p>
-        <p class="meta" id="dl-meta">Apple Silicon (M1 and later) · free · no telemetry</p>
+        <p class="meta" id="dl-meta">Apple Silicon (M1 and later) and Intel · updates itself · free · no telemetry</p>
       </div>
       <figure class="hero-shot">
         <img src="img/query.png" alt="MyLoDB showing the object tree, a SQL editor and its results" width="1700" height="1056" fetchpriority="high">
@@ -84,7 +85,8 @@
         <article><h3>Server tools &amp; charts</h3><p>Processes, variables, status, maintenance and logs, plus live per-second charts of queries, statements, connections and network.</p></article>
         <article><h3>Safe on production</h3><p>Environment colours, a read-only session enforced by the server, query time limits, a review of destructive SQL with row estimates, and type-to-confirm.</p></article>
         <article><h3>Backup &amp; import</h3><p>Consistent SQL backups, restore with a script preview, CSV and JSON import with column mapping, and export to CSV, JSON, SQL, XML, HTML and Excel.</p></article>
-        <article><h3>SQLite too</h3><p>Open a <code>.sqlite</code> or <code>.db</code> file read-only: browse, query, page and filter. What a file cannot have is disabled, with the reason.</p></article>
+        <article><h3>SQLite too</h3><p>Open a <code>.sqlite</code> or <code>.db</code> file: browse, query, edit rows in the grid and run SQL that changes it, or open it read-only. What a file cannot have is disabled, with the reason.</p></article>
+        <article><h3>Updates itself</h3><p>MyLoDB checks for a new version, shows what changed, and <b>Update now</b> downloads it, replaces the app and restarts. Updates are signed; skip a version or switch the check off in About.</p></article>
       </div>
     </div>
   </section>
@@ -126,7 +128,8 @@
 
   <section id="download" class="wrap dl">
     <h2>Download</h2>
-    <p class="lede2">Get the installer from the <a href="https://github.com/farookhridoy/mylodb/releases/latest" id="dl2">latest release</a>: <code>MyLoDB_&lt;version&gt;_aarch64.dmg</code> for a Mac with Apple Silicon (M1 and later). Each release lists a SHA-256 checksum.</p>
+    <p class="lede2">Get the installer from the <a href="https://github.com/farookhridoy/mylodb/releases/latest" id="dl2">latest release</a>: <code>MyLoDB_&lt;version&gt;_aarch64.dmg</code> for a Mac with Apple Silicon (M1 and later) or <code>MyLoDB_&lt;version&gt;_x64.dmg</code> for an Intel Mac (from 0.4.0). Not sure which you have? <b> → About This Mac</b> shows <i>Chip: Apple M…</i> or <i>Processor: Intel</i>. Each file has a SHA-256 checksum next to it.</p>
+    <p class="dim">Once installed, MyLoDB offers new versions by itself (<b>Help → Check for Updates</b>): you see what is new and choose <b>Update now</b>, <b>Later</b> or <b>Skip this version</b>. Copies older than 0.4.0 cannot do this yet: install 0.4.0 by hand once.</p>
     <div class="callout">
       <h3>The first launch shows a macOS warning. That is expected.</h3>
       <p>MyLoDB is not signed with a paid Apple Developer certificate. Nothing is wrong with your download, and you do this once:</p>
@@ -145,8 +148,8 @@
       <h2>Honest about where it is</h2>
       <ul class="plain">
         <li><b>MySQL 8.0, 8.4, 9 and MariaDB 10.11, 11.4</b> pass the full integration suite in CI; MySQL 5.7 is not supported.</li>
-        <li><b>SQLite</b> files open read-only for now. PostgreSQL and SQL Server are designed (see the <a href="https://github.com/farookhridoy/mylodb/blob/main/docs/ENGINE_ABSTRACTION.md">engine notes</a>) but not built.</li>
-        <li><b>Not yet:</b> data compare, copying a database between connections, a signed and notarised build, Intel, Windows and Linux builds.</li>
+        <li><b>SQLite</b> files can be edited (rows and SQL), but there is no table designer for them yet. PostgreSQL and SQL Server are designed (see the <a href="https://github.com/farookhridoy/mylodb/blob/main/docs/ENGINE_ABSTRACTION.md">engine notes</a>) but not built.</li>
+        <li><b>Not yet:</b> data compare, copying a database between connections, a signed and notarised build (updates are signed, but the app is not notarised), Windows and Linux builds.</li>
         <li>The full <a href="https://github.com/farookhridoy/mylodb/blob/main/docs/ROADMAP.md">roadmap</a>, the <a href="https://github.com/farookhridoy/mylodb/blob/main/docs/MANUAL.md">user manual</a> and the <a href="https://github.com/farookhridoy/mylodb/blob/main/CHANGELOG.md">changelog</a> are in the repository.</li>
       </ul>
     </div>

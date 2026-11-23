@@ -14,7 +14,7 @@ export function ExtLink(props: { href: string; children: React.ReactNode }) {
 }
 
 /** About MyLoDB: version, licence, author and where to find the source and the releases. */
-export default function AboutDialog(props: { onClose(): void; onManual(): void }) {
+export default function AboutDialog(props: { onClose(): void; onManual(): void; autoUpdate: boolean; onAutoUpdate(on: boolean): void; onCheckUpdates(): void }) {
   return (
     <div className="overlay" onMouseDown={props.onClose}>
       <div className="dialog about" role="dialog" aria-label="About MyLoDB" onMouseDown={(e) => e.stopPropagation()}>
@@ -36,7 +36,9 @@ export default function AboutDialog(props: { onClose(): void; onManual(): void }
           </tbody>
         </table>
         <p className="dim small">MyLoDB is independent and is not affiliated with SQLyog or Webyog. It sends no telemetry and talks only to the servers you connect to.</p>
+        <label className="check"><input type="checkbox" checked={props.autoUpdate} onChange={(e) => props.onAutoUpdate(e.target.checked)} /> Check for updates automatically</label>
         <div className="actions">
+          <button onClick={props.onCheckUpdates}>Check for updates</button>
           <button onClick={props.onManual}><Icon name="info" size={12} /> User manual</button>
           <button className="primary" onClick={props.onClose}>Close</button>
         </div>

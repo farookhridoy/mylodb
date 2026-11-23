@@ -43,3 +43,4 @@ th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--li
 .about { padding: 24px 22px 48px; }
 footer { border-top: 1px solid var(--line); padding: 22px 0; color: var(--dim); font-size: 14px; } .foot { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
 @media (max-width: 860px) { .hero-in { grid-template-columns: 1fr; } .nav nav a:not(.gh) { display: none; } .shot-grid { grid-template-columns: 1fr; } }
+[hidden] { display: none !important; }

@@ -17,6 +17,16 @@ const SECTIONS: Section[] = [
       </ol>
       <p>Passwords are stored in the macOS Keychain, never in the app's own database or in logs.</p>
     </>) },
+  { id: "updates", title: "Updates", body: (
+    <>
+      <p>MyLoDB checks for a new release a few seconds after it starts and every six hours. <b>Help → Check for Updates…</b> checks at once; <b>Help → About</b> switches the automatic check off.</p>
+      <ul>
+        <li>The dialog shows <b>what is new</b> in the version offered.</li>
+        <li><b>Update now</b> downloads the update (with progress), replaces this copy of MyLoDB and restarts it. Connections, settings and open tabs are kept.</li>
+        <li><b>Later</b> asks again at the next check. <b>Skip this version</b> stops offering that version on its own; a manual check still offers it.</li>
+        <li>Updates are signed and checked before they are installed. MyLoDB contacts only GitHub for this and sends nothing about you or your databases.</li>
+      </ul>
+    </>) },
   { id: "sqlite", title: "SQLite files", body: (
     <>
       <p>MyLoDB opens SQLite files too. In the connection dialog choose <b>Database type → SQLite file</b>, pick the file and press <b>Test connection</b>.</p>

@@ -19,7 +19,7 @@ Version 0.3.0. The same text is inside the app: **Help → User Manual**. Screen
 
 ## 1. Install and first launch
 
-Download `MyLoDB_0.3.0_aarch64.dmg` from the [Releases page](https://github.com/farookhridoy/mylodb/releases/latest) (Mac with Apple Silicon) and drag **MyLoDB** into **Applications**.
+Download `MyLoDB_<version>_aarch64.dmg` (Apple Silicon, M1 and later) or `MyLoDB_<version>_x64.dmg` (Intel Mac) from the [Releases page](https://github.com/farookhridoy/mylodb/releases/latest) and drag **MyLoDB** into **Applications**.
 
 MyLoDB is not signed with a paid Apple Developer certificate, so macOS warns you the first time. This is expected, and you do it once:
 
@@ -62,6 +62,16 @@ Choose **Database type → SQLite file** in the connection dialog, pick the file
 * does not yet offer the table designer, export from a table, or cancelling a running query.
 
 ![A SQLite connection in the connection dialog](images/sqlite-dialog.png)
+
+### Updates
+
+From version 0.4.0 MyLoDB checks for a new release a few seconds after it starts and every six hours (**Help → About → Check for updates automatically** switches this off; **Help → Check for Updates…** checks at once). When one is found a dialog shows what changed in it and offers:
+
+* **Update now**: downloads the update (with progress), replaces this copy of MyLoDB and restarts it. Connections, settings and open tabs are kept.
+* **Later**: asks again at the next check.
+* **Skip this version**: does not offer this version again on its own; a manual check still does.
+
+Updates are signed by the project's key and refused if the signature does not match. MyLoDB contacts only GitHub (the release's `latest.json`) for this, and sends nothing about you or your databases.
 
 ## 3. Browse objects
 

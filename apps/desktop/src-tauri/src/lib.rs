@@ -122,7 +122,6 @@ fn err(e: impl std::fmt::Display) -> String {
 fn guard_writable(state: &tauri::State<'_, AppState>, id: i64, what: &str) -> Result<(), String> {
     let sessions = state.sessions.lock().unwrap();
     match sessions.get(&id) {
-        Some(s) if matches!(s.engine, Engine::Sqlite(_)) => Err(format!("This SQLite file is open read-only in this version, so {what} is not allowed.")),
         Some(s) if s.safety.read_only => Err(format!("This connection is read-only, so {what} is not allowed. Edit the connection to turn read-only off.")),
         _ => Ok(()),
     }
@@ -196,12 +195,13 @@ async fn establish(
 async fn connect(state: tauri::State<'_, AppState>, id: i64, trust_fingerprint: Option<String>) -> Result<Vec<Node>, ConnectError> {
     let saved = state.store.lock().unwrap().connection(id).map_err(err)?;
     if let Some(c) = saved.as_ref().filter(|c| c.engine == myq_store::EngineKind::Sqlite) {
-        // a SQLite file: no network, no tunnel, always read-only
+        // a SQLite file: no network, no tunnel. Writable unless the connection says read-only (then the file is opened read-only too)
         let file = c.file.clone().filter(|f| !f.trim().is_empty()).ok_or_else(|| "this connection has no database file".to_string())?;
-        let backend = myq_sqlite::SqliteBackend::open(file)?;
+        let read_only = c.config.read_only;
+        let backend = if read_only { myq_sqlite::SqliteBackend::open(file)? } else { myq_sqlite::SqliteBackend::open_writable(file)? };
         let engine = Engine::Sqlite(backend);
         let index = engine.index(false).await.map_err(err)?;
-        let safety = Safety { environment: c.environment, read_only: true, timeout_secs: None, confirm_destructive: c.confirm_destructive };
+        let safety = Safety { environment: c.environment, read_only, timeout_secs: None, confirm_destructive: c.confirm_destructive };
         state.sessions.lock().unwrap().insert(id, Session::new(None, engine, index.clone(), None, safety, None));
         return Ok(index);
     }
@@ -516,7 +516,7 @@ async fn run_query(
         }
     }
     if matches!(engine, Engine::Sqlite(_)) {
-        // a SQLite file: opened read-only, no foreign-key switch, no server-side cancel
+        // a SQLite file: no foreign-key switch, no server-side cancel (a read-only connection also opened the file read-only)
         let started = std::time::Instant::now();
         let results = engine.run(database.as_deref(), &sql).await.map_err(err)?;
         let ok = results.iter().all(|r| r.error.is_none());
@@ -620,6 +620,11 @@ fn sqlite_file(state: &tauri::State<'_, AppState>, id: i64) -> Option<std::path:
     state.sessions.lock().unwrap().get(&id).and_then(|s| s.engine.sqlite_path().map(|p| p.to_path_buf()))
 }
 
+/// The file of a SQLite session and whether this connection may change it.
+fn sqlite_target(state: &tauri::State<'_, AppState>, id: i64) -> Option<(std::path::PathBuf, bool)> {
+    state.sessions.lock().unwrap().get(&id).and_then(|s| s.engine.sqlite_path().map(|p| (p.to_path_buf(), s.engine.sqlite_writable())))
+}
+
 /// Run blocking SQLite work off the async runtime's threads.
 async fn blocking<T: Send + 'static>(f: impl FnOnce() -> Result<T, String> + Send + 'static) -> Result<T, String> {
     tokio::task::spawn_blocking(f).await.map_err(err)?
@@ -627,8 +632,8 @@ async fn blocking<T: Send + 'static>(f: impl FnOnce() -> Result<T, String> + Sen
 
 #[tauri::command]
 async fn table_meta(state: tauri::State<'_, AppState>, id: i64, db: String, table: String) -> Result<TableMeta, String> {
-    if let Some(path) = sqlite_file(&state, id) {
-        return blocking(move || myq_sqlite::table_meta(&path, &table)).await;
+    if let Some((path, writable)) = sqlite_target(&state, id) {
+        return blocking(move || myq_sqlite::table_meta(&path, &table, writable)).await;
     }
     let mut c = conn_for(&state, id).await?;
     myq_data::table_meta(&mut c, &db, &table).await.map_err(err)
@@ -636,9 +641,9 @@ async fn table_meta(state: tauri::State<'_, AppState>, id: i64, db: String, tabl
 
 #[tauri::command]
 async fn table_page(state: tauri::State<'_, AppState>, id: i64, db: String, table: String, spec: PageSpec) -> Result<Page, String> {
-    if let Some(path) = sqlite_file(&state, id) {
+    if let Some((path, writable)) = sqlite_target(&state, id) {
         return blocking(move || {
-            let meta = myq_sqlite::table_meta(&path, &table)?;
+            let meta = myq_sqlite::table_meta(&path, &table, writable)?;
             myq_sqlite::fetch_page(&path, &meta, &spec)
         })
         .await;
@@ -650,9 +655,9 @@ async fn table_page(state: tauri::State<'_, AppState>, id: i64, db: String, tabl
 
 #[tauri::command]
 async fn table_count(state: tauri::State<'_, AppState>, id: i64, db: String, table: String, filters: Vec<ColumnFilter>, where_sql: Option<String>, run_id: Option<String>) -> Result<u64, String> {
-    if let Some(path) = sqlite_file(&state, id) {
+    if let Some((path, writable)) = sqlite_target(&state, id) {
         return blocking(move || {
-            let meta = myq_sqlite::table_meta(&path, &table)?;
+            let meta = myq_sqlite::table_meta(&path, &table, writable)?;
             myq_sqlite::count_rows(&path, &meta, &filters, where_sql.as_deref())
         })
         .await;
@@ -683,6 +688,9 @@ async fn table_count_estimate(state: tauri::State<'_, AppState>, id: i64, db: St
 
 #[tauri::command]
 async fn preview_changes(state: tauri::State<'_, AppState>, id: i64, db: String, table: String, changes: Vec<Change>) -> Result<Vec<String>, String> {
+    if let Some((path, writable)) = sqlite_target(&state, id) {
+        return blocking(move || myq_sqlite::preview_changes(&myq_sqlite::table_meta(&path, &table, writable)?, &changes)).await;
+    }
     let mut c = conn_for(&state, id).await?;
     let meta = myq_data::table_meta(&mut c, &db, &table).await.map_err(err)?;
     myq_data::preview_changes(&meta, &changes).map_err(err)
@@ -691,6 +699,16 @@ async fn preview_changes(state: tauri::State<'_, AppState>, id: i64, db: String,
 #[tauri::command]
 async fn apply_changes(state: tauri::State<'_, AppState>, id: i64, db: String, table: String, changes: Vec<Change>) -> Result<ApplyOutcome, String> {
     guard_writable(&state, id, "saving changes to rows")?;
+    if let Some((path, writable)) = sqlite_target(&state, id) {
+        let (sqls, outcome) = blocking(move || {
+            let meta = myq_sqlite::table_meta(&path, &table, writable)?;
+            let outcome = myq_sqlite::apply_changes(&path, &meta, &changes)?;
+            Ok((myq_sqlite::preview_changes(&meta, &changes).unwrap_or_default(), outcome))
+        })
+        .await?;
+        let _ = state.store.lock().unwrap().add_history(id, &sqls.join(";\n"), 0, true);
+        return Ok(outcome);
+    }
     let mut c = conn_for(&state, id).await?;
     let meta = myq_data::table_meta(&mut c, &db, &table).await.map_err(err)?;
     let outcome = myq_data::apply_changes(&mut c, &meta, &changes).await.map_err(err)?;

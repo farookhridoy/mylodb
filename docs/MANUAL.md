@@ -53,12 +53,13 @@ Several connections can be open at once; each is a tab above the workspace. Clos
 
 ### SQLite files
 
-Choose **Database type → SQLite file (read-only)** in the connection dialog, pick the file with **Browse…** and press **Test connection**. A SQLite connection:
+Choose **Database type → SQLite file** in the connection dialog, pick the file with **Browse…** and press **Test connection**. A SQLite connection:
 
-* opens the file **read-only**: MyLoDB cannot change it in this version (the file is opened read-only and the session is set to `query_only`, and opening a file never creates one);
+* opens the file **writable**, unless you tick **Open read-only** (then it is opened by the read-only flag with `query_only`, and nothing can change it). Opening a file never creates one; foreign keys are enforced on a writable connection;
+* edits rows in the data grid (staged, previewed as SQLite SQL, applied in one transaction, a failed change rolls the batch back) and runs `INSERT`, `UPDATE`, `DELETE` and DDL in the editor. A table needs a primary key to be edited in the grid; views are read-only;
 * browses tables, views, triggers, columns and indexes (the primary key is shown as `PRIMARY`), runs SQL with results as NULL-aware text (BLOBs as hex), and pages, filters, sorts and counts a table in the data grid (counts are exact; `REGEXP` is not available);
 * has no server home, users, server tools, events, routines or dump-based backup: those buttons are disabled and their tooltips say why;
-* does not yet offer editing, export from a table, or cancelling a running query.
+* does not yet offer the table designer, export from a table, or cancelling a running query.
 
 ![A SQLite connection in the connection dialog](images/sqlite-dialog.png)
 

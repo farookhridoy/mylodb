@@ -16,6 +16,11 @@ impl Engine {
         Engine::MySql(MySqlBackend::from_pool(pool))
     }
 
+    /// Whether a SQLite engine may change its file (false for MySQL, which has its own read-only session).
+    pub fn sqlite_writable(&self) -> bool {
+        matches!(self, Engine::Sqlite(b) if b.writable())
+    }
+
     /// The file of a SQLite engine.
     pub fn sqlite_path(&self) -> Option<&std::path::Path> {
         match self {

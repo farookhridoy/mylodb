@@ -19,9 +19,10 @@ fn err(e: impl std::fmt::Display) -> String {
     e.to_string()
 }
 
-/// Metadata of one table or view. A SQLite file is read-only in this version, so `read_only_reason` is always set.
-pub fn table_meta(path: &Path, table: &str) -> Result<TableMeta> {
-    let c = open(path).map_err(err)?;
+/// Metadata of one table or view. `read_only_reason` is set for a view, a table without a primary key, and every table of a file
+/// opened read-only (`writable` false).
+pub fn table_meta(path: &Path, table: &str, writable: bool) -> Result<TableMeta> {
+    let c = open(path, false).map_err(err)?;
     let kind: Option<String> = c.query_row("SELECT type FROM sqlite_master WHERE name = ?1 AND type IN ('table','view')", [table], |r| r.get(0)).ok();
     let Some(kind) = kind else { return Err(format!("table `{table}` not found")) };
     let details = table_columns(&c, table).map_err(err)?;
@@ -47,6 +48,7 @@ pub fn table_meta(path: &Path, table: &str) -> Result<TableMeta> {
     let mut pk = table_pk(&c, table).map_err(err)?;
     pk.sort();
     let primary_key: Vec<String> = pk.into_iter().map(|p| p.1).collect();
+    let pk_empty = primary_key.is_empty();
     Ok(TableMeta {
         database: MAIN.into(),
         table: table.into(),
@@ -55,7 +57,15 @@ pub fn table_meta(path: &Path, table: &str) -> Result<TableMeta> {
         row_key: primary_key.clone(),
         primary_key,
         foreign_keys: foreign_keys(&c, table).map_err(err)?,
-        read_only_reason: Some("SQLite files open read-only in this version".into()),
+        read_only_reason: if !writable {
+            Some("this SQLite file is open read-only".into())
+        } else if kind == "view" {
+            Some("views are read-only".into())
+        } else if pk_empty {
+            Some("the table has no primary key".into())
+        } else {
+            None
+        },
     })
 }
 
@@ -135,7 +145,7 @@ fn build_where(meta: &TableMeta, filters: &[ColumnFilter], where_sql: Option<&st
 /// One page of rows. Paging is by `OFFSET` (no keyset cursor): `keyset` is reported as false so the grid does the same.
 pub fn fetch_page(path: &Path, meta: &TableMeta, spec: &PageSpec) -> Result<Page> {
     let started = Instant::now();
-    let c = open(path).map_err(err)?;
+    let c = open(path, false).map_err(err)?;
     let (cond, params) = build_where(meta, &spec.filters, spec.where_sql.as_deref())?;
     let where_clause = if cond.is_empty() { String::new() } else { format!(" WHERE {cond}") };
     let mut order = Vec::new();
@@ -187,7 +197,7 @@ pub fn fetch_page(path: &Path, meta: &TableMeta, spec: &PageSpec) -> Result<Page
 
 /// Exact count (SQLite keeps no statistics; counting a file is cheap enough).
 pub fn count_rows(path: &Path, meta: &TableMeta, filters: &[ColumnFilter], where_sql: Option<&str>) -> Result<u64> {
-    let c = open(path).map_err(err)?;
+    let c = open(path, false).map_err(err)?;
     let (cond, params) = build_where(meta, filters, where_sql)?;
     let where_clause = if cond.is_empty() { String::new() } else { format!(" WHERE {cond}") };
     let n: i64 = c.query_row(&format!("SELECT COUNT(*) FROM {}{where_clause}", q(&meta.table)), rusqlite::params_from_iter(params.iter()), |r| r.get(0)).map_err(err)?;

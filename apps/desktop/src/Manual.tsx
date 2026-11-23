@@ -19,12 +19,13 @@ const SECTIONS: Section[] = [
     </>) },
   { id: "sqlite", title: "SQLite files", body: (
     <>
-      <p>MyLoDB opens SQLite files too. In the connection dialog choose <b>Database type → SQLite file (read-only)</b>, pick the file and press <b>Test connection</b>.</p>
+      <p>MyLoDB opens SQLite files too. In the connection dialog choose <b>Database type → SQLite file</b>, pick the file and press <b>Test connection</b>.</p>
       <ul>
-        <li>The file is opened <b>read-only</b>: nothing in MyLoDB can change it in this version, and opening never creates a file.</li>
+        <li>The file is <b>writable</b> unless you tick <b>Open read-only</b> in the dialog (then it is opened read-only and nothing can change it). Opening never creates a file.</li>
         <li>Browse tables, views, triggers, columns and indexes, run SQL, and page, sort, filter and count a table in the grid. Counts are exact; <code>REGEXP</code> is not available.</li>
+        <li>Edit rows in the grid (staged, previewed as SQL, applied in one transaction; foreign keys are enforced) and run <code>INSERT</code>, <code>UPDATE</code>, <code>DELETE</code> and DDL in the editor. A table needs a primary key to be edited in the grid; views are read-only.</li>
         <li>Users, server tools, events, routines and dump-based backup do not exist for a file: those buttons are disabled and their tooltips say why.</li>
-        <li>Not yet: editing, export from a table, and cancelling a running query.</li>
+        <li>Not yet: the table designer, export from a table, and cancelling a running query.</li>
       </ul>
     </>) },
   { id: "browse", title: "Browsing objects", body: (

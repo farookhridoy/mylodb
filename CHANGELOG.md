@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+**Added**
+* **SQLite writes.** A SQLite connection is now writable unless you tick **Open read-only** in the connection dialog (existing SQLite connections become writable; tick the box to keep them read-only). SQL in the editor can change the file, and grid edits are staged, previewed and applied in one transaction. Foreign keys are enforced; a table needs a primary key to be edited in the grid, and views stay read-only. Opening never creates a file.
+* A centred "Connecting to …" spinner while a connection opens.
+
+**Changed**
+* Data grid column headers show only the column name (the full type is still in the tooltip).
+
+**Known limits**
+* SQLite: no table designer yet, no export from a table, no cancel of a running query.
+
 ## 0.3.0 (2026-11-21)
 
 **Added**

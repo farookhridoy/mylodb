@@ -20,7 +20,7 @@ await page.click(".tour-card .primary");
 assert.match(await page.locator(".tour-card").innerText(), /2\. Pick a connection/);
 await page.keyboard.press("ArrowLeft");
 assert.match(await page.locator(".tour-card").innerText(), /1\./);
-for (let i = 0; i < 6; i++) await page.click(".tour-card .primary");
+for (let i = 0; i < 20 && (await page.locator(".tour-card").count()); i++) await page.click(".tour-card .primary");
 assert.equal(await page.locator(".tour").count(), 0);
 assert.equal(await page.evaluate(() => localStorage.getItem("mylodb.tourDone")), "1");
 ok("the first-run tour highlights each control, steps back and forth, and is remembered as seen");

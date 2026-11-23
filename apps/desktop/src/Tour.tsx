@@ -7,12 +7,17 @@ export const TOUR_KEY = "mylodb.tourDone";
 export const tourSeen = () => localStorage.getItem(TOUR_KEY) === "1";
 
 export const TOUR_STEPS: TourStep[] = [
-  { selector: "button[title='New connection']", title: "1. Add a connection", text: "Start here. Enter the host, user and password, or paste a mysql:// URL, then press Test. Passwords go to the macOS Keychain." },
-  { selector: ".conn-bar", title: "2. Pick a connection", text: "Saved connections live in this list. You can group them into folders and keep several open at once; each opens as a tab." },
-  { selector: ".filter", title: "3. Find anything fast", text: "Type part of a name to filter the tree. Try db:shop, type:view or col:email. Press ⇧⌘B to jump here." },
-  { selector: ".side-tabs", title: "4. Objects, History, Favorites", text: "Browse objects, replay anything you ran before, or keep your favorite queries." },
-  { selector: ".main", title: "5. Write and run SQL", text: "Press ⌘T for a new script and ⌘↵ to run it. Destructive statements are reviewed first. ⌘K opens the command palette, which also holds your snippets." },
-  { selector: ".sidebar", title: "6. You are ready", text: "Right-click databases and tables for more. Open Help → User Manual any time, and Help → Quick Tour to see this again." },
+  { selector: "button[title='New connection']", title: "1. Add a connection", text: "Start here. Enter the host, user and password, or paste a mysql:// URL, then press Test. Choose Development, Staging or Production on the Safety tab. For a SQLite file, set Database type to SQLite file. Passwords go to the macOS Keychain." },
+  { selector: ".conn-bar", title: "2. Pick a connection", text: "Saved connections live in this list. You can group them into folders and keep several open at once; each opens as a tab, and switching back does not reconnect." },
+  { selector: ".sidebar-toggle", title: "3. Hide or show the sidebar", text: "This button (or ⌘B) hides the object tree so a wide table gets the whole window." },
+  { selector: ".filter", title: "4. Find anything fast", text: "Type part of a name to filter the tree. Try db:shop, type:view or col:email, or /regex/. The funnel icon chooses what is searched. Press ⇧⌘B to jump here." },
+  { selector: ".side-tabs", title: "5. Objects, History, Favorites", text: "Browse objects, replay anything you ran before, or keep your favorite queries. Double-click a table to open its data; right-click for its menu: properties, sample SQL, design, export, dump, rename, duplicate, drop." },
+  { selector: ".main", title: "6. Write and run SQL", text: "Press ⌘T for a new script and ⌘↵ to run the selection. Preview shows a risk review first, and Explain shows how the server runs the query. Results, Profile, Messages, Info and History appear here after the first run. ⇧⌘F formats the SQL." },
+  { selector: ".main", title: "7. Work with table data", text: "Open a table to get a grid. Double-click a cell to edit; changes are staged and shown as SQL before Submit. Use the filter row (contains, between, in, regexp, is NULL…) or a WHERE box, click headers to sort, and Count for an exact total. Long text and JSON open in an editor window; BLOB cells have Upload and Save." },
+  { selector: ".main", title: "8. Import and export", text: "File → Import Data loads CSV, TSV, JSON or JSON Lines into a table, with a preview and column mapping. File → Export Data writes any SELECT as CSV, JSON, JSON Lines, SQL INSERT, XML, HTML or Excel. Copy as… on a result gives TSV, CSV, JSON, Markdown or INSERT." },
+  { selector: ".main", title: "9. Backup, compare and tune", text: "File → Backup / Restore makes a consistent SQL dump and runs one back. The Database menu has Compare Schemas, Index Advisor, Users and Privileges, Server Tools and the table designer. Search → Search Data in Database finds a value in any table." },
+  { selector: ".tasks-btn", title: "10. Background jobs", text: "Exports, imports, backups and scripts run here with progress and a Cancel button, so you can keep working." },
+  { selector: ".sidebar", title: "11. You are ready", text: "Preferences (⌘,) has colour themes such as Monokai, GitHub Dark and Nord. ⌘/ lists every shortcut. Help → User Manual explains each menu, and Help → Quick Tour shows this again." },
 ];
 
 /** A spotlight on one control with a short explanation beside it. Steps whose control is not on screen are skipped. */

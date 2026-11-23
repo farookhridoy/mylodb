@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.4 (2026-11-23)
+
+**Changed**
+* **The manual now explains every menu** (File, Edit and Search, SQL Editor, Database, View and Help) and has new sections on filtering and sorting, long text/JSON/BLOB cells (including upload and save), exporting (all formats), importing, and backup and restore.
+* **The Quick Tour grew from 6 to 11 steps**, covering the sidebar toggle, table data, import and export, backup, compare and tuning, and background jobs.
+
 ## 0.4.3 (2026-11-23)
 
 **Fixed**

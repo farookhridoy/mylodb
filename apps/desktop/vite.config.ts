@@ -8,5 +8,6 @@ export default defineConfig({
   plugins: [react()],
   define: { __APP_VERSION__: JSON.stringify(pkg.version) },
   clearScreen: false,
-  server: { port: 1420, strictPort: true },
+  // the manual shows the screenshots in docs/images, which are outside this folder
+  server: { port: 1420, strictPort: true, fs: { allow: ["../.."] } },
 });

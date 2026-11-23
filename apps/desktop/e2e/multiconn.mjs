@@ -29,6 +29,17 @@ await page.waitForFunction(() => document.querySelector(".conn-tab.active")?.inn
 assert.equal((await calls("disconnect")).length, 0);
 ok("switching to a connection tab keeps both sessions");
 
+// switching between open connections reuses their sessions: no new connect (so no keychain read), the app asks the backend to reuse
+let conns = (await calls("connect")).map((a) => [a.id, a.reuse]);
+assert.deepEqual(conns, [[1, false], [4, false], [1, true]], "first connects reconnect, the switch back reuses");
+await page.selectOption(".conn-bar select", "4");
+await page.waitForFunction(() => document.querySelector(".conn-tab.active")?.innerText.includes("Staging"));
+await page.selectOption(".conn-bar select", "1");
+await page.waitForFunction(() => document.querySelector(".conn-tab.active")?.innerText.includes("Local"));
+conns = (await calls("connect")).map((a) => [a.id, a.reuse]);
+assert.deepEqual(conns.slice(3), [[4, true], [1, true]], "the connection picker reuses open sessions too");
+ok("switching between open connections asks the backend to reuse the session, from the tabs and from the picker");
+
 await page.click("button[aria-label='Disconnect Staging']");
 await page.waitForFunction(() => document.querySelectorAll(".conn-tab").length === 1);
 assert.deepEqual((await calls("disconnect")).map((a) => a.id), [4]);

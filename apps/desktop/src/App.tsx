@@ -205,11 +205,13 @@ export default function App() {
   const databases = useMemo(() => index.filter((n) => n.kind === "database").map((n) => n.name), [index]);
 
   // ---- connect / session restore ----
-  const open = async (id: number, trust?: string) => {
+  /** `reuse`: the connection is already open, so switch to it without reconnecting. */
+  const open = async (id: number, trust?: string, reuse = false) => {
     setStatus("Connecting…");
-    setConnecting(connectionsRef.current.find((c) => c.id === id)?.name ?? "the server");
+    // the spinner only appears when connecting actually takes a moment; switching to an open connection is instant
+    const spinner = setTimeout(() => setConnecting(connectionsRef.current.find((c) => c.id === id)?.name ?? "the server"), 250);
     try {
-      const idx = await api.connect(id, trust);
+      const idx = await api.connect(id, trust, reuse);
       // what was expanded and selected last time on this connection (only what still exists on the server)
       let savedBrowser: { open: string[]; db: string | null; table: string | null } = { open: [], db: null, table: null };
       try { savedBrowser = { ...savedBrowser, ...JSON.parse(localStorage.getItem(`mylodb.browser.${id}`) ?? "{}") }; } catch { /* a damaged entry is ignored */ }
@@ -264,6 +266,7 @@ export default function App() {
         setHostPrompt({ id, host: err.host, fingerprint: err.actual, changed: err.expected });
       } else setStatus(`Error: ${describeError(e)}`);
     } finally {
+      clearTimeout(spinner);
       setConnecting(null);
     }
   };
@@ -466,7 +469,7 @@ export default function App() {
     const rest = openIds.filter((x) => x !== id);
     setOpenIds(rest);
     if (id !== activeId) return;
-    if (rest.length) return void open(rest[rest.length - 1]);
+    if (rest.length) return void open(rest[rest.length - 1], undefined, true);
     setActiveId(null); setIndex([]); setTabs([newTab(1)]); setSelectedDb(null); setSelectedTable(null); setStatus("Disconnected");
   };
   const disconnectActive = async () => {
@@ -1013,7 +1016,7 @@ export default function App() {
             if (!c) return null;
             return (
               <div key={id} role="tab" aria-selected={id === activeId} className={`conn-tab env-${c.environment ?? "development"} ${id === activeId ? "active" : ""}`}>
-                <button className="conn-tab-name" title={`${c.name}: switch to this connection`} onClick={() => id !== activeId && open(id)}><Icon name="server" size={12} /> {c.name}</button>
+                <button className="conn-tab-name" title={`${c.name}: switch to this connection`} onClick={() => id !== activeId && open(id, undefined, true)}><Icon name="server" size={12} /> {c.name}</button>
                 <button className="conn-tab-close" title={`Disconnect ${c.name}`} aria-label={`Disconnect ${c.name}`} onClick={() => closeConnection(id)}><Icon name="close" size={10} /></button>
               </div>
             );
@@ -1023,7 +1026,7 @@ export default function App() {
       <div className="app-body">
       <aside className="sidebar" style={{ width: sidebar.size }} onMouseDownCapture={() => { fromEditor.current = !!(document.activeElement as HTMLElement | null)?.closest?.(".editor"); }}>
         <div className="conn-bar">
-          <Select value={activeId ?? ""} onChange={(e) => e.target.value && open(Number(e.target.value))}>
+          <Select value={activeId ?? ""} onChange={(e) => e.target.value && open(Number(e.target.value), undefined, openIds.includes(Number(e.target.value)))}>
             <option value="">Select connection…</option>
             {connections.filter((c) => !c.group?.trim()).map((c) => <option key={c.id} value={c.id!}>{c.name}</option>)}
             {connectionGroups.map((g) => (

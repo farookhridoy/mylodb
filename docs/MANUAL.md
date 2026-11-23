@@ -1,6 +1,6 @@
 # MyLoDB user manual
 
-Version 0.4.3. The same text is inside the app: **Help → User Manual**. Screenshots show the real interface running on demo data (a fake `shop` database), not a real server.
+Version 0.4.4. The same text is inside the app: **Help → User Manual**. Screenshots show the real interface running on demo data (a fake `shop` database), not a real server.
 
 ## Contents
 
@@ -107,6 +107,23 @@ Updates are signed by the project's key and refused if the signature does not ma
 * Foreign-key cells open a picker; ⌘-click jumps to the referenced row. The value panel shows text, JSON, hex and images, and uploads or saves BLOBs.
 * Export the table or any SELECT to CSV, JSON, JSON Lines (optionally gzip), SQL, XML, HTML or Excel, as a cancellable background job with progress. Running jobs appear under **Tasks** in the footer.
 
+### What each menu does
+
+* **File**: New SQL Script, Open SQL File, Save, Save As, Close Tab; Refresh (reload the tree); **Import Data** (CSV, TSV, TXT, JSON or JSON Lines into a table); **Export Data** (any SELECT to a file); **Backup / Restore**; **Run SQL File** (a big `.sql`, zip or folder, streamed from disk).
+* **Edit**: Undo, Redo, Cut, Copy, Paste, Select All, Format SQL.
+* **Search**: **Search Objects** (the sidebar filter, ⇧⌘B); **Search Data in Database** (finds a value in any table, with progress and Cancel; "whole value" and "include non-text columns" options); **Command Palette** (⌘K).
+* **SQL Editor**: new script (optionally in the selected database), Visual Query Builder, ER Diagram, Execute, Preview Before Running, Explain Plan, Format SQL.
+* **Database**: New or Edit Connection, Disconnect, Server Home, Databases, Tables of Selected Database, New Table, **Compare Schemas** (make a target database's tables match a source; pick the changes, read the SQL, apply), **Index Advisor** (duplicate, redundant, missing and unused indexes), and Tools: Users and Privileges, Server Tools (overview, charts, processes, variables, status, maintenance, logs), Engines, Charsets, Replication.
+* **View**: Toggle Sidebar (⌘B), Theme System, Light or Dark. **Help**: User Manual, Quick Tour, Keyboard Shortcuts (⌘/), Check for Updates, About.
+
+### Filtering and sorting in the grid
+
+The filter row (toolbar button) gives each column an operator: contains, doesn't contain, =, ≠, starts with, ends with, >, ≥, <, ≤, between, in (a, b, …), regexp, is NULL, is not NULL, is empty. Column filters combine with AND, and the **WHERE** box adds your own condition. Click a header to sort up, down, off; Shift-click adds a column; the SL header sorts by primary key. **Count** gives an exact total. SQLite supports everything except `regexp`.
+
+### Long text, JSON, files and images
+
+TEXT, LONGTEXT and JSON cells open in an editor window (Apply ⌘↵, Set NULL, Copy; JSON adds a validity badge, Format and Minify). The value panel shows a cell as Text, JSON, Hex or Image. **Upload…** puts a file from disk into a BLOB cell and **Save…** writes it out; uploads are staged until Submit.
+
 ## 6. Design tables and administer a database
 
 * **Table designer:** columns, types, defaults, generated columns, indexes, foreign keys, engine, charset and collation. It shows the exact `ALTER TABLE` before it runs, and renames keep data.
@@ -174,6 +191,9 @@ File → **Backup / Restore…** and **Import Data… / Export Data…**.
 * **Backup** writes one consistent snapshot as SQL (structure, data, views, routines, triggers, events), as one file or a file per table, optionally zipped. A cancelled backup removes its partial output.
 * **Restore** runs a `.sql` file, a zip or a folder, streamed from disk, and lists errors with line numbers. **Preview script** shows the counts and the first statements first.
 * **CSV import** detects the delimiter, previews rows, handles encodings, maps columns, and can insert, skip, update or replace; all-or-nothing or continue on error. It can also create a table from the file.
+
+* **Export Data…** writes any SELECT as **CSV**, **JSON** (array of objects), **JSON Lines**, **SQL INSERT**, **XML**, **HTML table** or **Excel (XLSX)**; CSV lets you choose the text written for NULL, and gzip is optional (not for Excel). It streams from the server as a cancellable background job. **Copy as…** above a result copies TSV, CSV, JSON, a Markdown table or INSERT statements.
+* Import options: delimiter, quote, encoding, header row, trim, the text that means NULL, new table or existing table, and what to do on a duplicate key (error, skip, update, replace). "Empty the table first" asks to confirm.
 
 ## 9. Preferences and themes
 

@@ -88,6 +88,76 @@ const SECTIONS: Section[] = [
       <Shot src={shot_query} alt="A query and its results" />
       <Shot src={shot_palette} alt="The command palette (⌘K)" />
     </>) },
+  { id: "m-file", title: "File menu", body: (
+    <>
+      <p>Everything that opens, saves or moves files. Most items need an open connection.</p>
+      <table className="info kv"><tbody>
+        {([
+          ["New SQL Script", "Opens an empty editor tab on the selected database. Use it for any query you want to keep apart from your other work."],
+          ["Open SQL File…", "Loads a .sql file into a new editor tab so you can read and edit it before running anything."],
+          ["Save / Save As…", "Writes the editor text to a .sql file. Save asks for a name only the first time."],
+          ["Close Tab", "Closes the current tab. Unsaved grid edits ask first."],
+          ["Refresh", "Reloads the object tree from the server. Use it after another tool changed the schema."],
+          ["Import Data…", "Opens Transfer on the Import CSV tab: load a CSV, TSV, TXT, JSON or JSON Lines file into a table. See Importing data."],
+          ["Export Data…", "Opens Transfer on the Export query tab: write the result of any SELECT to a file. See Exporting data."],
+          ["Backup / Restore…", "Opens Transfer on the Backup tab: a consistent SQL dump of whole databases. See Backup and restore."],
+          ["Run SQL File…", "Opens the Restore tab to run a big .sql file, a zip or a folder straight from disk. The editor is not used, so size does not matter."],
+        ] as [string, string][]).map(([k, v]) => <tr key={k}><th>{k}</th><td>{v}</td></tr>)}
+      </tbody></table>
+    </>) },
+  { id: "m-edit", title: "Edit and Search menus", body: (
+    <>
+      <p><b>Edit</b> has the usual Undo, Redo, Cut, Copy, Paste and Select All, which work in the editor and in text boxes, and <b>Format SQL</b>, which lays the script out with one clause per line.</p>
+      <p><b>Search</b> has three tools, each for a different question:</p>
+      <ul>
+        <li><b>Search Objects (DB Metadata)</b> (<K>⇧⌘B</K>) puts the cursor in the sidebar filter. Use it when you know part of a table, view, routine or column name. The funnel icon chooses what is searched (tables, views, procedures and functions, triggers, events, columns).</li>
+        <li><b>Search Data in Database…</b> answers "which table holds this value?". Pick a database, type the text or number and press Search. It scans every table and lists the tables, columns and row counts that match, with progress and a Cancel button. Matching follows each column's collation, so it is usually not case-sensitive. Tick <i>Whole value</i> to match exactly instead of "contains", and <i>Also numbers, dates…</i> to include non-text columns (slower).</li>
+        <li><b>Command Palette…</b> (<K>⌘K</K>) runs any action by name, jumps to a table, inserts a snippet or a theme.</li>
+      </ul>
+    </>) },
+  { id: "m-sql", title: "SQL Editor menu", body: (
+    <>
+      <table className="info kv"><tbody>
+        {([
+          ["New SQL Script / New Script in Selected Database", "A fresh editor tab, with or without the database already chosen."],
+          ["Visual Query Builder…", "Build a SELECT by picking tables, joins, columns and conditions. The SQL is written for you and can be sent to the editor."],
+          ["ER Diagram of Database…", "Draws the tables of a database and the foreign keys between them. Drag boxes to arrange them."],
+          ["Execute", "Runs the selection, or the whole script when nothing is selected (⌘↵)."],
+          ["Preview Before Running…", "Shows each statement and a risk review (DROP, TRUNCATE, DELETE or UPDATE without WHERE) before anything is sent."],
+          ["Explain Plan", "Asks the server how it would run the query: which indexes, how many rows. Use it to find why a query is slow."],
+          ["Format SQL", "Tidies the script (⇧⌘F)."],
+        ] as [string, string][]).map(([k, v]) => <tr key={k}><th>{k}</th><td>{v}</td></tr>)}
+      </tbody></table>
+      <p>With a statement in the editor, the Results pane shows <b>Results</b>, <b>Profile</b> (time per stage), <b>Messages</b> (rows affected, warnings, errors), <b>Info</b> and <b>History</b>. These tabs appear after the first run; a table tab shows only <b>Table Data</b> until you run something in its console.</p>
+    </>) },
+  { id: "m-db", title: "Database menu", body: (
+    <>
+      <table className="info kv"><tbody>
+        {([
+          ["New Database Connection… / Edit Connection…", "Add a server or change a saved one: host, user, SSH tunnel, SSL, environment, read-only and time limit."],
+          ["Disconnect", "Closes the connection and its tabs."],
+          ["Server Home", "Version, uptime, connections, character set and quick links for the server."],
+          ["Databases…", "Every database with size, table count and collation. Create, drop several at once, check all."],
+          ["Tables of Selected Database", "The Structure page: every table with rows, engine, size and overhead, and a With selected menu for bulk actions."],
+          ["New Table…", "Opens the table designer on an empty table."],
+          ["Compare Schemas…", "Makes the tables of a target database match a source database, which may be on another connection. Click Compare to list the differences (new, changed or dropped tables), tick the ones you want, read the SQL with Show SQL, then Preview and apply. Only tables are compared, and tables that exist only in the target are listed as drops, so read the list."],
+          ["Index Advisor…", "Reads every index in a database and reports duplicate, redundant and missing indexes (a foreign key with no index), plus indexes never used since the server started. Tick findings and Preview and apply to drop or add them. A missing foreign key index is not pre-ticked because it costs write speed."],
+          ["Tools: Users and Privileges", "List users, edit privileges and see the exact GRANT and REVOKE before it runs. Passwords are masked."],
+          ["Tools: Server Tools", "Overview, Charts, Processes (kill a query), Variables, Status, Maintenance (analyze, check, optimize, repair) and Logs (error log, slow queries, binary logs, settings)."],
+          ["Tools: Engines, Charsets, Replication", "Read-only lists of storage engines, character sets and collations, and the replication state."],
+        ] as [string, string][]).map(([k, v]) => <tr key={k}><th>{k}</th><td>{v}</td></tr>)}
+      </tbody></table>
+      <p>A SQLite file has no users, server tools or dump backup, so those items are disabled with a tooltip that says why.</p>
+    </>) },
+  { id: "m-view", title: "View, Window and Help menus", body: (
+    <>
+      <ul>
+        <li><b>Toggle Sidebar</b> (<K>⌘B</K>) hides or shows the object tree, to give a wide table more room. The same button sits before the Home tab.</li>
+        <li><b>Theme: System, Light, Dark</b> switch the look at once. Named colour themes are in Preferences.</li>
+        <li><b>Window</b> is the standard macOS menu: minimize, zoom, full screen, close.</li>
+        <li><b>Help</b>: User Manual (this window), Quick Tour, Keyboard Shortcuts (<K>⌘/</K>), Check for Updates… and About.</li>
+      </ul>
+    </>) },
   { id: "grid", title: "Editing table data", body: (
     <>
       <p>A table opens as a console (top) and a data grid (bottom). The grid pages through the data on the server, so very large tables stay fast; row counts are estimates until you ask for an exact count.</p>
@@ -98,6 +168,51 @@ const SECTIONS: Section[] = [
         <li>Export the table or any SELECT to CSV, JSON, JSON Lines, SQL, XML, HTML or Excel, as a cancellable background job.</li>
       </ul>
       <Shot src={shot_tableData} alt="A table: console above, data grid below" />
+    </>) },
+  { id: "filter", title: "Filtering and sorting data", body: (
+    <>
+      <p>All of this happens on the server, so it works the same on a table of ten rows and ten million.</p>
+      <ul>
+        <li><b>Column filters</b>: press the filter button in the grid toolbar to show a filter row. Each column has an operator and a value. Operators: contains, doesn't contain, =, ≠, starts with, ends with, &gt;, ≥, &lt;, ≤, between (two values), in (a, b, …), regexp, is NULL, is not NULL, is empty. Filters on several columns combine with AND. The × beside the toolbar button clears them all.</li>
+        <li><b>WHERE box</b>: type your own condition, for example <code>status = 'paid' AND total &gt; 100</code>. It is added to the column filters.</li>
+        <li><b>Sort</b>: click a column header to sort up, again for down, again to clear. <K>Shift</K>-click adds a second sort column. The <b>SL</b> column header sorts by the primary key.</li>
+        <li><b>Paging</b>: first, previous, next and last page, and a rows-per-page box. <b>Count</b> replaces the estimated total with an exact one; Stop cancels a slow count.</li>
+        <li><b>Columns</b>: drag a header edge to resize, including the SL column.</li>
+        <li><b>SQL</b> button: shows the exact queries the grid is running, so you can copy them to the editor.</li>
+        <li><b>SQLite files</b> support all of the above except <code>regexp</code>.</li>
+      </ul>
+    </>) },
+  { id: "cells", title: "Long text, JSON, files and images", body: (
+    <>
+      <ul>
+        <li><b>TEXT, MEDIUMTEXT, LONGTEXT and JSON</b> cells open in an editor window instead of a one-line box. It has Apply (<K>⌘↵</K>), Set NULL and Copy. For JSON it shows whether the text is valid and has <b>Format</b> (indent) and <b>Minify</b> (one line).</li>
+        <li><b>Value panel</b>: select a cell to see its full value in Text, JSON, Hex or Image view. Long values are loaded in full, not cut to the preview.</li>
+        <li><b>BLOB and binary cells</b>: <b>Upload…</b> puts a file from your disk into the cell, and <b>Save…</b> writes the cell back out to a file. Images show in the Image view. Uploads are staged like any other edit and are written when you press Submit.</li>
+        <li><b>Set NULL</b> (∅) clears a nullable cell. <b>Foreign key</b> cells have a … button that opens a picker of the referenced rows.</li>
+      </ul>
+    </>) },
+  { id: "export", title: "Exporting data", body: (
+    <>
+      <p>There are four ways to get data out. Pick by what you want.</p>
+      <ul>
+        <li><b>Copy as…</b> (above a result): copies the rows you see to the clipboard as TSV, CSV, JSON, a Markdown table or INSERT statements. Quick and small; for a few hundred rows.</li>
+        <li><b>Export Data…</b> (File menu, or Export in a table's right-click menu): writes the result of any SELECT to a file, streamed from the server so a big result does not fill memory. Formats: <b>CSV</b>, <b>JSON</b> (an array of objects), <b>JSON Lines</b> (one object per line, easy to stream), <b>SQL INSERT</b>, <b>XML</b>, <b>HTML table</b> and <b>Excel (XLSX)</b>. For CSV you choose the text written for NULL. Tick <i>Compress with gzip</i> to write a .gz (not for Excel). It runs as a background job with progress and Cancel; a cancelled export leaves no partial file.</li>
+        <li><b>Dump table…</b> and <b>Back up this database…</b> (right-click): a SQL file that can recreate the table or database. See Backup and restore.</li>
+        <li><b>With selected → Export</b> on the Structure page exports several tables at once.</li>
+      </ul>
+      <p>The Tasks button (top right) lists running and finished background jobs: exports, imports, backups and scripts.</p>
+    </>) },
+  { id: "import", title: "Importing data", body: (
+    <>
+      <p><b>File → Import Data…</b> loads a file into a table. Choose a CSV, TSV, TXT, JSON or JSON Lines file, then:</p>
+      <ol>
+        <li><b>Describe the file</b>: delimiter, quote character, encoding, whether the first row is a header, trim spaces, and which text means NULL (for example <code>NULL</code> or <code>\N</code>). The preview shows the first rows as MyLoDB reads them.</li>
+        <li><b>Choose the target</b>: an existing table, or <i>Create a new table from the file</i> and give it a name. Columns are mapped by name; change a mapping in the preview if names differ.</li>
+        <li><b>Decide on duplicates</b> (existing table): report an error, skip the new row, update the existing row, or replace it. Rows are matched by primary or unique key. <i>Empty the table first</i> deletes all current rows and asks you to confirm.</li>
+        <li><b>Safety options</b>: stop at the first bad row and undo everything (or continue and report the bad rows), treat empty values as NULL in number and date columns, and disable foreign key checks while importing.</li>
+        <li>Press <b>Import</b>. It runs as a background job with progress and ends with a count of rows added, skipped and failed.</li>
+      </ol>
+      <p>To run a <code>.sql</code> file instead, use <b>Run SQL File…</b> (Restore tab).</p>
     </>) },
   { id: "design", title: "Table designer and admin pages", body: (
     <>
@@ -124,13 +239,13 @@ const SECTIONS: Section[] = [
         <li>SSH tunnels check the host key and block a changed key. SSL modes include verify, verify CA and skip verify.</li>
       </ul>
     </>) },
-  { id: "transfer", title: "Backup, restore and import", body: (
+  { id: "transfer", title: "Backup and restore", body: (
     <>
-      <p>Use <b>File → Backup / Restore…</b> and <b>Import / Export Data…</b>.</p>
+      <p>Open <b>File → Backup / Restore…</b>. A backup is a plain SQL file you can read, version and restore with MyLoDB or the <code>mysql</code> client.</p>
       <ul>
-        <li><b>Backup</b> writes one consistent snapshot as SQL: structure, data, views, routines, triggers and events; one file or a file per table; optional zip. Partial output is removed if you cancel.</li>
-        <li><b>Restore</b> runs a <code>.sql</code> file, a zip or a folder, streamed from disk. Use <b>Preview script</b> first to see the counts and the first statements.</li>
-        <li><b>CSV import</b> detects the delimiter, previews rows, maps columns and can insert, skip, update or replace; all-or-nothing or continue on error.</li>
+        <li><b>Backup</b>: tick the databases, and optionally only some tables of each. Choose the contents (structure, data, views, procedures and functions, triggers, events) and the options: add <code>DROP … IF EXISTS</code> so a restore replaces objects, add <code>CREATE DATABASE</code> and <code>USE</code>, take a <b>consistent snapshot</b> (every table read at one moment, InnoDB), disable foreign key checks while restoring, remove <code>DEFINER</code> clauses so views and routines restore under the restoring user, and rows per INSERT statement. Output: a folder, a file name, one file or one file per table, optionally one .zip. A timestamp is added, so a backup never overwrites an earlier one. Cancel removes the partial output.</li>
+        <li><b>Restore / run script</b>: choose a <code>.sql</code> file, a zip or a folder of .sql files and the database to run in. <b>Preview script</b> counts and shows the first statements without running anything. Then <b>Run script…</b>, which asks to confirm. Options: stop at the first error, and disable foreign key checks. The file is streamed from disk, so a multi-gigabyte dump works.</li>
+        <li>Before you restore over data you care about, take a fresh backup first.</li>
       </ul>
     </>) },
   { id: "perf", title: "Performance", body: (

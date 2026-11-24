@@ -622,6 +622,21 @@ export default function App() {
     runSql(t.id, sql, database);
   };
 
+  // ---- a reloaded window picks the open connections up again ----
+  // The connections live in the backend; a page reload only forgets which one was on screen. Remember it, and on start attach to what is still open.
+  useEffect(() => { if (activeId !== null) localStorage.setItem("mylodb.activeConnection", String(activeId)); }, [activeId]);
+  const reattached = useRef(false);
+  useEffect(() => {
+    if (reattached.current) return;
+    reattached.current = true;
+    api.openConnections().then((ids) => {
+      if (!ids.length) return;
+      const last = Number(localStorage.getItem("mylodb.activeConnection"));
+      setOpenIds(ids);
+      open(ids.includes(last) ? last : ids[ids.length - 1], undefined, true);
+    }).catch(() => {});
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ---- schema tools ----
   const reloadIndex = async () => { if (activeId !== null) { meta.reset(); setIndex(await schemaApi.refreshIndex(activeId)); } };
 

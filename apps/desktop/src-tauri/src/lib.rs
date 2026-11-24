@@ -432,6 +432,15 @@ fn forget_ssh_host(state: tauri::State<AppState>, id: i64) -> Result<(), String>
     Ok(())
 }
 
+/// Ids of the connections that are open right now. The window asks on start, so a reload of the page
+/// picks the open connections up again instead of showing a disconnected screen.
+#[tauri::command]
+fn open_connections(state: tauri::State<'_, AppState>) -> Vec<i64> {
+    let mut ids: Vec<i64> = state.sessions.lock().unwrap().keys().copied().collect();
+    ids.sort_unstable();
+    ids
+}
+
 #[tauri::command]
 async fn disconnect(state: tauri::State<'_, AppState>, id: i64) -> Result<(), String> {
     let session = state.sessions.lock().unwrap().remove(&id);
@@ -1838,6 +1847,7 @@ pub fn run() {
             ddl_preview,
             ddl_apply,
             refresh_index,
+            open_connections,
             table_op,
             database_op,
             server_options,

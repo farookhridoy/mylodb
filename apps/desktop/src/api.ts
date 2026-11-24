@@ -78,6 +78,7 @@ export const api = {
   connect: (id: number, trustFingerprint?: string, reuse?: boolean) => invoke<Node[]>("connect", { id, trustFingerprint: trustFingerprint ?? null, reuse: reuse ?? false }),
   testConnection: (connection: SavedConnection, trustFingerprint?: string) => invoke<TestResult>("test_connection", { connection, trustFingerprint: trustFingerprint ?? null }),
   forgetSshHost: (id: number) => invoke<void>("forget_ssh_host", { id }),
+  openConnections: () => invoke<number[]>("open_connections"),
   disconnect: (id: number) => invoke<void>("disconnect", { id }),
   /** `scope` = the selected database: only its objects are searched. Without one, only database names are. */
   filterIndex: (id: number, query: string, scope: string | null, kinds: Kind[] | null) => invoke<number[]>("filter_index", { id, query, scope, kinds }),

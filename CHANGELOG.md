@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.1 (2026-11-24)
+
+**Fixed**
+* **Reloading the window no longer disconnects you.** The connection stayed open in the background, but a page reload (for example the Reload item in the right-click menu) forgot which one was on screen, so you had to pick the connection again. MyLoDB now attaches to the connections that are still open, on the one you were using, with your tabs and tree as before. Nothing reconnects or asks for a password.
+
 ## 0.5.0 (2026-11-24)
 
 **Fixed**

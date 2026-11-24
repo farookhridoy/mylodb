@@ -166,6 +166,7 @@ const handlers = {
     return { version: "9.7.2", ssl_cipher: a.connection.ssl !== "disabled" ? "TLS_AES_256_GCM_SHA384" : null, via_ssh: !!a.connection.ssh };
   },
   refresh_index: () => { window.__refreshed = (window.__refreshed || 0) + 1; window.__index = currentIndex(); return window.__index; },
+  open_connections: () => window.__openConnections || [],
   disconnect: () => null, // Other suites start on a query tab (a saved session); home.mjs sets __fresh to see a first connect.
   session_get: () => (window.__fresh ? null : JSON.stringify({ tabs: [{ id: "q1", title: "Query 1", sql: "", database: null }], active: "q1" })), session_set: () => null, history_list: () => [], favorites_list: () => [],
   list_databases: () => ["shop"], filter_index: () => [],

@@ -727,3 +727,19 @@ header.topbar button.on { background: color-mix(in srgb, var(--accent) 22%, tran
 .usage-list section h4 { margin: 8px 0 4px; text-transform: none; } .usage-list ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
 .usage-list li { display: grid; gap: 2px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; } .usage-list code { overflow-wrap: anywhere; white-space: pre-wrap; }
 .usages-dialog .actions { display: flex; justify-content: flex-end; }
+
+/* ---- audit log ---- */
+.audit-page { display: grid; gap: 10px; } .audit-head { display: flex; align-items: center; justify-content: space-between; }
+.audit-scroll { max-height: 340px; overflow: auto; border: 1px solid var(--line); border-radius: 6px; } .audit-table td { vertical-align: top; } .audit-table code { white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* ---- data compare / copy database ---- */
+.datacompare { padding: 14px 16px; display: grid; gap: 12px; overflow: auto; max-height: 100%; }
+.dc-pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+.dc-side, .dc-opts { border: 1px solid var(--line); border-radius: 8px; display: grid; gap: 8px; padding: 10px 12px; } .dc-side label, .dc-opts label:not(.check) { display: grid; gap: 4px; }
+.dc-side select, .dc-opts input:not([type=checkbox]), .copydb-dialog select, .copydb-dialog input:not([type=checkbox]) { padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--control, var(--bg)); color: var(--text); font: inherit; }
+.dc-key { display: flex; flex-wrap: wrap; gap: 4px 16px; }
+.dc-chips { display: flex; flex-wrap: wrap; gap: 8px; } .dc-chips span { padding: 6px 10px; border-radius: 999px; border: 1px solid var(--line); }
+.dc-chips .chip-new { border-color: var(--good, #3fb950); } .dc-chips .chip-changed { border-color: var(--warn, #e0a63a); } .dc-chips .chip-old { border-color: var(--bad, #d93a47); }
+.dc-sample { border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; } .dc-sample summary { cursor: pointer; font-weight: 600; } .dc-scroll { max-height: 260px; overflow: auto; margin-top: 6px; }
+.dc-result { display: grid; gap: 10px; } .datacompare .actions, .copydb-dialog .actions { display: flex; gap: 8px; justify-content: flex-end; align-items: center; }
+.copydb-dialog { width: min(560px, calc(100vw - 48px)); display: grid; gap: 10px; } .copydb-dialog label:not(.check) { display: grid; gap: 4px; }

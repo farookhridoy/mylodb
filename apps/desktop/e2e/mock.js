@@ -267,6 +267,22 @@ Object.assign(handlers, {
     ];
     return a.column ? all.filter((u) => u.detail.includes(a.column)) : all;
   },
+  audit_status: () => ({ enabled: !!window.__audit, path: "/Users/me/Library/Application Support/dev.mylodb.app/audit.log", size: window.__audit ? 400 : 0 }),
+  audit_set: (a) => { window.__audit = a.enabled; return { enabled: a.enabled, path: "/Users/me/Library/Application Support/dev.mylodb.app/audit.log", size: a.enabled ? 400 : 0 }; },
+  audit_tail: () => (window.__audit ? [
+    { time: "2026-11-26 10:05:00", connection: "Local", who: "root@127.0.0.1", database: "shop", ok: true, ms: 4, sql: "DELETE FROM orders WHERE id = 7" },
+    { time: "2026-11-26 10:01:00", connection: "Local", who: "root@127.0.0.1", database: "shop", ok: false, ms: 1, sql: "DROP TABLE nope" },
+  ] : []),
+  data_compare: (a) => ({
+    columns: ["id", "name", "total"], key: a.request.key, same: 10, only_source_count: 2, only_target_count: 1, changed_count: 1,
+    only_source: [["11", "Eve", "3.00"], ["12", "Fay", null]], only_target: [["99", "Old", "1.00"]],
+    changed: [{ key: ["7"], diffs: [{ column: "name", source: "Gus", target: "Gust" }] }],
+    statements_total: 3, skipped: ["legacy_flag"],
+    statements: ["INSERT INTO `shop`.`customers` (`id`, `name`, `total`) VALUES\n  (11, 'Eve', 3.00),\n  (12, 'Fay', NULL)", "UPDATE `shop`.`customers` SET `name` = 'Gus' WHERE `id` = 7"],
+  }),
+  data_sync_apply: () => ({ statements: 3, inserted: 2, updated: 1, deleted: 0 }),
+  copy_database: (a) => ({ tables: 2, rows: 6600, statements: 14, warnings: [], elapsed_ms: 1200 }),
+  rename_view_statements: (a) => !window.__viewDeps ? [] : [`CREATE OR REPLACE VIEW \`${a.db}\`.\`v_big_orders\` AS select \`${a.db}\`.\`${a.to}\`.\`id\` from \`${a.db}\`.\`${a.to}\``],
   top_statements: (a) => {
     if (window.__noPerfSchema) throw "the Performance Schema statement summary is not available (performance_schema is OFF). Turn it on with performance_schema=ON in the server settings and restart the server";
     const rows = [

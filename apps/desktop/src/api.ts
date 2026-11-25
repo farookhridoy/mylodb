@@ -328,9 +328,40 @@ export interface ProfileResult {
 
 export interface SqlDiagnostic { from: number; to: number; severity: "error" | "warning"; message: string }
 
+/** The audit log: a file with one line per statement that changed something (off until turned on). */
+export interface AuditStatus { enabled: boolean; path: string; size: number }
+export interface AuditEntry { time: string; connection: string; who: string; database: string | null; ok: boolean; ms: number; sql: string }
+export const auditApi = {
+  status: () => invoke<AuditStatus>("audit_status"),
+  set: (enabled: boolean) => invoke<AuditStatus>("audit_set", { enabled }),
+  tail: (limit: number) => invoke<AuditEntry[]>("audit_tail", { limit }),
+};
+
+/** Data compare and sync, and copying a database between connections (MySQL and MariaDB). */
+export interface DataCompareRequest {
+  source_id: number; source_db: string; source_table: string; target_id: number; target_db: string; target_table: string;
+  key: string[]; where_sql: string | null; delete_extra: boolean;
+}
+export type Cells = (string | null)[];
+export interface DataCompareResult {
+  columns: string[]; key: string[]; same: number; only_source_count: number; only_target_count: number; changed_count: number;
+  only_source: Cells[]; only_target: Cells[]; changed: { key: Cells; diffs: { column: string; source: string | null; target: string | null }[] }[];
+  statements_total: number; statements: string[]; skipped: string[];
+}
+export interface SyncApplied { statements: number; inserted: number; updated: number; deleted: number }
+export interface CopySummary { tables: number; rows: number; statements: number; warnings: string[]; elapsed_ms: number }
+export const syncApi = {
+  compare: (request: DataCompareRequest) => invoke<DataCompareResult>("data_compare", { request }),
+  apply: (request: DataCompareRequest, disableFkChecks: boolean) => invoke<SyncApplied>("data_sync_apply", { request, disableFkChecks }),
+  copyDatabase: (jobId: string, sourceId: number, sourceDb: string, targetId: number, targetDb: string, withData: boolean) =>
+    invoke<CopySummary>("copy_database", { jobId, sourceId, sourceDb, targetId, targetDb, withData }),
+};
+
 export interface Usage { kind: string; db: string; name: string; detail: string }
 export const usagesApi = {
   find: (id: number, db: string, table: string, column: string | null) => invoke<Usage[]>("find_usages", { id, db, table, column }),
+  /** The statements that point the views mentioning a table at its new name (run after the rename). */
+  renameViews: (id: number, db: string, from: string, to: string) => invoke<string[]>("rename_view_statements", { id, db, from, to }),
 };
 
 export const sqliteApi = {

@@ -52,6 +52,8 @@ import { ToastHost, useToasts } from "./Toasts";
 import AiPanel from "./AiPanel";
 import SchedulesDialog from "./SchedulesDialog";
 import UsagesDialog from "./UsagesDialog";
+import DataComparePage from "./DataComparePage";
+import CopyDatabaseDialog from "./CopyDatabaseDialog";
 import { buildShare, parseShare, planImport } from "./shareFile";
 import ResultsPane, { type RunState } from "./ResultsPane";
 import { ConfirmDialog, FavoritesPanel, HistoryPanel, SaveFavoriteDialog } from "./SidePanels";
@@ -59,7 +61,9 @@ import { ConfirmDialog, FavoritesPanel, HistoryPanel, SaveFavoriteDialog } from 
 /** A SQL editor tab, or a table data tab (`kind: "table"`). Tabs saved before table tabs existed have no kind. */
 interface QueryTab {
   id: string; title: string; sql: string; database: string | null;
-  kind?: "sql" | "table" | "designer" | "users" | "server" | "transfer" | "databases" | "structure" | "home" | "catalog" | "compare" | "search" | "advisor" | "builder" | "er";
+  kind?: "sql" | "table" | "designer" | "users" | "server" | "transfer" | "databases" | "structure" | "home" | "catalog" | "compare" | "search" | "advisor" | "builder" | "er" | "datacompare";
+  /// For `datacompare` tabs: the table the comparison starts from.
+  dataPreset?: { db: string; table: string };
   /// For `transfer` tabs: which tool to show and what it is about.
   transfer?: TransferPreset;
   /// For query tabs opened from or saved to a .sql file: its path.
@@ -167,6 +171,7 @@ export default function App() {
   // the Ask AI panel on the right: open or closed is remembered, and so is its width
   const [schedulesOpen, setSchedulesOpen] = useState(false);
   const [usages, setUsages] = useState<{ db: string; table: string } | null>(null);
+  const [copyDb, setCopyDb] = useState<{ db: string } | null>(null);
   const [aiOpen, setAiOpenState] = useState(() => localStorage.getItem("mylodb.aiOpen") === "1");
   const setAiOpen = (open: boolean) => { localStorage.setItem("mylodb.aiOpen", open ? "1" : "0"); setAiOpenState(open); };
   const aiSize = useSize("mylodb.aiWidth", 400, 300, () => Math.min(760, window.innerWidth - 520));
@@ -260,7 +265,7 @@ export default function App() {
         if (saved) {
           const s = JSON.parse(saved) as { tabs: QueryTab[]; active: string };
           restoredTabs = s.tabs.filter((t) => typeof t.id === "string" && (t.kind === "users" || t.kind === "server" || t.kind === "home" || t.kind === "transfer" || (t.kind === "table" || t.kind === "designer" ? !!t.table : typeof t.sql === "string")))
-            .filter((t) => !serverKinds.includes(t.kind ?? ""))
+            .filter((t) => !serverKinds.includes(t.kind ?? "") && t.kind !== "datacompare")
             .map((t) => (isTable(t) ? { ...t, grid: { ...defaultView(), ...t.grid } } : t));
           restoredActive = s.active;
         }
@@ -520,6 +525,8 @@ export default function App() {
       case "preferences": return setPrefsOpen(true);
       case "export_share": return void exportShare();
       case "import_share": return void importShare();
+      case "data_compare": return need(() => openDataCompare(selectedDb && selectedTable ? { db: selectedDb, table: selectedTable } : undefined));
+      case "copy_database": return need(() => openCopyDatabase(selectedDb));
       case "schedules": return need(() => setSchedulesOpen(true));
       case "ask_ai": return need(() => setAiOpen(!aiOpen));
       case "ai_settings": return (setPrefsPage("ai"), setPrefsOpen(true));
@@ -782,6 +789,19 @@ export default function App() {
     setActiveTab(t.id);
   };
 
+  /** Compare the rows of two tables (MySQL and MariaDB, any two open connections). */
+  const openDataCompare = (preset?: { db: string; table: string }) => {
+    if (isSqlite) return setStatus("Comparing data needs MySQL or MariaDB connections.");
+    const t: QueryTab = { id: uid(), title: preset ? `Data: ${preset.table}` : "Compare data", sql: "", database: preset?.db ?? null, kind: "datacompare", dataPreset: preset };
+    setTabs([...tabs, t]);
+    setActiveTab(t.id);
+  };
+  const openCopyDatabase = (db: string | null) => {
+    if (isSqlite) return setStatus("Copying a database needs MySQL or MariaDB connections.");
+    if (!db) return setStatus("Select a database in the tree first");
+    setCopyDb({ db });
+  };
+
   const openCompare = (db: string) => {
     const w = caps?.writes;
     if (w && !w.available) return setStatus(w.reason ?? "Not available for this connection");
@@ -827,9 +847,9 @@ export default function App() {
   /// Run a table operation, then refresh the tree and fix up any tabs that referred to the table.
   // ---- Preview SQL, then run: every drop / empty / rename / copy goes through one dialog that shows the exact statements ----
   const [planDlg, setPlanDlg] = useState<{ title: string; summary?: string; statements: string[]; confirmLabel?: string; after?: () => void } | null>(null);
-  const openPlan = async (op: PlanOp, o: { title: string; summary?: string; confirmLabel?: string; after?: () => void }) => {
+  const openPlan = async (op: PlanOp, o: { title: string; summary?: string; confirmLabel?: string; after?: () => void; /** More statements to run after the plan's own. */ extra?: string[] }) => {
     if (activeId === null) return;
-    try { setPlanDlg({ ...o, statements: await planApi.build(activeId, op) }); }
+    try { setPlanDlg({ ...o, statements: [...(await planApi.build(activeId, op)), ...(o.extra ?? [])] }); }
     catch (e) { setStatus(`Not possible: ${describeError(e)}`); }
   };
   /// Close the tabs of tables that no longer exist, keeping the active tab valid.
@@ -866,15 +886,18 @@ export default function App() {
       if (to === t) return;
       // a rename does not change the views, routines, triggers and keys that use the old name: say how many there are
       let summary: string | undefined;
+      let extra: string[] = [];
       try {
         const found = (await usagesApi.find(activeId!, d, t, null)).filter((u) => !u.kind.startsWith("foreign key (from"));
+        extra = await usagesApi.renameViews(activeId!, d, t, to).catch(() => []);
         if (found.length) {
           const kinds = new Map<string, number>();
           for (const u of found) kinds.set(u.kind.replace(" (points here)", ""), (kinds.get(u.kind.replace(" (points here)", "")) ?? 0) + 1);
-          summary = `${found.length} other object(s) mention ${t} (${[...kinds].map(([k, n]) => `${n} ${k}`).join(", ")}). A rename does not change them: use "Where is it used…" to see them.`;
+          const views = extra.length;
+          summary = `${found.length} other object(s) mention ${t} (${[...kinds].map(([k, n]) => `${n} ${k}`).join(", ")}). ${views ? `The ${views} view(s) are updated below, after the rename. ` : ""}Routines, triggers and events are not changed: use "Where is it used…" to see them.`;
         }
       } catch { /* the list is only a warning */ }
-      openPlan({ op: "rename_table", db: d, from: t, to }, { title: `Rename ${t}`, confirmLabel: "Rename", summary, after: () => renameTabs(d, t, to) });
+      openPlan({ op: "rename_table", db: d, from: t, to }, { title: `Rename ${t}`, confirmLabel: "Rename", summary, extra, after: () => renameTabs(d, t, to) });
     } });
 
   const maintainTable = async (op: Maintenance, d: string, t: string) => {
@@ -919,6 +942,7 @@ export default function App() {
       { label: "Create", icon: "plus", children: createItems(d) },
       { label: "View Table", icon: "properties", shortcut: "F4", onClick: () => openTable(d, t, undefined, "properties") },
       { label: "Design table…", icon: "edit", onClick: () => openDesigner(d, t) },
+      { label: "Compare data with another table…", icon: "transfer", onClick: () => openDataCompare({ db: d, table: t }) },
       { label: "Where is it used…", icon: "search", onClick: async () => { await ensureColumns(d); setUsages({ db: d, table: t }); } },
       { label: locked ? "Unlock the filter" : "Lock the filter to this table", icon: "filter", onClick: () => (locked ? unlock() : lockTable(d, t)) },
       { separator: true },
@@ -1028,6 +1052,7 @@ export default function App() {
     if (d) items.push({ label: "ER diagram…", icon: "diagram", onClick: () => openEr(d) });
     if (d) items.push({ label: "Query builder…", icon: "sql", onClick: () => openBuilder(d) });
     if (d) items.push({ label: "Compare schemas…", icon: "transfer", disabled: readOnly, onClick: () => openCompare(d) });
+    if (d) items.push({ label: "Copy to another connection…", icon: "export", onClick: () => openCopyDatabase(d) });
     if (isSqlite) {
       items.push({ separator: true });
       items.push({ label: "Check integrity", icon: "check", onClick: () => sqliteMaintain("integrity", "Checking integrity") });
@@ -1239,7 +1264,7 @@ export default function App() {
             <div className="query-tabs" style={{ borderBottomColor: bandColor }}>
               {tabs.map((t) => (
                 <div key={t.id} className={`qtab ${t.id === activeTab ? "active" : ""}`} onClick={() => setActiveTab(t.id)}>
-                  {runs[t.id]?.running ? <Icon name="clock" size={12} /> : isTable(t) ? <Icon name="table" size={12} /> : t.kind === "designer" ? <Icon name="edit" size={12} /> : t.kind === "users" ? <Icon name="user" size={12} /> : t.kind === "server" ? <Icon name="pulse" size={12} /> : t.kind === "transfer" ? <Icon name="transfer" size={12} /> : null}<span>{t.title}</span>
+                  {runs[t.id]?.running ? <Icon name="clock" size={12} /> : isTable(t) ? <Icon name="table" size={12} /> : t.kind === "designer" ? <Icon name="edit" size={12} /> : t.kind === "users" ? <Icon name="user" size={12} /> : t.kind === "server" ? <Icon name="pulse" size={12} /> : t.kind === "transfer" || t.kind === "datacompare" ? <Icon name="transfer" size={12} /> : null}<span>{t.title}</span>
                   <button className="mini" onClick={(e) => { e.stopPropagation(); closeTab(t.id); }}><Icon name="close" size={10} /></button>
                 </div>
               ))}
@@ -1366,6 +1391,9 @@ export default function App() {
             {tab.kind === "advisor" && tab.table && (
               <IndexAdvisorPage key={`${activeId}:${tab.id}`} connectionId={activeId} database={tab.table.db}
                 onApply={(statements, summary) => setPlanDlg({ title: `Index changes: ${tab.table!.db}`, summary, statements, confirmLabel: "Apply changes", after: () => setDbRefresh((n) => n + 1) })} />
+            )}
+            {tab.kind === "datacompare" && (
+              <DataComparePage key={tab.id} connections={connections.filter((c) => c.id !== null && openIds.includes(c.id))} activeId={activeId} preset={tab.dataPreset} onStatus={setStatus} onChanged={() => { reloadIndex(); }} />
             )}
             {tab.kind === "er" && tab.table && (
               <ErDiagramPage key={`${activeId}:${tab.id}`} connectionId={activeId} database={tab.table.db} onOpenTable={(d, t) => openTable(d, t)} />
@@ -1496,6 +1524,8 @@ export default function App() {
           ]),
           { id: "export-share", label: "Export connections and snippets to a file…", hint: "share with a colleague; passwords are not included", run: exportShare },
           { id: "import-share", label: "Import connections and snippets from a file…", hint: "from a MyLoDB share file", run: importShare },
+          { id: "data-compare", label: "Compare the data of two tables…", hint: "make one table match another, by primary key", run: () => { if (activeId === null) return setStatus("Connect first"); openDataCompare(); } },
+          { id: "copy-db", label: "Copy the selected database to another connection…", hint: "tables, views and rows", run: () => { if (activeId === null) return setStatus("Connect first"); openCopyDatabase(selectedDb); } },
           { id: "schedules", label: "Scheduled backups…", hint: "backups that run by themselves, with a log and a keep-the-last-N limit", run: () => { if (activeId === null) return setStatus("Connect first"); setSchedulesOpen(true); } },
           { id: "ask-ai", label: "Ask AI to write a query…", hint: "describe it in plain words", run: () => { if (activeId === null) return setStatus("Connect first"); setAiOpen(true); } },
           ...SNIPPETS.map((sn): Command => ({ id: `s:${sn.label}`, label: `Snippet: ${sn.label}`, hint: "insert into the editor", run: () => {
@@ -1510,6 +1540,9 @@ export default function App() {
       {prefsOpen && <PreferencesDialog startPage={prefsPage} initial={prefs} theme={theme.pref} onTheme={theme.setPref} onChange={(p) => { setPrefs(p); setLivePrefs(p); }} onLive={setLivePrefs} onClose={() => { setLivePrefs(prefs); setPrefsOpen(false); setPrefsPage(undefined); }} />}
       {schedulesOpen && activeId !== null && (
         <SchedulesDialog connectionId={activeId} connectionName={active?.name ?? `#${activeId}`} databases={databases} onClose={() => setSchedulesOpen(false)} />
+      )}
+      {copyDb && activeId !== null && (
+        <CopyDatabaseDialog connections={connections.filter((c) => c.id !== null && openIds.includes(c.id))} sourceId={activeId} sourceDb={copyDb.db} onClose={() => setCopyDb(null)} onDone={(m) => { setStatus(m); reloadIndex(); }} />
       )}
       {usages && activeId !== null && (
         <UsagesDialog connectionId={activeId} db={usages.db} table={usages.table} columns={index.filter((n) => n.kind === "column" && n.database === usages.db && n.parent === usages.table).map((n) => n.name)} onClose={() => setUsages(null)} />

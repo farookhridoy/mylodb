@@ -253,7 +253,7 @@ export default function TableDesigner(props: {
               <button onClick={() => moveColumn(sel, 1)} disabled={sel >= draft.columns.length - 1}>↓</button>
             </div>
             <table className="grid dz-grid">
-              <thead><tr><th>PK</th><th>Name</th><th>Type</th><th>Length / values</th>{!props.sqlite && <th>Unsigned</th>}<th>NOT NULL</th><th>Auto&nbsp;inc</th><th>Default</th>{!props.sqlite && <th>Comment</th>}{!props.sqlite && <th />}</tr></thead>
+              <thead><tr><th>PK</th><th>Name</th><th>Type</th><th>Length / values</th>{!props.sqlite && <th>Unsigned</th>}<th>NOT NULL</th><th>Auto&nbsp;inc</th><th>Default</th>{!props.sqlite && <th>Comment</th>}<th /></tr></thead>
               <tbody>
                 {draft.columns.map((c, i) => {
                   const info = typeInfo(c.data_type);
@@ -275,12 +275,12 @@ export default function TableDesigner(props: {
                         <td><input type="checkbox" disabled={!info?.integer} checked={c.auto_increment} onChange={(e) => updateCol(i, { auto_increment: e.target.checked })} /></td>
                         <td><DefaultEditor value={c.default} disabled={!!c.generated} onChange={(d) => updateCol(i, { default: d })} /></td>
                         {!props.sqlite && <td><input className="cell-input" value={c.comment} onChange={(e) => updateCol(i, { comment: e.target.value })} /></td>}
-                        {!props.sqlite && <td><button className="mini" title="More options" onClick={(e) => { e.stopPropagation(); setMoreOpen(moreOpen === i ? null : i); }}>⋯</button></td>}
+                        <td><button className="mini" title={props.sqlite ? "Generated column" : "More options"} onClick={(e) => { e.stopPropagation(); setMoreOpen(moreOpen === i ? null : i); }}>⋯</button></td>
                       </tr>
                       {moreOpen === i && (
                         <tr className="more-row"><td colSpan={10}>
                           <div className="more">
-                            {info?.text && (
+                            {info?.text && !props.sqlite && (
                               <>
                                 <label>Character set
                                   <Select value={c.charset ?? ""} onChange={(e) => updateCol(i, { charset: e.target.value || null, collation: null })}>
@@ -292,14 +292,14 @@ export default function TableDesigner(props: {
                                   </Select></label>
                               </>
                             )}
-                            {(c.data_type === "datetime" || c.data_type === "timestamp") && (
+                            {!props.sqlite && (c.data_type === "datetime" || c.data_type === "timestamp") && (
                               <label>On update<input value={c.on_update ?? ""} placeholder="CURRENT_TIMESTAMP" onChange={(e) => updateCol(i, { on_update: e.target.value || null })} /></label>
                             )}
                             <label>Generated expression
                               <input value={c.generated?.expression ?? ""} placeholder="e.g. price * qty (leave empty for a normal column)"
                                 onChange={(e) => updateCol(i, { generated: e.target.value ? { expression: e.target.value, stored: c.generated?.stored ?? false } : null })} /></label>
                             {c.generated && <label className="check"><input type="checkbox" checked={c.generated.stored} onChange={(e) => updateCol(i, { generated: { ...c.generated!, stored: e.target.checked } })} /> Stored</label>}
-                            <label className="check"><input type="checkbox" checked={c.invisible} onChange={(e) => updateCol(i, { invisible: e.target.checked })} /> Invisible</label>
+                            {!props.sqlite && <label className="check"><input type="checkbox" checked={c.invisible} onChange={(e) => updateCol(i, { invisible: e.target.checked })} /> Invisible</label>}
                           </div>
                         </td></tr>
                       )}

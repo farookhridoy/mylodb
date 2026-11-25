@@ -162,3 +162,55 @@ fn a_failing_change_leaves_the_table_as_it_was() {
     assert!(apply_ddl(&path, &stmts2).is_err(), "orders would point at missing customers");
     assert_eq!(read_table_def(&path, "customers").unwrap().columns[0].name, "id");
 }
+
+#[test]
+fn generated_columns_are_read_kept_through_a_rebuild_and_can_be_added() {
+    let path = fixture("generated");
+    Connection::open(&path)
+        .unwrap()
+        .execute_batch(
+            "CREATE TABLE lines (id INTEGER PRIMARY KEY, qty INTEGER NOT NULL, price REAL NOT NULL,
+               total REAL GENERATED ALWAYS AS (qty * price) STORED,
+               label TEXT AS (printf('%d x %.2f', qty, price)) VIRTUAL);
+             INSERT INTO lines (qty, price) VALUES (2, 1.5), (3, 2.0);",
+        )
+        .unwrap();
+    let before = read_table_def(&path, "lines").unwrap();
+    assert_eq!(before.columns.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), vec!["id", "qty", "price", "total", "label"], "generated columns are listed");
+    let total = before.columns.iter().find(|c| c.name == "total").unwrap();
+    assert_eq!((total.generated.as_ref().unwrap().expression.as_str(), total.generated.as_ref().unwrap().stored), ("qty * price", true));
+    let label = before.columns.iter().find(|c| c.name == "label").unwrap().generated.clone().unwrap();
+    assert!(!label.stored && label.expression.contains("printf('%d x %.2f', qty, price)"), "{label:?}");
+
+    // a change that rebuilds the table keeps the generated columns and computes them again
+    let mut d = before.clone();
+    d.columns[1].data_type = "numeric".into();
+    let stmts = ddl_statements(Some(&before), &d).unwrap();
+    assert!(stmts[0].contains("GENERATED ALWAYS AS (qty * price) STORED"), "{}", stmts[0]);
+    let insert = stmts.iter().find(|s| s.starts_with("INSERT INTO")).unwrap();
+    assert!(!insert.contains("total") && !insert.contains("label"), "generated columns are not copied: {insert}");
+    apply_ddl(&path, &stmts).unwrap();
+    let c = Connection::open(&path).unwrap();
+    assert_eq!(c.query_row::<f64, _, _>("SELECT total FROM lines WHERE id = 2", [], |r| r.get(0)).unwrap(), 6.0);
+    assert_eq!(read_table_def(&path, "lines").unwrap().columns.len(), 5);
+
+    // a virtual generated column is added in place; a stored one rebuilds the table
+    let cur = read_table_def(&path, "lines").unwrap();
+    let mut add = cur.clone();
+    add.columns.push({ let mut c = col("double_qty", "integer"); c.generated = Some(myq_schema::ddl::Generated { expression: "qty * 2".into(), stored: false }); c });
+    let s = ddl_statements(Some(&cur), &add).unwrap();
+    assert!(s.len() == 1 && s[0].starts_with("ALTER TABLE") && s[0].contains("ADD COLUMN"), "{s:?}");
+    apply_ddl(&path, &s).unwrap();
+    let cur = read_table_def(&path, "lines").unwrap();
+    let mut stored = cur.clone();
+    stored.columns.push({ let mut c = col("triple", "integer"); c.generated = Some(myq_schema::ddl::Generated { expression: "qty * 3".into(), stored: true }); c });
+    let s = ddl_statements(Some(&cur), &stored).unwrap();
+    assert!(s[0].starts_with("CREATE TABLE \"__new_"), "a stored column needs a rebuild: {s:?}");
+    apply_ddl(&path, &s).unwrap();
+    assert_eq!(Connection::open(&path).unwrap().query_row::<i64, _, _>("SELECT triple FROM lines WHERE id = 2", [], |r| r.get(0)).unwrap(), 9);
+
+    // mistakes are explained
+    let mut bad = cur.clone();
+    bad.columns[3].generated.as_mut().unwrap().expression = " ".into();
+    assert!(ddl_statements(Some(&cur), &bad).unwrap_err().iter().any(|e| e.contains("expression is empty")));
+}

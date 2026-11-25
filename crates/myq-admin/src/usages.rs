@@ -65,6 +65,77 @@ pub fn filter_definitions(rows: Vec<(String, String, String, String)>, db: &str,
         .collect()
 }
 
+/// Rewrite the references to table `old` in a definition so they say `new`. A reference is `` `db`.`old` `` (or without backticks),
+/// or, in an object of database `home`, a bare `old` that is not after a dot. `x.old` where `x` is another name is an alias's column
+/// and is left alone.
+pub fn replace_table_ref(text: &str, db: &str, home: &str, old: &str, new: &str) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    let lower: Vec<char> = text.to_lowercase().chars().collect();
+    if lower.len() != chars.len() {
+        return text.to_string(); // lowercasing changed the length (rare Unicode): do not guess
+    }
+    let (old_l, db_l): (Vec<char>, Vec<char>) = (old.to_lowercase().chars().collect(), db.to_lowercase().chars().collect());
+    let is_w = |c: char| c.is_alphanumeric() || c == '_' || c == '$';
+    // the identifier ending right before position `end` (exclusive), with its backticks: (start, text)
+    let ident_before = |end: usize| -> Option<(usize, String)> {
+        if end == 0 { return None; }
+        if lower[end - 1] == '`' {
+            let start = (0..end - 1).rev().find(|&i| lower[i] == '`')?;
+            return Some((start, lower[start + 1..end - 1].iter().collect()));
+        }
+        let mut s = end;
+        while s > 0 && is_w(lower[s - 1]) { s -= 1; }
+        (s < end).then(|| (s, lower[s..end].iter().collect()))
+    };
+    let mut out = String::with_capacity(text.len());
+    let mut i = 0;
+    while i < chars.len() {
+        // a (backticked) identifier equal to `old` starting at i
+        let (tick, body_start) = if chars[i] == '`' { (true, i + 1) } else { (false, i) };
+        let end = body_start + old_l.len();
+        let matches_here = end <= chars.len() && lower[body_start..end] == old_l[..]
+            && if tick { chars.get(end) == Some(&'`') } else { !is_w(*chars.get(end).unwrap_or(&' ')) && (i == 0 || !is_w(chars[i - 1]) && chars[i - 1] != '`') };
+        if matches_here {
+            let after = if tick { end + 1 } else { end };
+            // what stands before: `.` means a qualifier
+            let mut p = i;
+            while p > 0 && chars[p - 1].is_whitespace() { p -= 1; }
+            let replace = if p > 0 && chars[p - 1] == '.' {
+                ident_before(p - 1).is_some_and(|(_, q)| q.chars().collect::<Vec<_>>() == db_l)
+            } else {
+                home.eq_ignore_ascii_case(db)
+            };
+            if replace {
+                out.push_str(&if tick { format!("`{new}`") } else { new.to_string() });
+                i = after;
+                continue;
+            }
+        }
+        out.push(chars[i]);
+        i += 1;
+    }
+    out
+}
+
+/// `CREATE OR REPLACE VIEW` statements that point every view mentioning `db.from` at `to`, to run right after the table is renamed.
+pub async fn rename_view_statements(conn: &mut Conn, db: &str, from: &str, to: &str) -> Result<Vec<String>> {
+    let like = format!("%{}%", from.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_"));
+    let views: Vec<(String, String, String)> = conn.exec("SELECT TABLE_SCHEMA, TABLE_NAME, VIEW_DEFINITION FROM information_schema.VIEWS WHERE VIEW_DEFINITION LIKE ? LIMIT 500", (&like,)).await?;
+    let mut out = Vec::new();
+    for (schema, name, def) in views {
+        if !mentions(&def, from) || !(schema.eq_ignore_ascii_case(db) || mentions(&def, db)) {
+            continue;
+        }
+        let row: Option<(String, String)> = conn.query_first(format!("SHOW CREATE VIEW {}.{}", myq_core::q(&schema), myq_core::q(&name))).await?.map(|r: (String, String, String, String)| (r.0, r.1));
+        let Some((_, create)) = row else { continue };
+        let changed = replace_table_ref(&create, db, &schema, from, to);
+        if changed != create {
+            out.push(changed.replacen("CREATE ", "CREATE OR REPLACE ", 1));
+        }
+    }
+    Ok(out)
+}
+
 pub async fn find_usages(conn: &mut Conn, db: &str, table: &str, column: Option<&str>) -> Result<Vec<Usage>> {
     let mut out: Vec<Usage> = Vec::new();
     // keys that point at this table, and keys this table has
@@ -123,6 +194,22 @@ mod tests {
         assert!(!mentions("SELECT reorders FROM t", "orders"));
         assert!(mentions("UPDATE x SET a = 1 WHERE b IN (SELECT id FROM orders)", "orders"));
         assert!(!mentions("", "orders") && !mentions("x", ""));
+    }
+
+    #[test]
+    fn a_rename_rewrites_the_table_but_not_aliases_columns_or_other_databases() {
+        let v = "CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `v_big` AS select `shop`.`orders`.`id` AS `id`,`o`.`orders` AS `n` from (`shop`.`orders` join `other`.`orders` `x` on((`x`.`id` = `shop`.`orders`.`id`)))";
+        let r = replace_table_ref(v, "shop", "shop", "orders", "purchases");
+        assert!(r.contains("`shop`.`purchases`.`id` AS `id`"), "{r}");
+        assert!(r.contains("from (`shop`.`purchases` join `other`.`orders` `x`"), "another database's orders is left: {r}");
+        assert!(r.contains("`o`.`orders` AS `n`"), "an alias's column named orders is left: {r}");
+        assert!(r.contains("`shop`.`purchases`.`id`)))"), "{r}");
+        // an unqualified name counts only in an object of the same database
+        assert_eq!(replace_table_ref("select * from orders o where o.id = 1", "shop", "shop", "orders", "purchases"), "select * from purchases o where o.id = 1");
+        assert_eq!(replace_table_ref("select * from orders o", "shop", "other", "orders", "purchases"), "select * from orders o");
+        // a longer name that contains it is not touched, and case does not matter
+        assert_eq!(replace_table_ref("select * from orders_archive, ORDERS", "shop", "shop", "orders", "p"), "select * from orders_archive, p");
+        assert_eq!(replace_table_ref("", "shop", "shop", "orders", "p"), "");
     }
 
     #[test]

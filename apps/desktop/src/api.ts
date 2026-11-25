@@ -66,6 +66,14 @@ export const secretsApi = {
   changePassword: (old: string, next: string) => invoke<void>("secrets_change_password", { old, new: next }),
   reset: () => invoke<void>("secrets_reset"),
 };
+
+/** The AI query writer: a service that speaks the common chat protocol (Ollama on this computer, Groq, OpenRouter, Gemini…). */
+export interface AiSettings { endpoint: string; model: string }
+export const aiApi = {
+  write: (id: number, database: string | null, request: string, settings: AiSettings) => invoke<string>("ai_write_query", { id, database, request, settings }),
+  hasKey: () => invoke<boolean>("ai_key_status"),
+  setKey: (key: string) => invoke<void>("ai_set_key", { key }),
+};
 /** The server's error text without the machine-readable code in front (`vault_locked: …`). */
 export const plainError = (e: unknown) => describeError(e).replace(/^vault_[a-z_]+: /, "");
 export const isVaultLocked = (e: unknown) => describeError(e).startsWith("vault_locked");
@@ -314,7 +322,10 @@ export interface ProfileResult {
   counters: { name: string; value: number }[];
 }
 
+export interface SqlDiagnostic { from: number; to: number; severity: "error" | "warning"; message: string }
+
 export const editorApi = {
+  diagnose: (id: number, sql: string, database: string | null) => invoke<SqlDiagnostic[]>("diagnose_sql", { id, sql, database }),
   complete: (id: number, sql: string, cursor: number, database: string | null) =>
     invoke<Completions>("complete_sql", { id, sql, cursor, database }),
   format: (sql: string, options: FormatOptions) => invoke<string>("format_sql", { sql, options }),

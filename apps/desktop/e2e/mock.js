@@ -204,6 +204,10 @@ Object.assign(handlers, {
       : [{ label: "SELECT", kind: "keyword", detail: null, insert: "SELECT" }, { label: "COUNT", kind: "function", detail: "COUNT(expr)", insert: "COUNT(" }];
     return { from, to: a.cursor, items: items.filter((i) => i.label.toLowerCase().startsWith(word.toLowerCase())) };
   },
+  diagnose_sql: () => window.__diag || [],
+  ai_key_status: () => !!window.__aiKey,
+  ai_set_key: (a) => { window.__aiKey = a.key || null; },
+  ai_write_query: (a) => { if (window.__aiFail) throw window.__aiFail; return "SELECT c.name, SUM(o.total) AS spent\nFROM customers c\nJOIN orders o ON o.customer_id = c.id\nGROUP BY c.name\nORDER BY spent DESC\nLIMIT 10;"; },
   format_sql: (a) => a.sql.trim().replace(/\b(select|from|where)\b/gi, (m) => (a.options.keyword_case === "lower" ? m.toLowerCase() : m.toUpperCase())).replace(/\s+(FROM|WHERE|from|where)\b/g, (_, k) => "\n" + k).replace(/\n/g, a.options.indent.style === "tab" ? "\n\t" : "\n  "),
   statement_at: (a) => { const parts = a.sql.split(";"); let pos = 0; for (const p of parts) { if (a.cursor <= pos + p.length) return p.trim() || null; pos += p.length + 1; } return parts.at(-1).trim() || null; },
   explain_query: (a) => {

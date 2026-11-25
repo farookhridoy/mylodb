@@ -284,6 +284,8 @@ struct TableRef {
     alias: Option<String>,
     /// `FROM (subquery) alias`: the alias exists but its columns are unknown.
     derived: bool,
+    /// Byte range of the table name in the text (`db.table` included); empty for a derived table.
+    span: (usize, usize),
 }
 
 /// Tables and aliases a statement refers to (`FROM a x, db.b AS y JOIN c ...`, `UPDATE t`, `INSERT INTO t`).
@@ -309,15 +311,18 @@ fn table_refs(toks: &[Tok]) -> Vec<TableRef> {
                 }
                 if i < toks.len() && is_kw(&toks[i], "AS") { i += 1; }
                 if i < toks.len() && is_ident(&toks[i]) && !(toks[i].kind == T::Word && ends_table_ref(&toks[i].text)) {
-                    refs.push(TableRef { db: None, table: String::new(), alias: Some(toks[i].text.clone()), derived: true });
+                    refs.push(TableRef { db: None, table: String::new(), alias: Some(toks[i].text.clone()), derived: true, span: (0, 0) });
                     i += 1;
                 }
             } else if i < toks.len() && is_ident(&toks[i]) && !ends_table_ref(&toks[i].text) {
                 let (mut db, mut table) = (None, toks[i].text.clone());
+                let span_start = toks[i].start;
+                let mut span_end = toks[i].end;
                 i += 1;
                 if i + 1 < toks.len() && is_punct(&toks[i], ".") && is_ident(&toks[i + 1]) {
                     db = Some(table);
                     table = toks[i + 1].text.clone();
+                    span_end = toks[i + 1].end;
                     i += 2;
                 }
                 let mut alias = None;
@@ -328,7 +333,7 @@ fn table_refs(toks: &[Tok]) -> Vec<TableRef> {
                     alias = Some(toks[i].text.clone());
                     i += 1;
                 }
-                refs.push(TableRef { db, table, alias, derived: false });
+                refs.push(TableRef { db, table, alias, derived: false, span: (span_start, span_end) });
             } else {
                 break;
             }
@@ -340,6 +345,93 @@ fn table_refs(toks: &[Tok]) -> Vec<TableRef> {
         }
     }
     refs
+}
+
+// ---------- diagnostics: problems found without running the statement ----------
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum DiagSeverity {
+    Error,
+    Warning,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct Diagnostic {
+    /// UTF-16 range to underline.
+    pub from: usize,
+    pub to: usize,
+    pub severity: DiagSeverity,
+    pub message: String,
+}
+
+const SYSTEM_DBS: [&str; 4] = ["information_schema", "performance_schema", "mysql", "sys"];
+
+/// Problems that can be told without a server: brackets and quotes that never close, a table that is not in the database,
+/// a column that is not in the table it is written against (`alias.column`). It stays quiet when it cannot be sure: a
+/// database whose objects are not known, a table made by the script itself, names inside a `WITH` list.
+pub fn diagnose(sql: &str, cat: &Catalog, current_db: Option<&str>) -> Vec<Diagnostic> {
+    let (all, comments) = tokenize(sql);
+    let u = |b: usize| byte_to_utf16(sql, b);
+    let mut out: Vec<Diagnostic> = Vec::new();
+    let mut push = |a: usize, b: usize, severity: DiagSeverity, message: String| out.push(Diagnostic { from: u(a), to: u(b.max(a + 1).min(sql.len())), severity, message });
+
+    for c in comments.iter().filter(|c| !c.closed && !c.line) {
+        push(c.start, c.end, DiagSeverity::Error, "This comment is never closed (missing */)".into());
+    }
+    // statements, split at `;`
+    let mut stmts: Vec<Vec<Tok>> = vec![vec![]];
+    for t in &all {
+        if is_punct(t, ";") { stmts.push(vec![]); } else { stmts.last_mut().unwrap().push(t.clone()); }
+    }
+    for toks in stmts.iter().filter(|s| !s.is_empty()) {
+        for t in toks.iter().filter(|t| t.open && matches!(t.kind, T::Str | T::Quoted)) {
+            push(t.start, t.end, DiagSeverity::Error, if t.kind == T::Str { "This text is never closed (missing quote)".into() } else { "This name is never closed (missing `)".into() });
+        }
+        let mut stack: Vec<&Tok> = Vec::new();
+        for t in toks.iter() {
+            if is_punct(t, "(") { stack.push(t); }
+            else if is_punct(t, ")") && stack.pop().is_none() { push(t.start, t.end, DiagSeverity::Error, "This ) has no matching (".into()); }
+        }
+        for t in stack { push(t.start, t.end, DiagSeverity::Error, "This ( is never closed".into()); }
+
+        // names are only checked in statements that read or change rows
+        let first = toks[0].text.to_uppercase();
+        if toks[0].kind != T::Word || !["SELECT", "WITH", "UPDATE", "DELETE", "INSERT", "REPLACE"].contains(&first.as_str()) { continue; }
+        // names defined by a WITH list are not tables of the database
+        let mut ctes: Vec<String> = Vec::new();
+        if first == "WITH" {
+            for (i, t) in toks.iter().enumerate() {
+                if is_ident(t) && toks.get(i + 1).is_some_and(|n| is_kw(n, "AS")) { ctes.push(t.text.to_lowercase()); }
+            }
+        }
+        let refs = table_refs(toks);
+        let db_known = |d: &str| cat.find_database(d).filter(|d| !SYSTEM_DBS.contains(&d.to_lowercase().as_str()));
+        for r in refs.iter().filter(|r| !r.derived && !r.table.is_empty()) {
+            if ctes.contains(&r.table.to_lowercase()) { continue; }
+            // which database is meant, and is it one whose tables we know?
+            let Some(db) = r.db.as_deref().map_or(current_db, Some).and_then(db_known) else { continue };
+            let known = cat.tables.get(db).is_some_and(|ts| ts.iter().any(|t| t.name.eq_ignore_ascii_case(&r.table)));
+            if !known && cat.tables.get(db).is_some_and(|ts| !ts.is_empty()) {
+                push(r.span.0, r.span.1, DiagSeverity::Warning, format!("Table '{}' was not found in '{db}'", r.table));
+            }
+        }
+        // alias.column where the alias is a table whose columns are loaded
+        for w in 0..toks.len().saturating_sub(2) {
+            let (q, dot, col) = (&toks[w], &toks[w + 1], &toks[w + 2]);
+            if !is_ident(q) || !is_punct(dot, ".") || !is_ident(col) { continue; }
+            if w > 0 && is_punct(&toks[w - 1], ".") { continue; } // part of db.table.column
+            if toks.get(w + 3).is_some_and(|n| is_punct(n, "(") || is_punct(n, ".")) { continue; }
+            let by_alias = refs.iter().find(|r| r.alias.as_deref().is_some_and(|a| a.eq_ignore_ascii_case(&q.text)));
+            let by_name = refs.iter().find(|r| r.alias.is_none() && r.table.eq_ignore_ascii_case(&q.text));
+            let Some(r) = by_alias.or(by_name).filter(|r| !r.derived && !ctes.contains(&r.table.to_lowercase())) else { continue };
+            let Some((_, t)) = cat.find_table(r.db.as_deref(), &r.table, current_db) else { continue };
+            if !t.columns.is_empty() && !t.columns.iter().any(|c| c.eq_ignore_ascii_case(&col.text)) {
+                push(col.start, col.end, DiagSeverity::Error, format!("Column '{}' was not found in '{}'", col.text, t.name));
+            }
+        }
+    }
+    out
 }
 
 // ---------- context ----------
@@ -836,6 +928,41 @@ mod tests {
         let cursor = sql.find('|').expect("marker");
         let text = sql.replacen('|', "", 1);
         complete(&text, text[..cursor].encode_utf16().count(), &catalog_fk(), Some("shop"), 200).items.into_iter().map(|i| i.label).collect()
+    }
+
+    fn diag(sql: &str) -> Vec<String> {
+        diagnose(sql, &catalog(), Some("shop")).into_iter().map(|d| d.message).collect()
+    }
+
+    #[test]
+    fn diagnostics_find_brackets_quotes_tables_and_columns() {
+        assert!(diag("SELECT * FROM orders o JOIN customers c ON c.id = o.customer_id").is_empty());
+        assert_eq!(diag("SELECT (1 + 2 FROM orders"), vec!["This ( is never closed"]);
+        assert_eq!(diag("SELECT 1)"), vec!["This ) has no matching ("]);
+        assert_eq!(diag("SELECT 'abc FROM orders"), vec!["This text is never closed (missing quote)"]);
+        assert_eq!(diag("SELECT * FROM ordres"), vec!["Table 'ordres' was not found in 'shop'"]);
+        assert_eq!(diag("SELECT o.totl FROM orders o"), vec!["Column 'totl' was not found in 'orders'"]);
+        // a statement's problems do not leak into the next one
+        assert_eq!(diag("SELECT 1; SELECT * FROM nope; SELECT 2").len(), 1);
+    }
+
+    #[test]
+    fn diagnostics_stay_quiet_when_unsure() {
+        for q in [
+            "SELECT * FROM information_schema.tables",
+            "SELECT * FROM unknown_db.t",
+            "WITH x AS (SELECT 1 AS a) SELECT x.a FROM x",
+            "SELECT d.a FROM (SELECT 1 AS a) d",
+            "CREATE TABLE brand_new (id int)",
+            "SELECT * FROM orders o WHERE o.id IN (SELECT customer_id FROM orders)",
+            "SELECT o.* FROM orders o",
+            "SELECT * FROM shop.orders",
+            "-- note ( \nSELECT 1",
+        ] {
+            assert!(diag(q).is_empty(), "{q}: {:?}", diag(q));
+        }
+        // a name with a database in front is checked against that database
+        assert_eq!(diag("SELECT * FROM shop.ordres"), vec!["Table 'ordres' was not found in 'shop'"]);
     }
 
     #[test]

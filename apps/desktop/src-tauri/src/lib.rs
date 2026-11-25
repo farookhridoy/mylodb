@@ -1,5 +1,6 @@
 //! Thin Tauri bridge. All logic lives in the `myq-*` crates; this only exposes it as commands.
 
+mod ai;
 mod engine;
 use engine::Engine;
 use myq_data::{Assign, Change, CellData, ColumnFilter, ExportOptions, LookupItem, Page, PageSpec, TableMeta, ApplyOutcome};
@@ -8,7 +9,7 @@ use myq_schema::ddl::TableDef;
 use myq_core::Backend;
 use myq_driver::{kill_query, pool, Pool, StatementResult};
 use myq_schema::filter::{Filter, Kind, Node};
-use myq_store::{vault::Vault, Favorite, HistoryEntry, Keychain, Mode, SavedConnection, SecretRouter, Store};
+use myq_store::{SecretStore, vault::Vault, Favorite, HistoryEntry, Keychain, Mode, SavedConnection, SecretRouter, Store};
 use std::{collections::HashMap, sync::Mutex};
 use tauri::{Emitter, Manager};
 
@@ -1348,12 +1349,12 @@ async fn binlog_events(state: tauri::State<'_, AppState>, id: i64, file: String,
 
 /// Autocomplete candidates at `cursor` (a UTF-16 offset). A lookup in the session's catalog, cheap enough for every
 /// keystroke. The columns of the current database, and of any database the statement names, are loaded the first time.
-#[tauri::command]
-async fn complete_sql(state: tauri::State<'_, AppState>, id: i64, sql: String, cursor: usize, database: Option<String>) -> Result<myq_sql::Completions, String> {
+/// Load, once each, what autocomplete and the error underlining need for the databases a statement names: their columns and foreign keys.
+async fn load_completion_data(state: &AppState, id: i64, sql: &str, database: Option<&str>) -> Result<(), String> {
     let (engine, wanted): (Engine, Vec<String>) = {
         let sessions = state.sessions.lock().unwrap();
         let s = sessions.get(&id).ok_or("not connected")?;
-        let mut w: Vec<String> = database.iter().cloned().collect();
+        let mut w: Vec<String> = database.map(String::from).into_iter().collect();
         for word in sql.split(|c: char| !(c.is_alphanumeric() || c == '_' || c == '$')) {
             if let Some(db) = s.by_db.keys().find(|d| d.eq_ignore_ascii_case(word)) {
                 if !w.contains(db) {
@@ -1374,7 +1375,7 @@ async fn complete_sql(state: tauri::State<'_, AppState>, id: i64, sql: String, c
     let (pool, fk_wanted): (Option<Pool>, Vec<String>) = {
         let sessions = state.sessions.lock().unwrap();
         let s = sessions.get(&id).ok_or("not connected")?;
-        let mut w: Vec<String> = database.iter().cloned().collect();
+        let mut w: Vec<String> = database.map(String::from).into_iter().collect();
         for word in sql.split(|c: char| !(c.is_alphanumeric() || c == '_' || c == '$')) {
             if let Some(db) = s.by_db.keys().find(|d| d.eq_ignore_ascii_case(word)) {
                 if !w.contains(db) { w.push(db.clone()); }
@@ -1393,9 +1394,56 @@ async fn complete_sql(state: tauri::State<'_, AppState>, id: i64, sql: String, c
             }
         }
     }
+    Ok(())
+}
+
+#[tauri::command]
+async fn complete_sql(state: tauri::State<'_, AppState>, id: i64, sql: String, cursor: usize, database: Option<String>) -> Result<myq_sql::Completions, String> {
+    load_completion_data(&state, id, &sql, database.as_deref()).await?;
     let sessions = state.sessions.lock().unwrap();
     let s = sessions.get(&id).ok_or("not connected")?;
     Ok(myq_sql::complete(&sql, cursor, &s.catalog, database.as_deref(), 100))
+}
+
+/// Ask the configured AI service to write a query from a plain-language request. Only table and column names of `database` are sent.
+#[tauri::command]
+async fn ai_write_query(state: tauri::State<'_, AppState>, id: i64, database: Option<String>, request: String, settings: ai::AiSettings) -> Result<String, String> {
+    let db = database.filter(|d| !d.is_empty()).ok_or("Select a database first: the assistant needs to know which tables you mean.")?;
+    if request.trim().is_empty() {
+        return Err("Describe what you want to find or change.".into());
+    }
+    // load the columns and foreign keys of that database once, then read them from the catalog
+    load_completion_data(&state, id, &db, Some(&db)).await?;
+    let (schema, dialect) = {
+        let sessions = state.sessions.lock().unwrap();
+        let s = sessions.get(&id).ok_or("not connected")?;
+        (ai::schema_text(&s.catalog, &db), if s.pool.is_some() { "MySQL / MariaDB" } else { "SQLite" })
+    };
+    if schema.is_empty() {
+        return Err(format!("`{db}` has no tables the assistant can see."));
+    }
+    let key = state.secrets.get(0, myq_store::Slot::AiKey).map_err(err)?;
+    ai::ask(&settings, key.as_deref(), ai::messages(dialect, &db, &schema, request.trim())).await
+}
+
+#[tauri::command]
+fn ai_key_status(state: tauri::State<'_, AppState>) -> Result<bool, String> {
+    Ok(state.secrets.get(0, myq_store::Slot::AiKey).map_err(err)?.is_some())
+}
+
+#[tauri::command]
+fn ai_set_key(state: tauri::State<'_, AppState>, key: String) -> Result<(), String> {
+    let key = key.trim();
+    if key.is_empty() { state.secrets.delete(0, myq_store::Slot::AiKey).map_err(err) } else { state.secrets.set(0, myq_store::Slot::AiKey, key).map_err(err) }
+}
+
+/// Problems in the editor text found without running it (unclosed brackets or quotes, unknown tables and columns), for underlining.
+#[tauri::command]
+async fn diagnose_sql(state: tauri::State<'_, AppState>, id: i64, sql: String, database: Option<String>) -> Result<Vec<myq_sql::Diagnostic>, String> {
+    load_completion_data(&state, id, &sql, database.as_deref()).await?;
+    let sessions = state.sessions.lock().unwrap();
+    let s = sessions.get(&id).ok_or("not connected")?;
+    Ok(myq_sql::diagnose(&sql, &s.catalog, database.as_deref()))
 }
 
 #[tauri::command]
@@ -1891,6 +1939,10 @@ pub fn run() {
             account_apply,
             account_drop,
             complete_sql,
+            diagnose_sql,
+            ai_write_query,
+            ai_key_status,
+            ai_set_key,
             format_sql,
             statement_at,
             explain_query,

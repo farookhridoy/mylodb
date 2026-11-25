@@ -49,6 +49,7 @@ import { sampleQuery, type SampleKind } from "./sqlTemplates";
 import type { Pick } from "./ObjectTree";
 import type { IconName } from "./Icon";
 import { ToastHost, useToasts } from "./Toasts";
+import AiDialog from "./AiDialog";
 import ResultsPane, { type RunState } from "./ResultsPane";
 import { ConfirmDialog, FavoritesPanel, HistoryPanel, SaveFavoriteDialog } from "./SidePanels";
 
@@ -159,6 +160,8 @@ export default function App() {
 
   const theme = useTheme();
   const [prefsOpen, setPrefsOpen] = useState(false);
+  const [prefsPage, setPrefsPage] = useState<"ai" | undefined>(undefined);
+  const [aiOpen, setAiOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   /// Connections that are open on the server side. Switching between them keeps each one's session (and its saved tabs).
   const [openIds, setOpenIds] = useState<number[]>([]);
@@ -1217,6 +1220,7 @@ export default function App() {
                     )}
                   </div>
                   <span className="sep" />
+                  <button onClick={() => setAiOpen(true)} title="Describe a query in plain words and let an AI model write it">Ask AI</button>
                   <button onClick={() => analyse("explain")} title="Explain the selected statement, or the one at the cursor">Explain</button>
                   <button onClick={() => analyse("analyze")} disabled={caps?.explain_analyze.available === false} title={caps?.explain_analyze.available === false ? (caps.explain_analyze.reason ?? "Not available on this server") : "EXPLAIN ANALYZE: runs the SELECT and shows real timings"}>Analyze</button>
                   <button onClick={() => analyse("profile")} title="Run the SELECT and show stage timings and the work it caused">Profile</button>
@@ -1397,6 +1401,7 @@ export default function App() {
             } },
             { id: `msd:${sn.name}`, label: `Delete my snippet: ${sn.name}`, hint: "removes it from the library", run: () => { setMySnippets((l) => deleteMySnippet(l, sn.name)); setStatus(`Snippet deleted: ${sn.name}`); } },
           ]),
+          { id: "ask-ai", label: "Ask AI to write a query…", hint: "describe it in plain words", run: () => { if (activeId === null) return setStatus("Connect first"); setAiOpen(true); } },
           ...SNIPPETS.map((sn): Command => ({ id: `s:${sn.label}`, label: `Snippet: ${sn.label}`, hint: "insert into the editor", run: () => {
             if (activeId === null) return setStatus("Connect first");
             const t = editorTab; if (!t) return;
@@ -1406,7 +1411,12 @@ export default function App() {
             .map((n): Command => ({ id: `t:${n.database}.${n.name}`, label: n.name, hint: `${n.kind} in ${n.database}`, run: () => openTable(n.database, n.name) })),
         ]} />
       )}
-      {prefsOpen && <PreferencesDialog initial={prefs} theme={theme.pref} onTheme={theme.setPref} onChange={(p) => { setPrefs(p); setLivePrefs(p); }} onLive={setLivePrefs} onClose={() => { setLivePrefs(prefs); setPrefsOpen(false); }} />}
+      {prefsOpen && <PreferencesDialog startPage={prefsPage} initial={prefs} theme={theme.pref} onTheme={theme.setPref} onChange={(p) => { setPrefs(p); setLivePrefs(p); }} onLive={setLivePrefs} onClose={() => { setLivePrefs(prefs); setPrefsOpen(false); setPrefsPage(undefined); }} />}
+      {aiOpen && activeId !== null && editorTab && (
+        <AiDialog connectionId={activeId} database={editorTab.database ?? selectedDb} onClose={() => setAiOpen(false)}
+          onSettings={() => { setAiOpen(false); setPrefsPage("ai"); setPrefsOpen(true); }}
+          onInsert={(sql, replace) => { setActiveTab(editorTab.id); setTimeout(() => (replace ? editor.current?.replaceRunnable(sql) : editor.current?.insert(sql)), 0); }} />
+      )}
       {typeConfirm && <TypeConfirmDialog {...typeConfirm} />}
       {scriptPreview && activeId !== null && (
         <PreviewDialog title="Preview SQL" summary={scriptPreview.database ? `Runs in database ${scriptPreview.database}.` : undefined} statements={[scriptPreview.sql]} environment={env} confirmLabel="Run"

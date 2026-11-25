@@ -25,17 +25,34 @@ const TYPES: TypeInfo[] = [
   { name: "timestamp", group: "Date/time", hint: "fsp 0–6" }, { name: "year", group: "Date/time" },
   { name: "json", group: "Other" },
 ];
-const typeInfo = (n: string) => TYPES.find((t) => t.name === n);
-const GROUPS = [...new Set(TYPES.map((t) => t.group))];
+/** SQLite has a few storage classes; the other names are common declared types it accepts. AUTOINCREMENT needs exactly INTEGER. */
+const SQLITE_TYPES: TypeInfo[] = [
+  { name: "integer", group: "Number", numeric: true, integer: true }, { name: "real", group: "Number", numeric: true },
+  { name: "numeric", group: "Number", numeric: true, params: "10,2", hint: "precision,scale" }, { name: "decimal", group: "Number", numeric: true, params: "10,2", hint: "precision,scale" },
+  { name: "int", group: "Number", numeric: true }, { name: "bigint", group: "Number", numeric: true }, { name: "smallint", group: "Number", numeric: true },
+  { name: "float", group: "Number", numeric: true }, { name: "double", group: "Number", numeric: true }, { name: "boolean", group: "Number" },
+  { name: "text", group: "Text", text: true }, { name: "varchar", group: "Text", text: true, params: "255", hint: "length" }, { name: "char", group: "Text", text: true, params: "1", hint: "length" },
+  { name: "blob", group: "Binary" },
+  { name: "date", group: "Date/time" }, { name: "datetime", group: "Date/time" }, { name: "timestamp", group: "Date/time" }, { name: "json", group: "Other" },
+];
 const REF_ACTIONS: RefAction[] = ["restrict", "cascade", "set_null", "no_action", "set_default"];
 const KINDS: IndexKind[] = ["primary", "unique", "index", "fulltext", "spatial"];
+const SQLITE_KINDS: IndexKind[] = ["primary", "unique", "index"];
 
 export const newColumn = (name = ""): ColumnDef => ({
   name, original_name: null, data_type: "varchar", params: "255", unsigned: false, zerofill: false, nullable: true, default: { kind: "none" },
   auto_increment: false, charset: null, collation: null, comment: "", on_update: null, generated: null, invisible: false,
 });
 
-export function blankTable(opts: ServerOptions | null): TableDef {
+export function blankTable(opts: ServerOptions | null, sqlite = false): TableDef {
+  if (sqlite) {
+    return {
+      name: "", engine: null, charset: null, collation: null, comment: "",
+      columns: [{ ...newColumn("id"), data_type: "integer", params: null, nullable: false, auto_increment: true }],
+      indexes: [{ name: "PRIMARY", original_name: null, kind: "primary", columns: [{ name: "id", length: null, desc: false }] }],
+      foreign_keys: [],
+    };
+  }
   const cs = opts?.charsets.find((c) => c[0] === "utf8mb4");
   return {
     name: "", engine: "InnoDB", charset: cs ? "utf8mb4" : null, collation: cs ? cs[2] : null, comment: "",
@@ -62,8 +79,13 @@ export default function TableDesigner(props: {
   readOnly?: boolean;
   /** For a new table: the name and how many columns to start with (the Create new table box of the Structure page). */
   initial?: { name: string; columns: number };
+  /** A SQLite file: its own types, no engine or character set, and changes that need a rebuild run in one transaction. */
+  sqlite?: boolean;
 }) {
   const { connectionId: cid, db } = props;
+  const types = props.sqlite ? SQLITE_TYPES : TYPES;
+  const groups = [...new Set(types.map((t) => t.group))];
+  const typeInfo = (n: string) => types.find((t) => t.name === n);
   const [original, setOriginal] = useState<TableDef | null>(null);
   const [draft, setDraft] = useState<TableDef | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
@@ -80,13 +102,13 @@ export default function TableDesigner(props: {
 
   const load = useCallback(async () => {
     try {
-      const o = await schemaApi.serverOptions(cid);
+      const o = props.sqlite ? null : await schemaApi.serverOptions(cid);
       setOpts(o);
       if (props.table) {
         const r = await schemaApi.tableDef(cid, db, props.table);
         setOriginal(r.def); setDraft(structuredClone(r.def)); setWarnings(r.warnings);
       } else {
-        setOriginal(null); setDraft(withInitial(blankTable(o), props.initial)); setWarnings([]);
+        setOriginal(null); setDraft(withInitial(blankTable(o, props.sqlite), props.initial)); setWarnings([]);
       }
       setError(null);
     } catch (e) { setError(String(e)); }
@@ -97,7 +119,7 @@ export default function TableDesigner(props: {
   useEffect(() => {
     if (!draft) return;
     let live = true;
-    const t = setTimeout(() => schemaApi.preview(db, original, draft).then((p) => live && setPreview(p)).catch(() => {}), 150);
+    const t = setTimeout(() => schemaApi.preview(db, original, draft, props.sqlite).then((p) => live && setPreview(p)).catch(() => {}), 150);
     return () => { live = false; clearTimeout(t); };
   }, [draft, original, db]);
 
@@ -204,7 +226,7 @@ export default function TableDesigner(props: {
         <span className="dim">{db}{props.table ? "" : " · new table"}</span>
         <span className="grow" />
         {props.table && <button onClick={() => props.onOpenData(db, props.table!)}>Open data</button>}
-        <button disabled={!dirty} onClick={() => original ? setDraft(structuredClone(original)) : setDraft(blankTable(opts))}>Revert</button>
+        <button disabled={!dirty} onClick={() => original ? setDraft(structuredClone(original)) : setDraft(blankTable(opts, props.sqlite))}>Revert</button>
         <button className="primary" disabled={!dirty || preview.errors.length > 0 || busy || props.readOnly} onClick={apply} title={props.readOnly ? "This connection is read-only" : undefined}>
           {busy ? "Applying…" : props.table ? "Apply changes" : "Create table"}
         </button>
@@ -216,7 +238,7 @@ export default function TableDesigner(props: {
       {preview.errors.length > 0 && <div className="banner bad">{preview.errors.map((e) => <div key={e}>• {e}</div>)}</div>}
 
       <div className="dz-tabs">
-        {([["columns", `Columns (${draft.columns.length})`], ["indexes", `Indexes (${draft.indexes.length})`], ["fks", `Foreign keys (${draft.foreign_keys.length})`], ["options", "Options"], ["sql", `SQL${dirty ? " •" : ""}`]] as [Tab, string][]).map(([t, label]) => (
+        {([["columns", `Columns (${draft.columns.length})`], ["indexes", `Indexes (${draft.indexes.length})`], ["fks", `Foreign keys (${draft.foreign_keys.length})`], ...(props.sqlite ? [] : [["options", "Options"]]), ["sql", `SQL${dirty ? " •" : ""}`]] as [Tab, string][]).map(([t, label]) => (
           <button key={t} className={tab === t ? "active" : ""} onClick={() => setTab(t)}>{label}</button>
         ))}
       </div>
@@ -231,7 +253,7 @@ export default function TableDesigner(props: {
               <button onClick={() => moveColumn(sel, 1)} disabled={sel >= draft.columns.length - 1}>↓</button>
             </div>
             <table className="grid dz-grid">
-              <thead><tr><th>PK</th><th>Name</th><th>Type</th><th>Length / values</th><th>Unsigned</th><th>NOT NULL</th><th>Auto&nbsp;inc</th><th>Default</th><th>Comment</th><th /></tr></thead>
+              <thead><tr><th>PK</th><th>Name</th><th>Type</th><th>Length / values</th>{!props.sqlite && <th>Unsigned</th>}<th>NOT NULL</th><th>Auto&nbsp;inc</th><th>Default</th>{!props.sqlite && <th>Comment</th>}{!props.sqlite && <th />}</tr></thead>
               <tbody>
                 {draft.columns.map((c, i) => {
                   const info = typeInfo(c.data_type);
@@ -244,16 +266,16 @@ export default function TableDesigner(props: {
                         <td>
                           <Select value={c.data_type} onChange={(e) => updateCol(i, { data_type: e.target.value })}>
                             {!info && <option value={c.data_type}>{c.data_type}</option>}
-                            {GROUPS.map((g) => <optgroup key={g} label={g}>{TYPES.filter((t) => t.group === g).map((t) => <option key={t.name} value={t.name}>{t.name}</option>)}</optgroup>)}
+                            {groups.map((g) => <optgroup key={g} label={g}>{types.filter((t) => t.group === g).map((t) => <option key={t.name} value={t.name}>{t.name}</option>)}</optgroup>)}
                           </Select>
                         </td>
                         <td><input className="cell-input" disabled={!info?.params && !info?.hint} placeholder={info?.hint ?? ""} value={c.params ?? ""} onChange={(e) => updateCol(i, { params: e.target.value || null })} /></td>
-                        <td><input type="checkbox" disabled={!info?.numeric} checked={c.unsigned} onChange={(e) => updateCol(i, { unsigned: e.target.checked })} /></td>
+                        {!props.sqlite && <td><input type="checkbox" disabled={!info?.numeric} checked={c.unsigned} onChange={(e) => updateCol(i, { unsigned: e.target.checked })} /></td>}
                         <td><input type="checkbox" checked={!c.nullable} onChange={(e) => updateCol(i, { nullable: !e.target.checked })} /></td>
                         <td><input type="checkbox" disabled={!info?.integer} checked={c.auto_increment} onChange={(e) => updateCol(i, { auto_increment: e.target.checked })} /></td>
                         <td><DefaultEditor value={c.default} disabled={!!c.generated} onChange={(d) => updateCol(i, { default: d })} /></td>
-                        <td><input className="cell-input" value={c.comment} onChange={(e) => updateCol(i, { comment: e.target.value })} /></td>
-                        <td><button className="mini" title="More options" onClick={(e) => { e.stopPropagation(); setMoreOpen(moreOpen === i ? null : i); }}>⋯</button></td>
+                        {!props.sqlite && <td><input className="cell-input" value={c.comment} onChange={(e) => updateCol(i, { comment: e.target.value })} /></td>}
+                        {!props.sqlite && <td><button className="mini" title="More options" onClick={(e) => { e.stopPropagation(); setMoreOpen(moreOpen === i ? null : i); }}>⋯</button></td>}
                       </tr>
                       {moreOpen === i && (
                         <tr className="more-row"><td colSpan={10}>
@@ -304,7 +326,7 @@ export default function TableDesigner(props: {
             </div>
             <div className="dz-edit">
               {draft.indexes[selIdx] ? (
-                <IndexEditor ix={draft.indexes[selIdx]} columns={draft.columns.map((c) => c.name)}
+                <IndexEditor ix={draft.indexes[selIdx]} columns={draft.columns.map((c) => c.name)} kinds={props.sqlite ? SQLITE_KINDS : KINDS} prefix={!props.sqlite}
                   onChange={(ix) => set({ indexes: draft.indexes.map((x, k) => (k === selIdx ? ix : x)) })} />
               ) : <div className="empty">No indexes</div>}
             </div>
@@ -359,7 +381,9 @@ export default function TableDesigner(props: {
               <>
                 <code className="preview">{preview.statements.join(";\n\n") + ";"}</code>
                 <div className="actions"><button onClick={() => navigator.clipboard.writeText(preview.statements.join(";\n\n") + ";")}>Copy</button></div>
-                {preview.statements.length > 1 && <p className="dim small">MySQL DDL is not transactional: statements run in this order and an earlier one is not undone if a later one fails.</p>}
+                {preview.statements.length > 1 && (props.sqlite
+                  ? <p className="dim small">SQLite runs these in one transaction with foreign keys checked at the end: if any step fails, nothing is changed. Changes SQLite cannot make in place rebuild the table and copy its rows.</p>
+                  : <p className="dim small">MySQL DDL is not transactional: statements run in this order and an earlier one is not undone if a later one fails.</p>)}
               </>
             )}
           </div>
@@ -387,7 +411,7 @@ function DefaultEditor(props: { value: ColumnDefault; disabled: boolean; onChang
   );
 }
 
-function IndexEditor(props: { ix: IndexDef; columns: string[]; onChange(ix: IndexDef): void }) {
+function IndexEditor(props: { ix: IndexDef; columns: string[]; kinds: IndexKind[]; prefix: boolean; onChange(ix: IndexDef): void }) {
   const { ix } = props;
   const free = props.columns.filter((c) => !ix.columns.some((x) => x.name === c));
   const setCol = (i: number, p: Partial<IndexDef["columns"][number]>) => props.onChange({ ...ix, columns: ix.columns.map((c, k) => (k === i ? { ...c, ...p } : c)) });
@@ -396,14 +420,14 @@ function IndexEditor(props: { ix: IndexDef; columns: string[]; onChange(ix: Inde
       <label>Name<input disabled={ix.kind === "primary"} value={ix.kind === "primary" ? "PRIMARY" : ix.name} onChange={(e) => props.onChange({ ...ix, name: e.target.value })} /></label>
       <label>Type
         <Select value={ix.kind} onChange={(e) => props.onChange({ ...ix, kind: e.target.value as IndexKind, name: e.target.value === "primary" ? "PRIMARY" : ix.name === "PRIMARY" ? "idx" : ix.name })}>
-          {KINDS.map((k) => <option key={k} value={k}>{k}</option>)}
+          {props.kinds.map((k) => <option key={k} value={k}>{k}</option>)}
         </Select></label>
       <div className="dz-cols">
         <div className="dim">Columns (order matters)</div>
         {ix.columns.map((c, i) => (
           <div key={c.name} className="dz-colrow">
             <span className="grow">{c.name}</span>
-            <input className="cell-input narrow" placeholder="prefix" title="Prefix length" value={c.length ?? ""} onChange={(e) => setCol(i, { length: e.target.value ? Number(e.target.value) : null })} />
+            {props.prefix && <input className="cell-input narrow" placeholder="prefix" title="Prefix length" value={c.length ?? ""} onChange={(e) => setCol(i, { length: e.target.value ? Number(e.target.value) : null })} />}
             <label className="check"><input type="checkbox" checked={c.desc} onChange={(e) => setCol(i, { desc: e.target.checked })} /> DESC</label>
             <button className="mini" disabled={i === 0} onClick={() => { const cols = [...ix.columns]; [cols[i - 1], cols[i]] = [cols[i], cols[i - 1]]; props.onChange({ ...ix, columns: cols }); }}>↑</button>
             <button className="mini" disabled={i === ix.columns.length - 1} onClick={() => { const cols = [...ix.columns]; [cols[i + 1], cols[i]] = [cols[i], cols[i + 1]]; props.onChange({ ...ix, columns: cols }); }}>↓</button>

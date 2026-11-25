@@ -3,6 +3,7 @@ import { open as pickPath } from "@tauri-apps/plugin-dialog";
 import { plainError, scheduleApi, type Schedule, type ScheduleRule } from "./api";
 import Icon from "./Icon";
 
+const FORMATS: [string, string][] = [["csv", "CSV"], ["json", "JSON"], ["json_lines", "JSON Lines"], ["xlsx", "Excel (XLSX)"], ["sql_insert", "SQL INSERT"], ["xml", "XML"], ["html", "HTML table"]];
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 const two = (n: number) => String(n).padStart(2, "0");
 
@@ -10,7 +11,7 @@ const describe = (r: ScheduleRule) =>
   r.kind === "hours" ? `every ${r.hours} hour${r.hours === 1 ? "" : "s"}` : r.kind === "daily" ? `every day at ${two(r.hour)}:${two(r.minute)}` : `every ${DAYS[r.weekday]} at ${two(r.hour)}:${two(r.minute)}`;
 
 function blank(connectionId: number, databases: string[]): Schedule {
-  return { id: "", name: "", connection_id: connectionId, databases: databases.slice(0, 1), dir: "", rule: { kind: "daily", hour: 3, minute: 0 }, keep: 7, compress: true, data: true, enabled: true, created: "", last_run: null, log: [] };
+  return { id: "", name: "", connection_id: connectionId, databases: databases.slice(0, 1), kind: "backup", sql: "", format: "csv", dir: "", rule: { kind: "daily", hour: 3, minute: 0 }, keep: 7, compress: true, data: true, enabled: true, created: "", last_run: null, log: [] };
 }
 
 /** The "when" part of the form: how often, on which day, at what time. */
@@ -61,8 +62,8 @@ export default function SchedulesDialog(props: { connectionId: number; connectio
   return (
     <div className="overlay" onMouseDown={props.onClose}>
       <div className="dialog schedules-dialog" role="dialog" aria-label="Scheduled backups" onMouseDown={(e) => e.stopPropagation()}>
-        <h3>Scheduled backups</h3>
-        <p className="dim small">Jobs run while MyLoDB is open, one SQL dump each time, in the folder you choose. Older backups of a job beyond the limit are deleted. If the app was closed at the time, the missed run happens when you open it again.</p>
+        <h3>Scheduled backups and exports</h3>
+        <p className="dim small">Jobs run while MyLoDB is open: a SQL dump, or the result of a SELECT as a file, each time, in the folder you choose. Older backups of a job beyond the limit are deleted. If the app was closed at the time, the missed run happens when you open it again.</p>
         {error && <div className="banner bad" role="alert">{error}</div>}
         {!edit ? (
           <>
@@ -72,7 +73,7 @@ export default function SchedulesDialog(props: { connectionId: number; connectio
                 <li key={j.id} className={j.enabled ? "" : "off"}>
                   <div className="sched-row">
                     <div className="sched-main">
-                      <b>{j.name}</b> <span className="dim small">{j.databases.join(", ")} · {describe(j.rule)} · keep {j.keep}</span>
+                      <b>{j.name}</b> <span className="dim small">{j.kind === "export" ? `export of a query in ${j.databases[0] ?? "?"} as ${FORMATS.find((f) => f[0] === j.format)?.[1] ?? j.format}` : `backup of ${j.databases.join(", ")}`} · {describe(j.rule)} · keep {j.keep}</span>
                       <div className="dim small">{j.running ? "Running now…" : j.enabled ? (j.next_run ? `Next: ${j.next_run}` : "") : "Paused"}{j.last_run ? ` · Last: ${j.last_run}` : ""}</div>
                       <div className="dim small sched-dir" title={j.dir}>{j.dir}</div>
                     </div>
@@ -93,24 +94,39 @@ export default function SchedulesDialog(props: { connectionId: number; connectio
             </ul>
             <div className="actions">
               <button onClick={props.onClose}>Close</button>
-              <button className="primary" onClick={() => setEdit(blank(props.connectionId, props.databases))}>New scheduled backup…</button>
+              <button className="primary" onClick={() => setEdit(blank(props.connectionId, props.databases))}>New scheduled job…</button>
             </div>
           </>
         ) : (
           <form className="sched-form" onSubmit={(e) => { e.preventDefault(); save(); }}>
             <label>Name<input value={edit.name} onChange={(e) => setEdit({ ...edit, name: e.target.value })} placeholder="Nightly shop backup" autoFocus /></label>
             <p className="dim small">Connection: <b>{edit.connection_id === props.connectionId ? props.connectionName : `#${edit.connection_id}`}</b></p>
-            <fieldset><legend>Databases</legend>
-              <div className="sched-dbs">{props.databases.map((d) => (
-                <label key={d} className="check"><input type="checkbox" checked={edit.databases.includes(d)} onChange={(e) => setEdit({ ...edit, databases: e.target.checked ? [...edit.databases, d] : edit.databases.filter((x) => x !== d) })} /> {d}</label>
-              ))}</div>
-            </fieldset>
+            <label>What it does
+              <select value={edit.kind} aria-label="What it does" onChange={(e) => setEdit({ ...edit, kind: e.target.value as Schedule["kind"], databases: edit.databases.slice(0, 1) })}>
+                <option value="backup">Back up databases (SQL dump)</option><option value="export">Export the result of a query to a file</option></select></label>
+            {edit.kind === "backup" ? (
+              <fieldset><legend>Databases</legend>
+                <div className="sched-dbs">{props.databases.map((d) => (
+                  <label key={d} className="check"><input type="checkbox" checked={edit.databases.includes(d)} onChange={(e) => setEdit({ ...edit, databases: e.target.checked ? [...edit.databases, d] : edit.databases.filter((x) => x !== d) })} /> {d}</label>
+                ))}</div>
+              </fieldset>
+            ) : (
+              <>
+                <label>Run in database
+                  <select value={edit.databases[0] ?? ""} aria-label="Run in database" onChange={(e) => setEdit({ ...edit, databases: e.target.value ? [e.target.value] : [] })}>
+                    <option value="">(choose)</option>{props.databases.map((d) => <option key={d} value={d}>{d}</option>)}</select></label>
+                <label>The SELECT to export
+                  <textarea rows={4} value={edit.sql} onChange={(e) => setEdit({ ...edit, sql: e.target.value })} placeholder="SELECT id, total FROM orders WHERE placed >= CURDATE() - INTERVAL 1 DAY" spellCheck={false} /></label>
+                <label>File format
+                  <select value={edit.format} aria-label="File format" onChange={(e) => setEdit({ ...edit, format: e.target.value })}>{FORMATS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
+              </>
+            )}
             <RuleFields rule={edit.rule} onChange={setRule} />
             <label>Folder
               <span className="sched-dirpick"><input value={edit.dir} onChange={(e) => setEdit({ ...edit, dir: e.target.value })} placeholder="/Users/you/Backups" spellCheck={false} /><button type="button" onClick={chooseDir}>Choose…</button></span></label>
-            <label>Keep the last <input type="number" min={1} max={999} value={edit.keep} onChange={(e) => setEdit({ ...edit, keep: Number(e.target.value) })} /> backups</label>
-            <label className="check"><input type="checkbox" checked={edit.compress} onChange={(e) => setEdit({ ...edit, compress: e.target.checked })} /> Compress into a .zip</label>
-            <label className="check"><input type="checkbox" checked={edit.data} onChange={(e) => setEdit({ ...edit, data: e.target.checked })} /> Include the rows (not only the structure)</label>
+            <label>Keep the last <input type="number" min={1} max={999} value={edit.keep} onChange={(e) => setEdit({ ...edit, keep: Number(e.target.value) })} /> {edit.kind === "export" ? "files" : "backups"}</label>
+            {edit.kind === "backup" && <label className="check"><input type="checkbox" checked={edit.compress} onChange={(e) => setEdit({ ...edit, compress: e.target.checked })} /> Compress into a .zip</label>}
+            {edit.kind === "backup" && <label className="check"><input type="checkbox" checked={edit.data} onChange={(e) => setEdit({ ...edit, data: e.target.checked })} /> Include the rows (not only the structure)</label>}
             <div className="actions"><button type="button" onClick={() => setEdit(null)}>Cancel</button><button className="primary" type="submit">Save</button></div>
           </form>
         )}

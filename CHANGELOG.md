@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased
+
+Finishes phases 20 to 23 of the roadmap.
+
+**Added**
+* **Where is it used?** Right-click a table → *Where is it used…*: the views, routines, triggers, events and foreign keys that mention it, grouped by kind, optionally narrowed to a column (MySQL, MariaDB and SQLite). The rename dialog now says how many other objects still use the old name, because a rename does not change them.
+* **Scheduled exports.** A scheduled job can now export the result of a SELECT (CSV, JSON, JSON Lines, SQL INSERT, XML, HTML or Excel) into a folder and keep the last N files, besides making backups. Jobs also work on SQLite files: a backup is a consistent copy of the file.
+* **SQLite table designer.** *New table…* and *Design table…* work for a file. Columns and indexes are added, renamed and dropped in place; any other change rebuilds the table and copies its rows, all in one transaction that is undone if it fails. The SQL tab shows exactly what will run.
+* **SQLite export.** *Transfer* is available for a file with the Export tab (a table with its filters and sort, or a SELECT) in every format.
+* **Cancel a running SQLite query.** The Cancel button now stops a query on a file; the statements after it are not started.
+
+**Changed**
+* Menu entries that only make sense for MySQL and MariaDB (restore, CSV import) now say so instead of opening a tab that cannot work for a file.
+
+**Known limits**
+* Scheduled imports, and jobs that run while MyLoDB is closed, are not available.
+* The SQLite designer does not edit generated columns, and rewriting views or triggers after a rename is up to you.
+
 ## 0.10.0 (2026-11-25)
 
 Phases 20 to 23 and a slice of 25 of the roadmap, plus fixes to the Ask AI panel.

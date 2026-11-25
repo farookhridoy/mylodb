@@ -47,6 +47,8 @@ pub struct Capabilities {
     pub server_tools: Cap,
     /// Backup to and restore from MySQL-flavoured SQL dumps.
     pub dump_restore: Cap,
+    /// Export a table or a query result to CSV, JSON, Excel and more.
+    pub data_export: Cap,
     /// Whether MyLoDB can change data and structure through this connection (grid edits, designer). Off means browse and query only.
     pub writes: Cap,
 }
@@ -89,6 +91,7 @@ impl Capabilities {
             row_estimates: Cap::yes(),
             server_tools: Cap::yes(),
             dump_restore: Cap::yes(),
+            data_export: Cap::yes(),
             writes: Cap::yes(),
         }
     }
@@ -107,7 +110,8 @@ impl Capabilities {
             read_only_session: Cap::yes(),
             row_estimates: Cap::no("SQLite keeps no row statistics; counts are exact"),
             server_tools: Cap::no("SQLite is a file, not a server: there is no process list, variables or log"),
-            dump_restore: Cap::no("backup and restore of SQL dumps is MySQL-only for now"),
+            dump_restore: Cap::no("backup, restore and CSV import are MySQL-only for now; export works"),
+            data_export: Cap::yes(),
             writes: if writable { Cap::yes() } else { Cap::no("this SQLite file is open read-only") },
         }
     }

@@ -2,10 +2,15 @@
 //! unless the caller asks for `open_writable`; then SQL and staged grid edits (`apply_changes`) may change it.
 
 mod backend;
+mod designer;
 mod edit;
+mod export;
 mod grid;
 
+pub use backend::CancelToken;
 pub use backend::SqliteBackend;
+pub use designer::{apply_ddl, ddl_statements, read_table_def};
+pub use export::{backup_to, export_query, export_table};
 pub use edit::{apply_changes, preview_changes};
 pub use grid::{count_rows, fetch_page, table_meta};
 

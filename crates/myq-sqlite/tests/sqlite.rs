@@ -247,3 +247,91 @@ async fn upkeep_statements_answer_in_the_shape_the_app_reads() {
     assert!(!ro.writable());
     let _ = std::fs::remove_dir_all(path.parent().unwrap());
 }
+
+/// Cancel stops a long statement quickly and skips the rest of the script.
+#[tokio::test]
+async fn a_running_script_can_be_cancelled() {
+    let path = fixture("cancel");
+    let b = SqliteBackend::open(path.clone()).unwrap();
+    let token = std::sync::Arc::new(myq_sqlite::CancelToken::new());
+    // a query that would run for a very long time
+    let sql = "WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM c WHERE x < 2000000000) SELECT count(*) FROM c; SELECT 2;";
+    let (b2, t2) = (b.clone(), token.clone());
+    let started = std::time::Instant::now();
+    let job = tokio::spawn(async move { b2.run_cancellable(sql, t2).await });
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    token.cancel();
+    let results = job.await.unwrap().unwrap();
+    assert!(started.elapsed() < std::time::Duration::from_secs(10), "it stopped soon after Cancel ({:?})", started.elapsed());
+    assert_eq!(results.len(), 2);
+    assert_eq!(results[0].error.as_deref(), Some("Cancelled."));
+    assert_eq!(results[1].error.as_deref(), Some("Cancelled before it started."));
+    // a script that was not cancelled runs normally through the same path
+    let ok = b.run_cancellable("SELECT 1 AS one", std::sync::Arc::new(myq_sqlite::CancelToken::new())).await.unwrap();
+    assert!(ok[0].error.is_none());
+    let _ = std::fs::remove_dir_all(path.parent().unwrap());
+}
+
+/// Exporting from a SQLite file: a table with the grid's filter and sort, and a SELECT; several formats; binary and NULL cells.
+#[tokio::test]
+async fn tables_and_queries_export_to_files() {
+    use myq_data::{Dest, ExportFormat, ExportOptions};
+    let path = fixture("export");
+    let dir = path.parent().unwrap().to_path_buf();
+    let opts = |format| ExportOptions { format, ..Default::default() };
+    let meta = table_meta(&path, "customers", false).unwrap();
+
+    // the whole table as CSV: header, quoting, NULL as empty
+    let f = dir.join("all.csv");
+    let spec: PageSpec = serde_json::from_str(r#"{"sort":[{"column":"name","desc":false}]}"#).unwrap();
+    let out = myq_sqlite::export_table(&path, &meta, &spec, &opts(ExportFormat::Csv), Dest::File(&f), &mut |_| true).unwrap();
+    assert_eq!(out.rows, 3);
+    let text = std::fs::read_to_string(&f).unwrap();
+    assert!(text.starts_with("id,name,note,avatar\n"), "{text}");
+    assert!(text.contains("3,50% off,,\n") && text.contains("2,Bo_b,,\n") && text.contains("1,Ann,vip,CAFE") || text.contains("0xCAFE") || text.contains("CAFE"), "{text}");
+    let names: Vec<&str> = text.lines().skip(1).map(|l| l.split(',').nth(1).unwrap()).collect();
+    assert_eq!(names, vec!["50% off", "Ann", "Bo_b"], "sorted by name");
+
+    // a filter limits the rows
+    let f2 = dir.join("filtered.json");
+    let spec: PageSpec = serde_json::from_str(r#"{"filters":[{"column":"name","op":"contains","values":["o"]}]}"#).unwrap();
+    let out = myq_sqlite::export_table(&path, &meta, &spec, &opts(ExportFormat::Json), Dest::File(&f2), &mut |_| true).unwrap();
+    assert_eq!(out.rows, 2, "Bo_b and 50% off contain an o");
+    let v: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&f2).unwrap()).unwrap();
+    assert_eq!(v.as_array().unwrap().len(), 2);
+
+    // a query, as SQL INSERT (a number stays a number, text is quoted) and as XLSX
+    let f3 = dir.join("q.sql");
+    let out = myq_sqlite::export_query(&path, "SELECT id, total, placed FROM orders ORDER BY id;", &opts(ExportFormat::SqlInsert), Dest::File(&f3), &mut |_| true).unwrap();
+    assert_eq!(out.rows, 3);
+    let sql = std::fs::read_to_string(&f3).unwrap();
+    assert!(sql.contains("INSERT INTO") && sql.contains("10.5") && sql.contains("'2026-01-01'"), "{sql}");
+    let f4 = dir.join("q.xlsx");
+    myq_sqlite::export_query(&path, "SELECT * FROM customers", &opts(ExportFormat::Xlsx), Dest::File(&f4), &mut |_| true).unwrap();
+    assert!(std::fs::metadata(&f4).unwrap().len() > 1000, "an xlsx file was written");
+
+    // no rows still writes the header; a write statement and several statements are refused; cancel stops
+    let f5 = dir.join("none.csv");
+    let out = myq_sqlite::export_query(&path, "SELECT id, name FROM customers WHERE id > 100", &opts(ExportFormat::Csv), Dest::File(&f5), &mut |_| true).unwrap();
+    assert_eq!(out.rows, 0);
+    assert_eq!(std::fs::read_to_string(&f5).unwrap(), "id,name\n");
+    assert!(myq_sqlite::export_query(&path, "DELETE FROM customers", &opts(ExportFormat::Csv), Dest::File(&dir.join("x.csv")), &mut |_| true).is_err());
+    assert!(myq_sqlite::export_query(&path, "SELECT 1; SELECT 2", &opts(ExportFormat::Csv), Dest::File(&dir.join("x.csv")), &mut |_| true).is_err());
+    let big = "WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM c WHERE x < 5000) SELECT x FROM c";
+    let err = myq_sqlite::export_query(&path, big, &opts(ExportFormat::Csv), Dest::File(&dir.join("big.csv")), &mut |n| n < 2000).unwrap_err();
+    assert_eq!(err, "cancelled");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A backup of the file is a consistent, openable copy.
+#[test]
+fn a_backup_is_a_consistent_copy_of_the_file() {
+    let path = fixture("backup");
+    let target = path.parent().unwrap().join("copy.sqlite");
+    myq_sqlite::backup_to(&path, &target).unwrap();
+    let c = Connection::open(&target).unwrap();
+    assert_eq!(c.query_row::<i64, _, _>("SELECT count(*) FROM orders", [], |r| r.get(0)).unwrap(), 3);
+    assert_eq!(c.query_row::<String, _, _>("PRAGMA integrity_check", [], |r| r.get(0)).unwrap(), "ok");
+    assert!(myq_sqlite::backup_to(&path, &target).is_err(), "an existing file is never overwritten");
+    let _ = std::fs::remove_dir_all(path.parent().unwrap());
+}

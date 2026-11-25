@@ -21,7 +21,7 @@ assert.match(await page.locator(".schedules-dialog").innerText(), /No scheduled 
 ok("File → Scheduled Backups opens the list, empty at first");
 
 // a job without a name or database is refused with a plain message
-await page.click(".schedules-dialog button:has-text('New scheduled backup')");
+await page.click(".schedules-dialog button:has-text('New scheduled job')");
 await page.uncheck(".sched-dbs input >> nth=0").catch(() => {});
 await page.click(".sched-form button:has-text('Save')");
 await page.waitForSelector(".schedules-dialog .banner.bad");
@@ -60,6 +60,23 @@ assert.match(await page.locator(".sched-list > li").innerText(), /Paused/);
 await page.click(".sched-list button[title^='Delete the job']");
 await page.waitForFunction(() => /No scheduled backups yet/.test(document.querySelector(".schedules-dialog").innerText));
 ok("a job can be paused and deleted");
+
+// a scheduled export: the SELECT, its database and the file format are saved, and it is listed as an export
+await page.click(".schedules-dialog button:has-text('New scheduled job')");
+await page.selectOption(".sched-form select[aria-label='What it does']", "export");
+assert.equal(await page.locator(".sched-form label:has-text('Compress into a .zip')").count(), 0, "backup-only options are hidden");
+await page.fill(".sched-form input[placeholder='Nightly shop backup']", "Daily orders");
+await page.selectOption(".sched-form select[aria-label='Run in database']", "shop");
+await page.fill(".sched-form textarea", "SELECT id, total FROM orders WHERE placed >= CURDATE() - INTERVAL 1 DAY");
+await page.selectOption(".sched-form select[aria-label='File format']", "xlsx");
+await page.fill(".sched-form input[placeholder='/Users/you/Backups']", "/Users/me/Reports");
+await page.click(".sched-form button:has-text('Save')");
+await page.waitForSelector(".sched-list > li");
+const exp = (await calls("schedule_save")).at(-1).job;
+assert.deepEqual([exp.kind, exp.format, exp.databases], ["export", "xlsx", ["shop"]]);
+assert.match(await page.locator(".sched-list > li").innerText(), /export of a query in shop as Excel \(XLSX\)/);
+await page.click(".sched-list button[title^='Delete the job']");
+ok("a scheduled export saves its SELECT, database and format, and is listed as an export");
 
 // a background run is announced
 await page.keyboard.press("Escape");

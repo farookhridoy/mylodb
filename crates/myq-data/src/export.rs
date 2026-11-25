@@ -515,6 +515,35 @@ pub async fn export_rows(conn: &mut Conn, meta: &TableMeta, spec: &PageSpec, opt
     Ok(ExportOutcome { rows, warnings: sink.finish()? })
 }
 
+/// A writer for one export that takes its rows from anywhere (the SQLite engine streams its rows through this): `start` with the
+/// columns, `row` for each row, `finish` for the warnings.
+pub struct Exporter<'a> {
+    sink: Box<dyn RowSink + Send + 'a>,
+    rows: u64,
+}
+
+impl<'a> Exporter<'a> {
+    pub fn new(opts: &ExportOptions, dest: Dest<'a>, default_name: &str, cols: &[ExportColumn]) -> Result<Exporter<'a>> {
+        let mut sink = make_sink(opts, dest, default_name)?;
+        sink.start(cols)?;
+        Ok(Exporter { sink, rows: 0 })
+    }
+
+    pub fn row(&mut self, cells: &[Option<String>]) -> Result<()> {
+        self.sink.row(cells)?;
+        self.rows += 1;
+        Ok(())
+    }
+
+    pub fn rows(&self) -> u64 {
+        self.rows
+    }
+
+    pub fn finish(mut self) -> Result<ExportOutcome> {
+        Ok(ExportOutcome { rows: self.rows, warnings: self.sink.finish()? })
+    }
+}
+
 /// Export the result of a read-only statement.
 pub async fn export_query(conn: &mut Conn, database: Option<&str>, sql: &str, opts: &ExportOptions, dest: Dest<'_>, tick: Tick<'_>) -> Result<ExportOutcome> {
     let stmts = myq_sql::split_statements(sql);

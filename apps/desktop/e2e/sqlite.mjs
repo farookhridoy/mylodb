@@ -11,11 +11,12 @@ const yes = { available: true, reason: null };
 const sqliteCaps = { flavor: "sqlite", schemas: no("one main database"), routines: no("SQLite has no stored procedures or functions"), triggers: yes, events: no("SQLite has no scheduled events"),
   users: no("SQLite has no users or privileges: access is the file's permissions"), replication: no("SQLite has no replication"), explain_analyze: no("SQLite offers EXPLAIN QUERY PLAN only"),
   read_only_session: yes, row_estimates: no("exact counts"), server_tools: no("SQLite is a file, not a server: there is no process list, variables or log"),
-  dump_restore: no("backup and restore of SQL dumps is MySQL-only for now"), writes: no("SQLite files open read-only in this version") };
+  dump_restore: no("backup, restore and CSV import are MySQL-only for now; export works"), data_export: yes, writes: no("SQLite files open read-only in this version") };
 const extra = [{ id: 7, name: "Shop file", color: "#4f8cff", engine: "sqlite", file: "/tmp/shop.sqlite", host: "", port: 0, user: "", database: null, ssl: "disabled" }];
 await page.addInitScript({ content: `window.__extraConns = ${JSON.stringify(extra)}; window.__caps = ${JSON.stringify(sqliteCaps)};\n` + fs.readFileSync(new URL("./mock.js", import.meta.url), "utf8") });
 await page.goto(process.env.APP_URL || "http://localhost:1420/");
 let step = 0;
+const calls = (cmd) => page.evaluate((c) => window.__calls.filter((x) => x.cmd === c).map((x) => x.args), cmd);
 const ok = (m) => console.log(`ok ${++step} ${m}`);
 
 // the dialog: choosing SQLite replaces host / user / SSL with a file
@@ -42,13 +43,21 @@ ok("the dialog switches to a file, requires a name and a file, and tests it");
 await page.selectOption(".conn-bar select", "7");
 await page.waitForSelector(".tree .db");
 await page.waitForFunction(() => document.querySelector("button[title*='no process list']"));
-for (const [label, reason] of [["Users", /no users or privileges/], ["Server", /no process list/], ["Transfer", /MySQL-only/], ["Home", /no process list/]]) {
+for (const [label, reason] of [["Users", /no users or privileges/], ["Server", /no process list/], ["Home", /no process list/]]) {
   const b = page.locator(`header.topbar button:has-text('${label}')`);
   assert.equal(await b.isDisabled(), true, label);
   assert.match(await b.getAttribute("title"), reason);
 }
 assert.equal(await page.locator("header.topbar button:has-text('New query')").isDisabled(), false);
-ok("Users, Server, Transfer and Home are disabled with the engine's reason; New query stays on");
+ok("Users, Server and Home are disabled with the engine's reason; New query stays on");
+
+// Transfer stays on for a file, with only the export tab (backup, restore and import are MySQL-only)
+const transfer = page.locator("header.topbar button:has-text('Transfer')");
+assert.equal(await transfer.isDisabled(), false);
+await transfer.click();
+await page.waitForSelector(".transfer .dz-tabs");
+assert.deepEqual(await page.locator(".transfer .dz-tabs button").allInnerTexts(), ["Export query"]);
+ok("Transfer is available for a SQLite file with only the Export tab");
 // upkeep: integrity check and VACUUM from the database's right-click menu, with the result as a flash message
 await page.locator(".tree .db").first().click({ button: "right" });
 await page.waitForSelector(".ctx");
@@ -60,6 +69,23 @@ await page.locator(".tree .db").first().click({ button: "right" });
 await page.click(".ctx .ctx-label:text-is('Compact the file (VACUUM)')");
 await page.waitForSelector(".toast:has-text('VACUUM done')");
 ok("a SQLite file can be checked and compacted from the database menu, and the result is announced");
+
+// the table designer works for a SQLite file: its own types, no engine or character set, SQLite's index kinds
+await page.locator(".tree .db").first().click();
+await page.evaluate(() => window.__emit("menu-action", "new_table"));
+await page.waitForSelector(".designer");
+const heads = await page.locator(".dz-grid thead th").allInnerTexts();
+assert.ok(!heads.includes("Unsigned") && !heads.includes("Comment"), `no MySQL-only columns: ${heads}`);
+assert.equal(await page.locator(".dz-tabs button:has-text('Options')").count(), 0, "no engine or character set page");
+await page.locator(".dz-grid tbody tr").first().locator(".ss-trigger, .ss").nth(0).waitFor();
+assert.deepEqual((await calls("server_options")).length, 0, "no server options are asked for a file");
+await page.locator(".dz-name").fill("notes");
+await page.waitForFunction(() => window.__calls.some((c) => c.cmd === "ddl_preview" && c.args.sqlite === true));
+await page.click(".dz-tabs button:has-text('Indexes')");
+await page.click(".dz-item >> nth=0");
+const kinds = await page.locator(".dz-edit select.ss-native").first().evaluate((el) => [...el.options].map((o) => o.value));
+assert.deepEqual(kinds, ["primary", "unique", "index"], "SQLite has no fulltext or spatial indexes");
+ok("the table designer works for a SQLite file with SQLite's own types and index kinds");
 
 assert.deepEqual(errors, []);
 await browser.close();

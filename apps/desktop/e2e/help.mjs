@@ -78,7 +78,7 @@ const geo = async () => page.evaluate(() => {
   const d = document.querySelector(".dialog.manual").getBoundingClientRect(), n = document.querySelector(".manual nav").getBoundingClientRect(), a = document.querySelector(".manual article").getBoundingClientRect();
   return { d, n, a, imgs: [...document.querySelectorAll(".manual article img")].map((i) => i.getBoundingClientRect().right) };
 });
-for (const section of ["Getting started", "Running SQL", "Table designer and admin pages", "Preferences and themes"]) {
+for (const section of ["Getting started", "Running SQL", "Table designer and admin pages", "Settings and themes"]) {
   await page.locator(".manual nav button", { hasText: section }).first().click();
   await page.waitForTimeout(300);
   const g = await geo();

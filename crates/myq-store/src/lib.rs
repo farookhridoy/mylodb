@@ -36,7 +36,7 @@ pub enum Slot {
     DbPassword,
     SshPassword,
     SshPassphrase,
-    /// The key of the AI assistant's service (not tied to a connection: always stored under id 0).
+    /// The key of the AI assistant's service (not tied to a connection: the id is the service, see `ai::key_id`).
     AiKey,
 }
 
@@ -383,7 +383,8 @@ impl Store {
         let mut st = self.db.prepare("SELECT id FROM connections")?;
         let ids: Vec<i64> = st.query_map([], |r| r.get(0))?.collect::<std::result::Result<_, _>>()?;
         let mut keys: Vec<(i64, Slot)> = ids.into_iter().flat_map(|id| ALL_SLOTS.into_iter().map(move |s| (id, s))).collect();
-        keys.push((0, Slot::AiKey));
+        // one AI key per service (see the AI assistant); absent ones are skipped when copied
+        keys.extend((0..=5).map(|id| (id, Slot::AiKey)));
         Ok(keys)
     }
 

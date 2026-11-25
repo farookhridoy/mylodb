@@ -14,7 +14,7 @@ const menu = (id) => page.evaluate((i) => window.__emit("menu-action", i), id);
 await page.waitForSelector(".conn-bar select");
 
 await menu("preferences");
-await page.waitForSelector("[role=dialog][aria-label=Preferences]");
+await page.waitForSelector("[role=dialog][aria-label=Settings]");
 await page.click("[role=dialog] button:text-is('Cancel')");
 await menu("new_connection");
 await page.waitForSelector(".dialog");

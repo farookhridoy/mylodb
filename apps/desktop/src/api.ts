@@ -67,12 +67,16 @@ export const secretsApi = {
   reset: () => invoke<void>("secrets_reset"),
 };
 
-/** The AI query writer: a service that speaks the common chat protocol (Ollama on this computer, Groq, OpenRouter, Gemini…). */
-export interface AiSettings { endpoint: string; model: string }
+/** The AI assistant: a service that speaks the common chat protocol (Ollama on this computer, Groq, OpenRouter, Gemini…) or Claude's own API. */
+export interface AiModel { id: string; name: string; context: number | null; free: boolean }
+export interface AiSettings { preset: string; endpoint: string; model: string; fallbacks: { id: string; context: number | null }[]; context: number | null }
+export interface AiTurn { role: "user" | "assistant"; content: string }
+export interface AiAnswer { text: string; sql: string | null; model: string; note: string | null }
 export const aiApi = {
-  write: (id: number, database: string | null, request: string, settings: AiSettings) => invoke<string>("ai_write_query", { id, database, request, settings }),
-  hasKey: () => invoke<boolean>("ai_key_status"),
-  setKey: (key: string) => invoke<void>("ai_set_key", { key }),
+  chat: (id: number, database: string | null, history: AiTurn[], request: string, settings: AiSettings) => invoke<AiAnswer>("ai_chat", { id, database, history, request, settings }),
+  models: (preset: string, endpoint: string, all: boolean) => invoke<AiModel[]>("ai_models", { preset, endpoint, all }),
+  hasKey: (preset: string) => invoke<boolean>("ai_key_status", { preset }),
+  setKey: (preset: string, key: string) => invoke<void>("ai_set_key", { preset, key }),
 };
 /** The server's error text without the machine-readable code in front (`vault_locked: …`). */
 export const plainError = (e: unknown) => describeError(e).replace(/^vault_[a-z_]+: /, "");

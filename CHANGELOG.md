@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.9.0 (2026-11-25)
+
+**Changed**
+* **Ask AI is now a panel.** A new **Ask AI** button sits in the toolbar right after Server (and there is an Ask AI menu). It opens a chat panel on the right, like the assistant panels in code editors: ask for a query, get the SQL in a block with *Insert in editor*, *Replace editor text* and *Copy*, and ask follow-ups ("only for 2024"). The answer is never run for you. The conversation stays when you close and reopen the panel.
+* **Connect a service from the panel's gear.** Pick Ollama (on your computer, free), OpenRouter, Groq or Gemini (free tiers), or Claude (API key). *Get a key in your browser* opens the provider's key page; paste the key and press *Connect*. The key is checked, and the models the service offers fill a dropdown: for OpenRouter only the **free** models (with a switch for paid ones), each with its context size.
+* **Automatic model switching.** If the chosen model's context window is too small for the question, or it is busy, rate-limited or out of its free quota, the next model of the list answers instead, and the panel says which one and why. It can be switched off.
+* **Claude**: added as a service with an API key. Signing in with a Claude or ChatGPT *subscription* is not possible for other apps; the API is billed separately.
+* The **Preferences** button is now **Settings** (gear), and the Settings window has an Ask AI page too.
+
+**Known limits**
+* The assistant is tested against a stand-in service only, not yet against the real Ollama, OpenRouter, Groq, Gemini or Claude.
+
 ## 0.8.0 (2026-11-25)
 
 **Added**

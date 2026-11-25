@@ -1,6 +1,6 @@
 # MyLoDB user manual
 
-Version 0.8.0. The same text is inside the app: **Help → User Manual**. Screenshots show the real interface running on demo data (a fake `shop` database), not a real server.
+Version 0.9.0. The same text is inside the app: **Help → User Manual**. Screenshots show the real interface running on demo data (a fake `shop` database), not a real server.
 
 ## Contents
 
@@ -12,7 +12,7 @@ Version 0.8.0. The same text is inside the app: **Help → User Manual**. Screen
 6. [Design tables and administer a database](#6-design-tables-and-administer-a-database)
 7. [Stay safe on production](#7-stay-safe-on-production)
 8. [Backup, restore, import and export](#8-backup-restore-import-and-export)
-9. [Preferences and themes](#9-preferences-and-themes)
+9. [Settings and themes](#9-preferences-and-themes)
 10. [Performance and large tables](#10-performance-and-large-tables)
 11. [Keyboard shortcuts](#11-keyboard-shortcuts)
 12. [Troubleshooting](#12-troubleshooting)
@@ -93,7 +93,7 @@ Updates are signed by the project's key and refused if the signature does not ma
 * Autocomplete knows tables, columns, aliases, functions and keywords, and works from the in-memory object index. After `JOIN` it lists the tables linked by a foreign key first; after `ON` it offers the ready join condition from the foreign key (`o.customer_id = c.id`). Foreign keys are read once per database the first time they are needed.
 * **Tab** takes the highlighted suggestion and stays in the editor; without a suggestion it indents.
 * **Underlines**: a wavy line marks an unclosed bracket or quote, a table missing from the database, or a column missing from its table (`alias.column`). Hover for the reason. It stays quiet when unsure.
-* **Ask AI** (toolbar, or ⌘K): describe a query in words; the SQL comes back for review and is inserted only when you choose. Set up under Preferences → AI assistant: Ollama (on your computer, free), or Groq, OpenRouter, Gemini (free tiers, need a key). Only your sentence and the names of tables, columns and foreign keys are sent (after you allow it once per service), never rows or values. The key is kept with your saved passwords.
+* **Ask AI** (toolbar button after Server, or the Ask AI menu): a chat panel on the right. Describe a query in words; the SQL comes back with Insert in editor, Replace editor text and Copy. It is never run for you. The gear connects a service: Ollama (on your computer, free), OpenRouter, Groq and Gemini (free tiers), or Claude (API key, billed apart from a subscription). Press *Get a key in your browser*, paste the key, press *Connect*; the service's models (for OpenRouter the free ones) fill the list. With automatic switching on, a model that is too small for the question, busy or out of quota is replaced by the next one. Only your question and the names of tables, columns and foreign keys are sent (after you allow it once per service), never rows or values.
 * Messages: what an action did (done, failed, copied) pops up at the bottom right as well as in the status bar. Hover for a copy button; click × to close. Errors stay longer. **⇧⌘F** formats. **Explain**, **Analyze** and **Profile** show how a query ran.
 * Result tabs: **Results**, **Profile**, **Messages**, **Table Data**, **Info**, **History**. Switch to **Text** for a mysql-client style output, or **Copy as** TSV, CSV, JSON, Markdown or INSERT.
 * **History** and **Favorites** (with folders) are tabs in the sidebar. File → **Open SQL File…** and **Save** work with `.sql` files.
@@ -190,7 +190,7 @@ Only tables are compared, not views, routines, triggers or events. It uses the s
 
 ### Saved passwords
 
-Under **Preferences → Security → Saved passwords** you choose where connection passwords are kept. The **macOS Keychain** is the default; because MyLoDB is not signed with a paid Apple certificate, macOS asks again for each saved connection after an update. The **encrypted file** moves every saved password out of the Keychain into one file locked by a master password (at least 8 characters; XChaCha20-Poly1305, key from Argon2id). You type it once per session and the Keychain prompts stop. You can change the master password, or move everything back to the Keychain, from the same page. **If you forget the master password the file cannot be opened by anyone**: the unlock window offers to delete it, your connections stay, and you type each password again.
+Under **Settings → Security → Saved passwords** you choose where connection passwords are kept. The **macOS Keychain** is the default; because MyLoDB is not signed with a paid Apple certificate, macOS asks again for each saved connection after an update. The **encrypted file** moves every saved password out of the Keychain into one file locked by a master password (at least 8 characters; XChaCha20-Poly1305, key from Argon2id). You type it once per session and the Keychain prompts stop. You can change the master password, or move everything back to the Keychain, from the same page. **If you forget the master password the file cannot be opened by anyone**: the unlock window offers to delete it, your connections stay, and you type each password again.
 
 ## 8. Backup, restore, import and export
 
@@ -203,11 +203,11 @@ File → **Backup / Restore…** and **Import Data… / Export Data…**.
 * **Export Data…** writes any SELECT as **CSV**, **JSON** (array of objects), **JSON Lines**, **SQL INSERT**, **XML**, **HTML table** or **Excel (XLSX)**; CSV lets you choose the text written for NULL, and gzip is optional (not for Excel). It streams from the server as a cancellable background job. **Copy as…** above a result copies TSV, CSV, JSON, a Markdown table or INSERT statements.
 * Import options: delimiter, quote, encoding, header row, trim, the text that means NULL, new table or existing table, and what to do on a duplicate key (error, skip, update, replace). "Empty the table first" asks to confirm.
 
-## 9. Preferences and themes
+## 9. Settings and themes
 
-![Preferences](images/preferences.png)
+![Settings](images/preferences.png)
 
-**⌘,** opens Preferences: theme (light, dark, system), and font family, size and weight for the interface, sidebar, data grid and query editor, editor line height, and four editor colour schemes (default, multi-colour, Solarized, high contrast), previewed live.
+**⌘,** opens Settings: theme (light, dark, system), and font family, size and weight for the interface, sidebar, data grid and query editor, editor line height, and four editor colour schemes (default, multi-colour, Solarized, high contrast), previewed live.
 
 ![The dark theme](images/dark-theme.png)
 
@@ -240,7 +240,7 @@ The same list opens anywhere with **⌘/** (Help → Keyboard Shortcuts).
 | Shortcut | Action |
 |---|---|
 | ⌘K | Command palette: every action, table and theme |
-| ⌘, | Preferences |
+| ⌘, | Settings |
 | ⌘B | Show or hide the sidebar |
 | ⇧⌘B | Search objects in the sidebar |
 | F5 | Refresh the object tree |

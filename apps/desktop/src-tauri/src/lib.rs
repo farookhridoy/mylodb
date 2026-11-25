@@ -414,7 +414,11 @@ async fn capabilities(state: tauri::State<'_, AppState>, id: i64) -> Result<myq_
 }
 
 /// Links the About and Manual pages may open in the browser. Anything else is refused, so a page can never launch an arbitrary URL.
-const ALLOWED_LINKS: [&str; 4] = ["https://farookhridoy.com", "https://thelarasoft.com", "https://github.com/farookhridoy/mylodb", "https://github.com/farookhridoy"];
+const ALLOWED_LINKS: [&str; 10] = [
+    "https://farookhridoy.com", "https://thelarasoft.com", "https://github.com/farookhridoy/mylodb", "https://github.com/farookhridoy",
+    // where a user makes a key for the AI assistant (the "Connect" buttons open these in the browser)
+    "https://console.anthropic.com/settings/keys", "https://console.groq.com/keys", "https://openrouter.ai/keys", "https://aistudio.google.com/apikey", "https://ollama.com/download", "https://ollama.com/library",
+];
 
 fn link_allowed(url: &str) -> bool {
     ALLOWED_LINKS.iter().any(|a| url == *a || url.strip_prefix(a).is_some_and(|rest| rest.starts_with('/') || rest.starts_with('#')))
@@ -1405,9 +1409,10 @@ async fn complete_sql(state: tauri::State<'_, AppState>, id: i64, sql: String, c
     Ok(myq_sql::complete(&sql, cursor, &s.catalog, database.as_deref(), 100))
 }
 
-/// Ask the configured AI service to write a query from a plain-language request. Only table and column names of `database` are sent.
+/// Ask the configured AI service to write a query from a plain-language request (a chat: earlier turns give it context).
+/// Only table and column names of `database` are sent. If the chosen model cannot take the question, the next model of the list is tried.
 #[tauri::command]
-async fn ai_write_query(state: tauri::State<'_, AppState>, id: i64, database: Option<String>, request: String, settings: ai::AiSettings) -> Result<String, String> {
+async fn ai_chat(state: tauri::State<'_, AppState>, id: i64, database: Option<String>, history: Vec<ai::Turn>, request: String, settings: ai::AiSettings) -> Result<ai::Answer, String> {
     let db = database.filter(|d| !d.is_empty()).ok_or("Select a database first: the assistant needs to know which tables you mean.")?;
     if request.trim().is_empty() {
         return Err("Describe what you want to find or change.".into());
@@ -1422,19 +1427,26 @@ async fn ai_write_query(state: tauri::State<'_, AppState>, id: i64, database: Op
     if schema.is_empty() {
         return Err(format!("`{db}` has no tables the assistant can see."));
     }
-    let key = state.secrets.get(0, myq_store::Slot::AiKey).map_err(err)?;
-    ai::ask(&settings, key.as_deref(), ai::messages(dialect, &db, &schema, request.trim())).await
+    let key = state.secrets.get(ai::key_id(&settings.preset), myq_store::Slot::AiKey).map_err(err)?;
+    ai::chat(&settings, key.as_deref(), ai::messages(dialect, &db, &schema, &history, request.trim())).await
+}
+
+/// The models a service offers (for OpenRouter only the free ones unless `all`). Also how a key is checked when the user connects.
+#[tauri::command]
+async fn ai_models(state: tauri::State<'_, AppState>, preset: String, endpoint: String, all: bool) -> Result<Vec<ai::ModelInfo>, String> {
+    let key = state.secrets.get(ai::key_id(&preset), myq_store::Slot::AiKey).map_err(err)?;
+    ai::list_models(&preset, &endpoint, key.as_deref(), all).await
 }
 
 #[tauri::command]
-fn ai_key_status(state: tauri::State<'_, AppState>) -> Result<bool, String> {
-    Ok(state.secrets.get(0, myq_store::Slot::AiKey).map_err(err)?.is_some())
+fn ai_key_status(state: tauri::State<'_, AppState>, preset: String) -> Result<bool, String> {
+    Ok(state.secrets.get(ai::key_id(&preset), myq_store::Slot::AiKey).map_err(err)?.is_some())
 }
 
 #[tauri::command]
-fn ai_set_key(state: tauri::State<'_, AppState>, key: String) -> Result<(), String> {
-    let key = key.trim();
-    if key.is_empty() { state.secrets.delete(0, myq_store::Slot::AiKey).map_err(err) } else { state.secrets.set(0, myq_store::Slot::AiKey, key).map_err(err) }
+fn ai_set_key(state: tauri::State<'_, AppState>, preset: String, key: String) -> Result<(), String> {
+    let (key, id) = (key.trim(), ai::key_id(&preset));
+    if key.is_empty() { state.secrets.delete(id, myq_store::Slot::AiKey).map_err(err) } else { state.secrets.set(id, myq_store::Slot::AiKey, key).map_err(err) }
 }
 
 /// Problems in the editor text found without running it (unclosed brackets or quotes, unknown tables and columns), for underlining.
@@ -1755,7 +1767,7 @@ fn build_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::
     let app_menu = SubmenuBuilder::new(app, "MyLoDB")
         .item(&with_icon("about", "About MyLoDB", icon!("info"))?)
         .separator()
-        .item(&with_icon("preferences", "Preferences…", icon!("settings"))?)
+        .item(&with_icon("preferences", "Settings…", icon!("settings"))?)
         .separator()
         .services()
         .separator()
@@ -1827,6 +1839,10 @@ fn build_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::
             .item(&with_icon("catalog", "Engines, Charsets, Replication", icon!("info"))?)
             .build()?)
         .build()?;
+    let ask_ai = SubmenuBuilder::new(app, "Ask AI")
+        .item(&item("ask_ai", "Show or Hide the Ask AI Panel", None)?)
+        .item(&item("ai_settings", "AI Settings…", None)?)
+        .build()?;
     let view = SubmenuBuilder::new(app, "View")
         .item(&item("toggle_sidebar", "Toggle Sidebar", Some("CmdOrCtrl+B"))?)
         .separator()
@@ -1845,7 +1861,7 @@ fn build_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::
         .item(&item("check_updates", "Check for Updates…", None)?)
         .item(&with_icon("about", "About MyLoDB", icon!("info"))?)
         .build()?;
-    MenuBuilder::new(app).items(&[&app_menu, &file, &edit, &search, &sql_editor, &database, &view, &window, &help]).build()
+    MenuBuilder::new(app).items(&[&app_menu, &file, &edit, &search, &sql_editor, &database, &ask_ai, &view, &window, &help]).build()
 }
 
 pub fn run() {
@@ -1940,7 +1956,8 @@ pub fn run() {
             account_drop,
             complete_sql,
             diagnose_sql,
-            ai_write_query,
+            ai_chat,
+            ai_models,
             ai_key_status,
             ai_set_key,
             format_sql,

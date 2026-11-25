@@ -1,5 +1,5 @@
 import SecuritySettings from "./SecuritySettings";
-import AiSettings from "./AiSettings";
+import AiSetup from "./AiSetup";
 import { useMemo, useState } from "react";
 import Select from "./Select";
 import { AREA_LABEL, DEFAULTS, FAMILIES, SCHEMES, SIZE_RANGE, applyPrefs, savePrefs, type Area, type Prefs } from "./prefs";
@@ -14,11 +14,11 @@ const PAGES: Page[] = [
   { id: "font-grid", group: "Fonts", label: "Data grid", words: "font family size bold results table cells" },
   { id: "font-editor", group: "Fonts", label: "Query editor", words: "font family size bold line height sql code" },
   { id: "passwords", group: "Security", label: "Saved passwords", words: "keychain master password encrypted file prompt unlock security" },
-  { id: "ai", group: "Editor", label: "AI assistant", words: "ai assistant write query ollama groq openrouter gemini free model key llm" },
+  { id: "ai", group: "AI", label: "Ask AI", words: "ai assistant write query ollama groq openrouter gemini free model key llm" },
   { id: "colours", group: "Editor", label: "Syntax colours", words: "editor colour scheme highlight solarized contrast vivid multi-colour" },
 ];
 
-/** Preferences, laid out like DBeaver's: a filterable list of pages on the left, the chosen page on the right. Changes apply live; Cancel restores the old values. */
+/** Settings, laid out like DBeaver's: a filterable list of pages on the left, the chosen page on the right. Changes apply live; Cancel restores the old values. */
 export default function PreferencesDialog(props: {
   initial: Prefs;
   theme: ThemePref;
@@ -75,8 +75,8 @@ export default function PreferencesDialog(props: {
 
   return (
     <div className="overlay">
-      <div className="dialog prefs" role="dialog" aria-label="Preferences">
-        <h3>Preferences</h3>
+      <div className="dialog prefs" role="dialog" aria-label="Settings">
+        <h3>Settings</h3>
         <div className="prefs-body">
           <nav className="prefs-nav" aria-label="Preference pages">
             <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="type filter text" aria-label="Filter preferences" autoFocus />
@@ -115,7 +115,7 @@ export default function PreferencesDialog(props: {
               </div>
             )}
             {current?.id === "passwords" && <SecuritySettings />}
-            {current?.id === "ai" && <AiSettings />}
+            {current?.id === "ai" && <div className="prefs-page ai-page"><AiSetup /></div>}
             {current?.id === "font-ui" && fontPage("ui")}
             {current?.id === "font-tree" && fontPage("tree")}
             {current?.id === "font-grid" && fontPage("grid")}

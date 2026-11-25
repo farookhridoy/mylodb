@@ -1,6 +1,6 @@
 # MyLoDB roadmap: what is done, what must be done, what would be nice
 
-Status of 2026-11-23 (version 0.5.1). This is the single page for "where are we": phases, what is done, what is left, and (sections 5 to 8) the
+Status of 2026-11-23 (version 0.6.0). This is the single page for "where are we": phases, what is done, what is left, and (sections 5 to 8) the
 coverage of the SQLyog reference and the product plan. It replaces the former `PLAN_VS_CURRENT.md`. Other docs: `ANALYSIS.md` (original
 scope, stack, architecture), `BENCHMARKS.md` (Phase 10 measurements), `PHPMYADMIN_AND_ENGINES.md` (analysis behind phases 11 to 15),
 `SERVER_COMPATIBILITY.md` (MySQL / MariaDB results).

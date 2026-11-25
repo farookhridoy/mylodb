@@ -27,9 +27,9 @@
   "@type": "SoftwareApplication",
   "name": "MyLoDB",
   "applicationCategory": "DeveloperApplication",
-  "operatingSystem": "macOS (Apple Silicon and Intel)",
+  "operatingSystem": "macOS (Apple Silicon and Intel), Windows 10 and 11",
   "description": "An open-source MySQL, MariaDB and SQLite manager for macOS.",
-  "softwareVersion": "0.5.1",
+  "softwareVersion": "0.6.0",
   "license": "https://www.apache.org/licenses/LICENSE-2.0",
   "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
   "author": { "@type": "Person", "name": "Omar Farook Hridoy", "url": "https://farookhridoy.com" },
@@ -59,13 +59,14 @@
   <section class="hero">
     <div class="wrap hero-in">
       <div class="hero-copy">
-        <h1>The Mac database manager for people who miss SQLyog.</h1>
-        <p class="lede">MyLoDB opens MySQL, MariaDB and SQLite files on your Mac. It stays quick on tables with millions of rows, and it asks before it does anything you cannot undo.</p>
+        <h1>The database manager for people who miss SQLyog.</h1>
+        <p class="lede">MyLoDB opens MySQL, MariaDB and SQLite files on your Mac or Windows PC. It stays quick on tables with millions of rows, and it asks before it does anything you cannot undo.</p>
         <p class="cta">
           <a class="btn primary" id="dl-arm" href="https://github.com/farookhridoy/mylodb/releases/latest">Download for Apple Silicon</a>
           <a class="btn" id="dl-intel" href="https://github.com/farookhridoy/mylodb/releases/latest">Download for Intel</a>
+          <a class="btn" id="dl-win" href="https://github.com/farookhridoy/mylodb/releases/latest">Download for Windows</a>
         </p>
-        <p class="fine" id="dl-meta">Version <span data-version>0.5.1</span>. Free and open source under Apache-2.0. It updates itself, and it sends no telemetry.</p>
+        <p class="fine" id="dl-meta">Version <span data-version>0.6.0</span>. Free and open source under Apache-2.0. It updates itself, and it sends no telemetry.</p>
       </div>
 
       <div class="stage" aria-label="A demonstration of the review dialog">
@@ -112,7 +113,7 @@
   </section>
 
   <section class="tested wrap" aria-label="Supported databases">
-    <p>Tested in CI against MySQL 8.0, 8.4 and 9, and MariaDB 10.11 and 11.4. Opens and edits SQLite files. Apple Silicon and Intel.</p>
+    <p>Tested in CI against MySQL 8.0, 8.4 and 9, and MariaDB 10.11 and 11.4. Opens and edits SQLite files. Apple Silicon, Intel and Windows (64-bit).</p>
   </section>
 
   <section id="features" class="features">
@@ -251,18 +252,23 @@
   <section id="download" class="download">
     <div class="wrap dl-in">
       <div class="dl-main">
-      <h2>Download MyLoDB <span data-version>0.5.1</span></h2>
+      <h2>Download MyLoDB <span data-version>0.6.0</span></h2>
       <p class="lede">Free, and open source under Apache-2.0. Not sure which Mac you have? Open the Apple menu and choose About This Mac: <i>Chip: Apple M…</i> means Apple Silicon, <i>Processor: Intel…</i> means Intel.</p>
       <div class="dl-pair">
         <a class="dl-tile" id="dl-arm-2" href="https://github.com/farookhridoy/mylodb/releases/latest">
           <b>Apple Silicon</b>
           <span>For M1 and later</span>
-          <code data-file="aarch64">MyLoDB_0.5.1_aarch64.dmg</code>
+          <code data-file="aarch64">MyLoDB_0.6.0_aarch64.dmg</code>
         </a>
         <a class="dl-tile" id="dl-intel-2" href="https://github.com/farookhridoy/mylodb/releases/latest">
           <b>Intel</b>
           <span>For Macs with an Intel processor</span>
-          <code data-file="x64">MyLoDB_0.5.1_x64.dmg</code>
+          <code data-file="x64">MyLoDB_0.6.0_x64.dmg</code>
+        </a>
+        <a class="dl-tile" id="dl-win-2" href="https://github.com/farookhridoy/mylodb/releases/latest">
+          <b>Windows</b>
+          <span>Windows 10 and 11, 64-bit</span>
+          <code data-file="win">MyLoDB_0.6.0_x64-setup.exe</code>
         </a>
       </div>
       <p class="fine" id="dl-detail">Each file has a SHA-256 checksum next to it on the <a href="https://github.com/farookhridoy/mylodb/releases/latest" id="dl-rel">release page</a>.</p>
@@ -274,6 +280,10 @@
         <p>This picks the right build for your Mac, checks its checksum and skips the warning below:</p>
         <p><code class="cmd">curl -fsSL https://raw.githubusercontent.com/farookhridoy/mylodb/main/scripts/install.sh | sh</code></p>
         <p class="fine">Read the <a href="https://github.com/farookhridoy/mylodb/blob/main/scripts/install.sh">script</a> first if you like. <a href="https://github.com/farookhridoy/mylodb/blob/main/docs/INSTALL.md">All install options</a>.</p>
+      </div>
+      <div class="gate">
+        <h3>On Windows, SmartScreen may warn on first run.</h3>
+        <p>The Windows installer is not signed with a paid certificate yet. If Windows says it protected your PC, click <b>More info</b>, then <b>Run anyway</b>. Saved passwords go in the Windows Credential Manager, and the app updates itself like the Mac one.</p>
       </div>
       <div class="gate">
         <h3>The first launch shows a macOS warning. That is expected.</h3>
@@ -297,7 +307,11 @@
         <h2>Release notes</h2>
         <p class="fine">Every version, with its known limits, is in the <a href="https://github.com/farookhridoy/mylodb/blob/main/CHANGELOG.md">changelog</a>.</p>
       </div>
-      <ol class="log">
+      <ol class="log" tabindex="0" role="region" aria-label="Release notes, scrollable">
+        <li>
+          <h3>0.6.0 <time datetime="2026-11-25">25 Nov 2026</time></h3>
+          <p>MyLoDB now runs on Windows 10 and 11, with an installer that updates itself. The release notes here also scroll in a fixed-height list.</p>
+        </li>
         <li>
           <h3>0.5.1 <time datetime="2026-11-24">24 Nov 2026</time></h3>
           <p>Reloading the window no longer drops your connection: MyLoDB picks the open connection up again, with your tabs, so you do not have to select it once more.</p>

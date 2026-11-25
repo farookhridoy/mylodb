@@ -420,7 +420,14 @@ fn open_url(url: String) -> Result<(), String> {
     if !link_allowed(&url) {
         return Err("this link is not allowed".into());
     }
-    std::process::Command::new("open").arg(&url).spawn().map(|_| ()).map_err(err)
+    // the link was checked against the allow-list above; each system has its own opener
+    #[cfg(target_os = "windows")]
+    let opener = std::process::Command::new("rundll32").args(["url.dll,FileProtocolHandler", &url]).spawn();
+    #[cfg(target_os = "macos")]
+    let opener = std::process::Command::new("open").arg(&url).spawn();
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    let opener = std::process::Command::new("xdg-open").arg(&url).spawn();
+    opener.map(|_| ()).map_err(err)
 }
 
 #[tauri::command]

@@ -1,6 +1,6 @@
 # MyLoDB user manual
 
-Version 0.5.1. The same text is inside the app: **Help → User Manual**. Screenshots show the real interface running on demo data (a fake `shop` database), not a real server.
+Version 0.6.0. The same text is inside the app: **Help → User Manual**. Screenshots show the real interface running on demo data (a fake `shop` database), not a real server.
 
 ## Contents
 
@@ -19,7 +19,7 @@ Version 0.5.1. The same text is inside the app: **Help → User Manual**. Screen
 
 ## 1. Install and first launch
 
-Download `MyLoDB_<version>_aarch64.dmg` (Apple Silicon, M1 and later) or `MyLoDB_<version>_x64.dmg` (Intel Mac) from the [Releases page](https://github.com/farookhridoy/mylodb/releases/latest) and drag **MyLoDB** into **Applications**.
+On Windows, download `MyLoDB_<version>_x64-setup.exe` and run it (SmartScreen: **More info**, then **Run anyway**); shortcuts that use ⌘ use Ctrl there. On a Mac, download `MyLoDB_<version>_aarch64.dmg` (Apple Silicon, M1 and later) or `MyLoDB_<version>_x64.dmg` (Intel Mac) from the [Releases page](https://github.com/farookhridoy/mylodb/releases/latest) and drag **MyLoDB** into **Applications**.
 
 MyLoDB is not signed with a paid Apple Developer certificate, so macOS warns you the first time. This is expected, and you do it once:
 

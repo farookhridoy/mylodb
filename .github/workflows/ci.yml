@@ -84,6 +84,23 @@ jobs:
           for i in $(seq 1 60); do curl -sf http://localhost:1420 >/dev/null && break; sleep 1; done
           npm run e2e
 
+  # The desktop shell also compiles on Windows (the installer is built at release time).
+  desktop-windows:
+    name: Desktop build check (Windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+        working-directory: apps/desktop
+      - run: npm run build
+        working-directory: apps/desktop
+      - run: cargo check -p mylodb-desktop
+
   # The desktop shell compiles (menu bar, commands) on macOS.
   desktop:
     name: Desktop build check

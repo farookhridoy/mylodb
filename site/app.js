@@ -1,6 +1,13 @@
 // Three small jobs, each optional: the review-dialog demo in the hero, the theme preview, and the real version and download links.
 // The page reads fine without any of it: the buttons already point at the releases page.
 
+// light / dark: the page starts in the system's choice (see the script in <head>); the button remembers a different one
+document.getElementById("theme-toggle")?.addEventListener("click", () => {
+  const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+  document.documentElement.dataset.theme = next;
+  try { localStorage.setItem("mylodb.site.theme", next); } catch { /* private mode: the choice lasts for this visit */ }
+});
+
 const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 // ---- the hero demo: type a DELETE, press Run, and the review dialog appears ----

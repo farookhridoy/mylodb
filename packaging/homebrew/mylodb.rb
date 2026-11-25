@@ -4,9 +4,9 @@
 cask "mylodb" do
   arch arm: "aarch64", intel: "x64"
 
-  version "0.9.0"
-  sha256 arm:   "c6047001fcbfe8b3c4492d7bbfc51392154e03f56252d240cafd66bd66eeddc1",
-         intel: "9582365a0175d5199e1c5c281a877b525f6fc61c3ad20147a62d59c41672d96b"
+  version "0.10.0"
+  sha256 arm:   "adcbf297da28556825b40555cb3761d74f2174b6e941d1bba87c30103f68ba1f",
+         intel: "19dc04102cdd6399ad2bea57727f6f1fe897ecda6dbf173f41d1fe160af50435"
 
   url "https://github.com/farookhridoy/mylodb/releases/download/v#{version}/MyLoDB_#{version}_#{arch}.dmg"
   name "MyLoDB"

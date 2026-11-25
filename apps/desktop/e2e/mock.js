@@ -205,9 +205,18 @@ Object.assign(handlers, {
     return { from, to: a.cursor, items: items.filter((i) => i.label.toLowerCase().startsWith(word.toLowerCase())) };
   },
   diagnose_sql: () => window.__diag || [],
-  ai_key_status: () => !!window.__aiKey,
-  ai_set_key: (a) => { window.__aiKey = a.key || null; },
-  ai_write_query: (a) => { if (window.__aiFail) throw window.__aiFail; return "SELECT c.name, SUM(o.total) AS spent\nFROM customers c\nJOIN orders o ON o.customer_id = c.id\nGROUP BY c.name\nORDER BY spent DESC\nLIMIT 10;"; },
+  ai_key_status: (a) => !!(window.__aiKeys || {})[a.preset],
+  ai_set_key: (a) => { window.__aiKeys = window.__aiKeys || {}; if (a.key) window.__aiKeys[a.preset] = a.key; else delete window.__aiKeys[a.preset]; },
+  ai_models: (a) => {
+    if (a.preset !== "ollama" && !(window.__aiKeys || {})[a.preset]) throw "The service refused the key (401). Connect again in the AI settings.";
+    if (window.__aiBadKey) throw "The service refused the key (401). Connect again in the AI settings.";
+    return [{ id: "meta/free-big", name: "big", context: 131072, free: true }, { id: "meta/free-small", name: "small", context: 8192, free: true }, ...(a.all ? [{ id: "paid/model", name: "paid", context: 200000, free: false }] : [])]; // largest window first, as the backend sorts them
+  },
+  ai_chat: (a) => {
+    if (window.__aiFail) throw window.__aiFail;
+    const sql = "SELECT c.name, SUM(o.total) AS spent\nFROM customers c\nJOIN orders o ON o.customer_id = c.id\nGROUP BY c.name\nORDER BY spent DESC\nLIMIT 10;";
+    return { text: "```sql\n" + sql + "\n```\nTop customers by spend.", sql, model: window.__aiAnswerModel || a.settings.model, note: window.__aiNote || null };
+  },
   format_sql: (a) => a.sql.trim().replace(/\b(select|from|where)\b/gi, (m) => (a.options.keyword_case === "lower" ? m.toLowerCase() : m.toUpperCase())).replace(/\s+(FROM|WHERE|from|where)\b/g, (_, k) => "\n" + k).replace(/\n/g, a.options.indent.style === "tab" ? "\n\t" : "\n  "),
   statement_at: (a) => { const parts = a.sql.split(";"); let pos = 0; for (const p of parts) { if (a.cursor <= pos + p.length) return p.trim() || null; pos += p.length + 1; } return parts.at(-1).trim() || null; },
   explain_query: (a) => {

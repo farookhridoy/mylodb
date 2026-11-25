@@ -49,7 +49,7 @@ import { sampleQuery, type SampleKind } from "./sqlTemplates";
 import type { Pick } from "./ObjectTree";
 import type { IconName } from "./Icon";
 import { ToastHost, useToasts } from "./Toasts";
-import AiDialog from "./AiDialog";
+import AiPanel from "./AiPanel";
 import ResultsPane, { type RunState } from "./ResultsPane";
 import { ConfirmDialog, FavoritesPanel, HistoryPanel, SaveFavoriteDialog } from "./SidePanels";
 
@@ -161,7 +161,10 @@ export default function App() {
   const theme = useTheme();
   const [prefsOpen, setPrefsOpen] = useState(false);
   const [prefsPage, setPrefsPage] = useState<"ai" | undefined>(undefined);
-  const [aiOpen, setAiOpen] = useState(false);
+  // the Ask AI panel on the right: open or closed is remembered, and so is its width
+  const [aiOpen, setAiOpenState] = useState(() => localStorage.getItem("mylodb.aiOpen") === "1");
+  const setAiOpen = (open: boolean) => { localStorage.setItem("mylodb.aiOpen", open ? "1" : "0"); setAiOpenState(open); };
+  const aiSize = useSize("mylodb.aiWidth", 400, 300, () => Math.min(760, window.innerWidth - 520));
   const [paletteOpen, setPaletteOpen] = useState(false);
   /// Connections that are open on the server side. Switching between them keeps each one's session (and its saved tabs).
   const [openIds, setOpenIds] = useState<number[]>([]);
@@ -508,6 +511,8 @@ export default function App() {
     const gate = (cap: "server_tools" | "users" | "dump_restore", f: () => void) => { const c = caps?.[cap]; if (c && !c.available) setStatus(c.reason ?? "Not available for this connection"); else f(); };
     switch (id) {
       case "preferences": return setPrefsOpen(true);
+      case "ask_ai": return need(() => setAiOpen(!aiOpen));
+      case "ai_settings": return (setPrefsPage("ai"), setPrefsOpen(true));
       case "new_query": return need(() => addTab("", tab?.database ?? null));
       case "open_file": return need(() => { openSqlFile(); });
       case "save_file": return saveSqlFile(false);
@@ -1044,12 +1049,13 @@ export default function App() {
         <button title={capTitle("dump_restore", "Backup, restore, import and export")} disabled={activeId === null || capOff("dump_restore")} onClick={() => openTransfer()}><Icon name="transfer" /> Transfer</button>
         <button title={capTitle("users", "Users and privileges")} disabled={activeId === null || capOff("users")} onClick={openUsers}><Icon name="user" /> Users</button>
         <button title={capTitle("server_tools", "Server: processes, variables, status, maintenance, logs")} disabled={activeId === null || capOff("server_tools")} onClick={openServer}><Icon name="pulse" /> Server</button>
+        <button className={aiOpen ? "on" : ""} aria-pressed={aiOpen} title="Ask AI: describe a query in plain words and let a model write it" onClick={() => setAiOpen(!aiOpen)}><Icon name="sparkle" /> Ask AI</button>
         <span className="grow" />
-        <button className="theme-toggle" title={`Theme: ${themeById(theme.pref)?.label ?? theme.pref} (click to change; more themes in Preferences)`}
+        <button className="theme-toggle" title={`Theme: ${themeById(theme.pref)?.label ?? theme.pref} (click to change; more themes in Settings)`}
           onClick={() => { const order: ThemePref[] = ["system", "light", "dark"]; theme.setPref(order[(order.indexOf(theme.pref) + 1) % 3]); }}>
           <Icon name={theme.pref === "system" ? "auto" : theme.resolved === "light" ? "sun" : "moon"} />
         </button>
-        <button title="Preferences (⌘,)" aria-label="Preferences" onClick={() => setPrefsOpen(true)}><Icon name="settings" /></button>
+        <button title="Settings (⌘,)" aria-label="Settings" onClick={() => setPrefsOpen(true)}><Icon name="settings" /></button>
       </header>
       {openIds.length > 0 && (
         <div className="conn-tabs" role="tablist" aria-label="Open connections">
@@ -1220,7 +1226,6 @@ export default function App() {
                     )}
                   </div>
                   <span className="sep" />
-                  <button onClick={() => setAiOpen(true)} title="Describe a query in plain words and let an AI model write it">Ask AI</button>
                   <button onClick={() => analyse("explain")} title="Explain the selected statement, or the one at the cursor">Explain</button>
                   <button onClick={() => analyse("analyze")} disabled={caps?.explain_analyze.available === false} title={caps?.explain_analyze.available === false ? (caps.explain_analyze.reason ?? "Not available on this server") : "EXPLAIN ANALYZE: runs the SELECT and shows real timings"}>Analyze</button>
                   <button onClick={() => analyse("profile")} title="Run the SELECT and show stage timings and the work it caused">Profile</button>
@@ -1315,6 +1320,19 @@ export default function App() {
           </>
         )}
       </main>
+      {aiOpen && activeId !== null && (
+        <>
+          <Splitter axis="x" label="Resize Ask AI" onDrag={(d) => aiSize.adjust(-d)} onReset={aiSize.reset} />
+          <div className="ai-panel-wrap" style={{ width: aiSize.size }}>
+            <AiPanel connectionId={activeId} database={editorTab?.database ?? selectedDb} onClose={() => setAiOpen(false)}
+              onInsert={(sql, replace) => {
+                const t = editorTab ?? addTab("", selectedDb);
+                setActiveTab(t.id);
+                setTimeout(() => (replace ? editor.current?.replaceRunnable(sql) : editor.current?.insert(sql)), 0);
+              }} />
+          </div>
+        </>
+      )}
       </div>
       <ToastHost toasts={toasts} dismiss={dismissToast} />
       <footer className={`statusbar env-${env}`} style={{ borderTopColor: bandColor }}>
@@ -1412,11 +1430,6 @@ export default function App() {
         ]} />
       )}
       {prefsOpen && <PreferencesDialog startPage={prefsPage} initial={prefs} theme={theme.pref} onTheme={theme.setPref} onChange={(p) => { setPrefs(p); setLivePrefs(p); }} onLive={setLivePrefs} onClose={() => { setLivePrefs(prefs); setPrefsOpen(false); setPrefsPage(undefined); }} />}
-      {aiOpen && activeId !== null && editorTab && (
-        <AiDialog connectionId={activeId} database={editorTab.database ?? selectedDb} onClose={() => setAiOpen(false)}
-          onSettings={() => { setAiOpen(false); setPrefsPage("ai"); setPrefsOpen(true); }}
-          onInsert={(sql, replace) => { setActiveTab(editorTab.id); setTimeout(() => (replace ? editor.current?.replaceRunnable(sql) : editor.current?.insert(sql)), 0); }} />
-      )}
       {typeConfirm && <TypeConfirmDialog {...typeConfirm} />}
       {scriptPreview && activeId !== null && (
         <PreviewDialog title="Preview SQL" summary={scriptPreview.database ? `Runs in database ${scriptPreview.database}.` : undefined} statements={[scriptPreview.sql]} environment={env} confirmLabel="Run"

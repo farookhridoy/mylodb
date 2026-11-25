@@ -84,7 +84,7 @@ const SECTIONS: Section[] = [
         <li><b>Autocomplete</b> knows your tables, columns, aliases, functions and keywords. After <code>JOIN</code> it lists first the tables linked by a foreign key to the ones already in the query. After <code>ON</code> it offers the ready condition from the foreign key (for example <code>o.customer_id = c.id</code>).</li>
         <li><b>Tab</b> takes the highlighted suggestion and never leaves the editor (without a suggestion it indents; <K>⇧Tab</K> outdents).</li>
         <li><b>Underlines</b>: a red or yellow wavy line marks a bracket or quote that never closes, a table that is not in the database and a column that is not in its table (<code>alias.column</code>). Hover for the reason. It stays quiet when it cannot be sure.</li>
-        <li><b>Ask AI</b> (editor toolbar, or ⌘K → <i>Ask AI to write a query</i>): describe what you want in plain words and a model writes the SQL. You review it and choose <b>Insert in editor</b>; it is never run for you. Set it up once under <b>Preferences → AI assistant</b>: <b>Ollama</b> runs on your computer (free, private), and <b>Groq</b>, <b>OpenRouter</b> and <b>Gemini</b> have free tiers (they need a key from the service). Only your sentence and the <i>names</i> of tables, columns and foreign keys of the selected database are sent, never rows or values, and only after you allow it once for that service. A model can be wrong, so read the query before running it.</li>
+        <li><b>Ask AI</b> (toolbar button after <i>Server</i>, or the <i>Ask AI</i> menu): opens a chat panel on the right. Describe the query you want in plain words; the SQL comes back in a block with <b>Insert in editor</b>, <b>Replace editor text</b> and <b>Copy</b>. It is never run for you, and a model can be wrong, so read it first. Follow-ups work ("only for 2024"). Pick the model under the message box. Press the gear in the panel to connect a service: <b>Ollama</b> runs on your computer (free, private); <b>OpenRouter</b>, <b>Groq</b> and <b>Gemini</b> have free tiers; <b>Claude</b> uses an API key (billed apart from a Claude subscription). Press <b>Get a key in your browser</b>, paste the key and press <b>Connect</b>; the models the service offers (for OpenRouter, the free ones) appear in the list. With automatic switching on, a model that is too small for the question, busy or out of its free quota is replaced by the next one, and the panel says so. Only your question and the <i>names</i> of tables, columns and foreign keys of the selected database are sent, never rows or values, and only after you allow it once per service.</li>
         <li><b>Messages</b>: what an action did (done, failed, copied) pops up at the bottom right and also shows in the status bar. Move the mouse over it for a copy button, or click × to close it; errors stay longer, and it stays while the mouse is on it.</li>
         <li><K>⇧⌘F</K> formats SQL. <b>Explain</b> and the profiler show how a query ran.</li>
         <li><K>⌘K</K> opens the command palette: every action, every table, SQL snippets, and your own saved snippets (<i>Save editor text as my snippet…</i>).</li>
@@ -158,7 +158,7 @@ const SECTIONS: Section[] = [
     <>
       <ul>
         <li><b>Toggle Sidebar</b> (<K>⌘B</K>) hides or shows the object tree, to give a wide table more room. The same button sits before the Home tab.</li>
-        <li><b>Theme: System, Light, Dark</b> switch the look at once. Named colour themes are in Preferences.</li>
+        <li><b>Theme: System, Light, Dark</b> switch the look at once. Named colour themes are in Settings.</li>
         <li><b>Window</b> is the standard macOS menu: minimize, zoom, full screen, close.</li>
         <li><b>Help</b>: User Manual (this window), Quick Tour, Keyboard Shortcuts (<K>⌘/</K>), Check for Updates… and About.</li>
       </ul>
@@ -236,7 +236,7 @@ const SECTIONS: Section[] = [
     </>) },
   { id: "passwords", title: "Saved passwords", body: (
     <>
-      <p>Passwords for saved connections (database, SSH password, SSH key passphrase) are never stored in MyLoDB's own database. Where they go is your choice, under <b>Preferences → Security → Saved passwords</b>.</p>
+      <p>Passwords for saved connections (database, SSH password, SSH key passphrase) are never stored in MyLoDB's own database. Where they go is your choice, under <b>Settings → Security → Saved passwords</b>.</p>
       <ul>
         <li><b>macOS Keychain</b> (the default). Convenient. Because MyLoDB is not signed with a paid Apple certificate, macOS asks for your login password again for each saved connection after an update. Choose <b>Always Allow</b> to quiet it for that version.</li>
         <li><b>Encrypted file</b>. Choose a master password (at least 8 characters). Every saved password moves out of the Keychain into one encrypted file in MyLoDB's data folder, and the Keychain copies are removed. You type the master password once per session and there are no Keychain prompts. The file uses XChaCha20-Poly1305 with a key made from your password by Argon2id, and it never leaves your Mac.</li>
@@ -278,16 +278,16 @@ const SECTIONS: Section[] = [
       <p>The grid draws only the rows you can see, so a page of 5,000 rows draws about 30. Row counts are estimates until you press <b>Count</b>; filtered estimates can be far off, which is why the grid marks them with ≈. Keyset paging needs a primary key made of integer, text or date columns; other tables fall back to OFFSET automatically.</p>
       <p className="dim small">Single runs on one machine; the full method, the limits and what is not covered are in docs/BENCHMARKS.md in the repository.</p>
     </>) },
-  { id: "themes", title: "Preferences and themes", body: (
+  { id: "themes", title: "Settings and themes", body: (
     <>
-      <p>Open <b>Preferences</b> with <K>⌘,</K>. Changes apply as you make them; Cancel puts the old values back.</p>
+      <p>Open <b>Settings</b> with <K>⌘,</K>. Changes apply as you make them; Cancel puts the old values back.</p>
       <ul>
         <li><b>Theme</b>: System, Light, Dark, or a colour theme: Monokai, GitHub Dark and Light, Dracula, One Dark, Nord, Solarized Dark and Light, Tokyo Night. The SQL editor takes the theme's syntax colours.</li>
         <li><b>Fonts</b> for the interface, sidebar, data grid and query editor, each with its own family, size and weight.</li>
         <li><b>Syntax colours</b>: keep the theme's own, or force Multi-colour, Solarized or High contrast in the editor.</li>
         <li><b>Saved passwords</b>: keep them in the macOS Keychain or in an encrypted file behind a master password. See Saved passwords.</li>
       </ul>
-      <Shot src={shot_preferences} alt="Preferences" />
+      <Shot src={shot_preferences} alt="Settings" />
       <Shot src={shot_darkTheme} alt="The dark theme" />
     </>) },
   { id: "keys", title: "Keyboard shortcuts", body: (

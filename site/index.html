@@ -31,7 +31,7 @@
   "applicationCategory": "DeveloperApplication",
   "operatingSystem": "macOS (Apple Silicon and Intel), Windows 10 and 11",
   "description": "An open-source MySQL, MariaDB and SQLite manager for macOS.",
-  "softwareVersion": "0.8.0",
+  "softwareVersion": "0.9.0",
   "license": "https://www.apache.org/licenses/LICENSE-2.0",
   "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
   "author": { "@type": "Person", "name": "Omar Farook Hridoy", "url": "https://farookhridoy.com" },
@@ -72,7 +72,7 @@
           <a class="btn" id="dl-intel" href="https://github.com/farookhridoy/mylodb/releases/latest">Download for Intel</a>
           <a class="btn" id="dl-win" href="https://github.com/farookhridoy/mylodb/releases/latest">Download for Windows</a>
         </p>
-        <p class="fine" id="dl-meta">Version <span data-version>0.8.0</span>. Free and open source under Apache-2.0. It updates itself, and it sends no telemetry.</p>
+        <p class="fine" id="dl-meta">Version <span data-version>0.9.0</span>. Free and open source under Apache-2.0. It updates itself, and it sends no telemetry.</p>
       </div>
 
       <div class="stage" aria-label="A demonstration of the review dialog">
@@ -258,23 +258,23 @@
   <section id="download" class="download">
     <div class="wrap dl-in">
       <div class="dl-main">
-      <h2>Download MyLoDB <span data-version>0.8.0</span></h2>
+      <h2>Download MyLoDB <span data-version>0.9.0</span></h2>
       <p class="lede">Free, and open source under Apache-2.0. Not sure which Mac you have? Open the Apple menu and choose About This Mac: <i>Chip: Apple M…</i> means Apple Silicon, <i>Processor: Intel…</i> means Intel.</p>
       <div class="dl-pair">
         <a class="dl-tile" id="dl-arm-2" href="https://github.com/farookhridoy/mylodb/releases/latest">
           <b>Apple Silicon</b>
           <span>For M1 and later</span>
-          <code data-file="aarch64">MyLoDB_0.8.0_aarch64.dmg</code>
+          <code data-file="aarch64">MyLoDB_0.9.0_aarch64.dmg</code>
         </a>
         <a class="dl-tile" id="dl-intel-2" href="https://github.com/farookhridoy/mylodb/releases/latest">
           <b>Intel</b>
           <span>For Macs with an Intel processor</span>
-          <code data-file="x64">MyLoDB_0.8.0_x64.dmg</code>
+          <code data-file="x64">MyLoDB_0.9.0_x64.dmg</code>
         </a>
         <a class="dl-tile" id="dl-win-2" href="https://github.com/farookhridoy/mylodb/releases/latest">
           <b>Windows</b>
           <span>Windows 10 and 11, 64-bit</span>
-          <code data-file="win">MyLoDB_0.8.0_x64-setup.exe</code>
+          <code data-file="win">MyLoDB_0.9.0_x64-setup.exe</code>
         </a>
       </div>
       <p class="fine" id="dl-detail">Each file has a SHA-256 checksum next to it on the <a href="https://github.com/farookhridoy/mylodb/releases/latest" id="dl-rel">release page</a>.</p>
@@ -314,6 +314,10 @@
         <p class="fine">Every version, with its known limits, is in the <a href="https://github.com/farookhridoy/mylodb/blob/main/CHANGELOG.md">changelog</a>.</p>
       </div>
       <ol class="log" tabindex="0" role="region" aria-label="Release notes, scrollable">
+        <li>
+          <h3>0.9.0 <time datetime="2026-11-25">25 Nov 2026</time></h3>
+          <p>Ask AI is now a chat panel on the right, next to Server in the toolbar. Connect Ollama, OpenRouter, Groq, Gemini or Claude from its gear, pick a model from the service's own list (the free ones for OpenRouter), and let it switch to another model when one is full or busy. Preferences is now called Settings.</p>
+        </li>
         <li>
           <h3>0.8.0 <time datetime="2026-11-25">25 Nov 2026</time></h3>
           <p>Ask AI: describe a query in words and a model writes it, using a free model such as Ollama on your own computer, or the free tiers of Groq, OpenRouter and Gemini. It is off until you set it up, sends only table and column names, and never runs the result for you. Mistakes are underlined as you type, and Tab accepts a suggestion.</p>

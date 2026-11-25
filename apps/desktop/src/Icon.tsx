@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 
 /** One flat line-icon set (16 px grid, `currentColor`), used instead of emoji so both themes and all platforms look the same. */
 const PATHS: Record<string, ReactNode> = {
+  sparkle: <path d="M8 1.800 9.400 6.600 14.200 8 9.400 9.400 8 14.200 6.600 9.400 1.800 8 6.600 6.600zM13 2v2.400M11.800 3.200h2.400" />,
   server: <><rect x="2" y="2.5" width="12" height="4.2" rx="1" /><rect x="2" y="9.3" width="12" height="4.2" rx="1" /><path d="M4.6 4.6h.01M4.6 11.4h.01" /></>,
   database: <><ellipse cx="8" cy="4" rx="5" ry="2" /><path d="M3 4v8c0 1.1 2.2 2 5 2s5-.9 5-2V4M3 8c0 1.1 2.2 2 5 2s5-.9 5-2" /></>,
   table: <><rect x="2" y="3" width="12" height="10" rx="1" /><path d="M2 6.4h12M2 9.7h12M6.4 6.4V13" /></>,

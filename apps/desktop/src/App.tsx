@@ -48,6 +48,7 @@ import Splitter, { useSize } from "./Splitter";
 import { sampleQuery, type SampleKind } from "./sqlTemplates";
 import type { Pick } from "./ObjectTree";
 import type { IconName } from "./Icon";
+import { ToastHost, useToasts } from "./Toasts";
 import ResultsPane, { type RunState } from "./ResultsPane";
 import { ConfirmDialog, FavoritesPanel, HistoryPanel, SaveFavoriteDialog } from "./SidePanels";
 
@@ -96,7 +97,10 @@ export default function App() {
   const [connecting, setConnecting] = useState<string | null>(null); // name of the connection being opened (shows the centred spinner)
   const [activeId, setActiveId] = useState<number | null>(null);
   const [index, setIndex] = useState<Node[]>([]);
-  const [status, setStatus] = useState("Not connected");
+  const [status, setStatusText] = useState("Not connected");
+  // every status message is also shown as a flash message, so it is seen without looking at the status bar
+  const { toasts, push: pushToast, dismiss: dismissToast } = useToasts();
+  const setStatus = useCallback((m: string) => { setStatusText(m); pushToast(m); }, [pushToast]);
   const [query, setQuery] = useState("");
   const [matches, setMatches] = useState<Set<number> | null>(null);
   /// The database the current matches were computed for (null: the matches are database names).
@@ -1308,6 +1312,7 @@ export default function App() {
         )}
       </main>
       </div>
+      <ToastHost toasts={toasts} dismiss={dismissToast} />
       <footer className={`statusbar env-${env}`} style={{ borderTopColor: bandColor }}>
         <nav className="crumbs" aria-label="Location">
           {active ? (

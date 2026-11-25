@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.7.0 (2026-11-25)
+
+**Added**
+* **Flash messages.** The result of an action (for example *OPTIMIZE rmi_erp_db.users: Table does not support optimize, doing recreate + analyze instead; OK*) used to appear only as small text in the status bar. It now also pops up at the bottom right. Move the mouse over it for a copy button, or click × to close it. It fades after a few seconds (errors stay longer) and stays while the mouse is on it.
+* **Smarter autocomplete (phase 20, first part).** After `JOIN` the tables linked by a foreign key to the tables already in the query come first. After `ON` you get the ready condition from the foreign key, such as `o.customer_id = c.id`. MySQL and MariaDB only.
+
 ## 0.6.0 (2026-11-25)
 
 **Added**

@@ -81,6 +81,8 @@ const SECTIONS: Section[] = [
         <li><b>Preview</b> shows the statements and a risk review before anything runs. Destructive statements (DROP, TRUNCATE, DELETE or UPDATE without WHERE) always ask first.</li>
         <li><b>Cancel</b> stops a running statement. A per-connection time limit can stop long runs automatically.</li>
         <li>Results appear as tabs: Results, Profile, Messages, Table Data, Info, History. Switch to <b>text results</b> or use <b>Copy as</b> TSV, CSV, JSON, Markdown or INSERT.</li>
+        <li><b>Autocomplete</b> knows your tables, columns, aliases, functions and keywords. After <code>JOIN</code> it lists first the tables linked by a foreign key to the ones already in the query. After <code>ON</code> it offers the ready condition from the foreign key (for example <code>o.customer_id = c.id</code>).</li>
+        <li><b>Messages</b>: what an action did (done, failed, copied) pops up at the bottom right and also shows in the status bar. Move the mouse over it for a copy button, or click × to close it; errors stay longer, and it stays while the mouse is on it.</li>
         <li><K>⇧⌘F</K> formats SQL. <b>Explain</b> and the profiler show how a query ran.</li>
         <li><K>⌘K</K> opens the command palette: every action, every table, SQL snippets, and your own saved snippets (<i>Save editor text as my snippet…</i>).</li>
         <li>Open and save <code>.sql</code> files from the File menu. History and Favorites live in the sidebar tabs.</li>

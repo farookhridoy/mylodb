@@ -49,6 +49,9 @@ struct Session {
     /// positions into it, so the index may only grow through `load_columns`, which tells the UI where the new nodes start.
     completion_nodes: Vec<Node>,
     completion_loaded: std::collections::HashSet<String>,
+    /// Foreign keys per database, loaded for autocomplete's join suggestions (MySQL / MariaDB only).
+    completion_fks: Vec<myq_sql::Fk>,
+    fks_loaded: std::collections::HashSet<String>,
     safety: Safety,
     /// Only this database is shown (see `restrict_databases`).
     only_database: Option<String>,
@@ -59,7 +62,7 @@ struct Session {
 
 impl Session {
     fn new(pool: Option<Pool>, engine: Engine, index: Vec<Node>, tunnel: Option<myq_tunnel::Tunnel>, safety: Safety, only_database: Option<String>) -> Session {
-        let mut s = Session { pool, engine, index: Vec::new(), by_db: HashMap::new(), db_positions: Vec::new(), columns_loaded: Default::default(), catalog: myq_sql::Catalog::default(), completion_nodes: Vec::new(), completion_loaded: Default::default(), safety, only_database, tunnel };
+        let mut s = Session { pool, engine, index: Vec::new(), by_db: HashMap::new(), db_positions: Vec::new(), columns_loaded: Default::default(), catalog: myq_sql::Catalog::default(), completion_nodes: Vec::new(), completion_loaded: Default::default(), completion_fks: Vec::new(), fks_loaded: Default::default(), safety, only_database, tunnel };
         s.set_index(index);
         s
     }
@@ -82,6 +85,7 @@ impl Session {
         // completion-only columns of a database the UI has since loaded would be duplicates
         let all: Vec<Node> = self.index.iter().cloned().chain(self.completion_nodes.iter().filter(|n| !self.columns_loaded.contains(&n.database)).cloned()).collect();
         self.catalog = myq_sql::Catalog::from_nodes(&all);
+        self.catalog.fks = self.completion_fks.clone();
     }
 
     /// Make the columns of `db` available to autocomplete without touching the index.
@@ -1366,6 +1370,29 @@ async fn complete_sql(state: tauri::State<'_, AppState>, id: i64, sql: String, c
             }
         }
     }
+    // foreign keys of the same databases, once each, for the join suggestions; a failure only means no suggestions
+    let (pool, fk_wanted): (Option<Pool>, Vec<String>) = {
+        let sessions = state.sessions.lock().unwrap();
+        let s = sessions.get(&id).ok_or("not connected")?;
+        let mut w: Vec<String> = database.iter().cloned().collect();
+        for word in sql.split(|c: char| !(c.is_alphanumeric() || c == '_' || c == '$')) {
+            if let Some(db) = s.by_db.keys().find(|d| d.eq_ignore_ascii_case(word)) {
+                if !w.contains(db) { w.push(db.clone()); }
+            }
+        }
+        (s.pool.clone(), w.into_iter().filter(|d| s.by_db.contains_key(d) && !s.fks_loaded.contains(d)).collect())
+    };
+    if let Some(pool) = pool {
+        for db in fk_wanted {
+            let rels = myq_driver::foreign_keys(&pool, &db).await.unwrap_or_default();
+            if let Some(s) = state.sessions.lock().unwrap().get_mut(&id) {
+                if s.fks_loaded.insert(db.clone()) {
+                    s.completion_fks.extend(rels.into_iter().map(|r| myq_sql::Fk { name: r.name, db: db.clone(), table: r.table, columns: r.columns, ref_db: r.ref_schema, ref_table: r.ref_table, ref_columns: r.ref_columns }));
+                    s.rebuild_catalog();
+                }
+            }
+        }
+    }
     let sessions = state.sessions.lock().unwrap();
     let s = sessions.get(&id).ok_or("not connected")?;
     Ok(myq_sql::complete(&sql, cursor, &s.catalog, database.as_deref(), 100))
@@ -1453,7 +1480,7 @@ async fn reindex(state: &tauri::State<'_, AppState>, id: i64) -> Result<Vec<Node
     let mut sessions = state.sessions.lock().unwrap();
     if let Some(s) = sessions.get_mut(&id) {
         s.completion_nodes.clear();
-        s.completion_loaded.clear();
+        s.completion_loaded.clear(); s.fks_loaded.clear(); s.completion_fks.clear();
         s.columns_loaded = still;
         s.set_index(index.clone());
     }

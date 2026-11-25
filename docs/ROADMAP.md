@@ -1,6 +1,6 @@
 # MyLoDB roadmap: what is done, what must be done, what would be nice
 
-Status of 2026-11-23 (version 0.6.0). This is the single page for "where are we": phases, what is done, what is left, and (sections 5 to 8) the
+Status of 2026-11-23 (version 0.7.0). This is the single page for "where are we": phases, what is done, what is left, and (sections 5 to 8) the
 coverage of the SQLyog reference and the product plan. It replaces the former `PLAN_VS_CURRENT.md`. Other docs: `ANALYSIS.md` (original
 scope, stack, architecture), `BENCHMARKS.md` (Phase 10 measurements), `PHPMYADMIN_AND_ENGINES.md` (analysis behind phases 11 to 15),
 `SERVER_COMPATIBILITY.md` (MySQL / MariaDB results).
@@ -131,7 +131,7 @@ Compared with DataGrip, DBeaver, Navicat, SQLyog and Workbench, these are the ga
 | Phase | Theme | What | Status |
 |---|---|---|---|
 | 19 🟡 | **Install without a paid Apple account** | Done (no app release needed): `scripts/install.sh` one-command install (checksum, quarantine flag removed), `docs/INSTALL.md`, the install box on the website, a Homebrew cask file. Open: **19a** the tap `farookhridoy/homebrew-mylodb` exists with the 0.5.0 cask; still to test an install through it (Homebrew asks users to `brew trust` the tap); **19c** (done, unreleased) an optional encrypted password file instead of the Keychain, with a master password, so there is no prompt per build; **19b** real signing and notarisation, which needs the paid Apple Developer Program | 🟡 |
-| 20 | **Smarter SQL editor** | Autocomplete that knows the schema, aliases and joins (suggest the foreign key on `JOIN … ON`); errors underlined as you type; rename a table or column and see every use; snippets with tab stops | ❌ |
+| 20 | **Smarter SQL editor** | Autocomplete that knows the schema, aliases and joins (suggest the foreign key on `JOIN … ON`); errors underlined as you type; rename a table or column and see every use; snippets with tab stops | 🟡 0.7.0: foreign-key join suggestions on `JOIN` and `ON`. Left: errors underlined as you type, rename, tab-stop snippets, CTE columns |
 | 21 | **Explain and profile, visually** | Explain plan as a tree with costs and the slowest step marked; Performance Schema and slow-log summary pages; compare two runs of the same query | ❌ |
 | 22 | **Scheduled jobs** | Scheduled backups, exports and imports with a log and retention (keep the last N); run saved transfer configurations; reports saved to a folder | ❌ |
 | 23 | **SQLite completed** | Table designer, export from a table, cancel a running query, `VACUUM` and integrity check | ❌ |

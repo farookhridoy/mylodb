@@ -1,6 +1,6 @@
 name: Release
 
-# Pushing a tag v<version> builds MyLoDB for Apple Silicon and Intel Macs, signs the update packages, attaches the .dmg files, the update
+# Pushing a tag v<version> builds MyLoDB for Apple Silicon and Intel Macs and for 64-bit Windows, signs the update packages, attaches the .dmg files, the update
 # packages and latest.json to a GitHub release (the notes are that version's section of CHANGELOG.md), and publishes it. Installed copies
 # read latest.json (https://github.com/farookhridoy/mylodb/releases/latest/download/latest.json) and offer the update.
 #
@@ -97,9 +97,63 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  # Windows: an NSIS installer (MyLoDB_<version>_x64-setup.exe) and its signed update package. Runs after the Mac builds so the three
+  # platforms merge into latest.json one at a time. A failure here does not hold back the Mac release (the publish step checks for it).
+  build-windows:
+    name: Build · Windows
+    needs: build
+    runs-on: windows-latest
+    continue-on-error: true
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: x86_64-pc-windows-msvc
+      - run: npm ci
+        working-directory: apps/desktop
+      - uses: tauri-apps/tauri-action@v0
+        id: tauri
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: apps/desktop
+          tauriScript: npx tauri
+          args: --target x86_64-pc-windows-msvc --bundles nsis
+          tagName: ${{ env.TAG }}
+          releaseName: MyLoDB __VERSION__
+          releaseDraft: true
+          prerelease: false
+          includeUpdaterJson: true
+          updaterJsonPreferNsis: true
+      - name: Checksum of the installer
+        run: |
+          cd target/x86_64-pc-windows-msvc/release/bundle/nsis
+          for f in *-setup.exe; do
+            sha256sum "$f" > "$f.sha256"
+            gh api --method POST "https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/${{ steps.tauri.outputs.releaseId }}/assets?name=$f.sha256" -H "Content-Type: text/plain" --input "$f.sha256" > /dev/null
+          done
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   publish:
     name: Publish the release
-    needs: build
+    needs: [build, build-windows]
+    if: ${{ !cancelled() && needs.build.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - name: Check latest.json, then publish
@@ -115,6 +169,8 @@ jobs:
           want = {"darwin-aarch64", "darwin-x86_64"}
           have = set(j["platforms"])
           assert want <= have, f"latest.json lacks {want - have}"
+          if not any(k.startswith("windows-x86_64") for k in have):
+              print("::warning::latest.json has no Windows entry: the Windows build did not finish")
           assert all(p.get("signature") and p.get("url") for p in j["platforms"].values()), "a platform has no signature or url"
           assert j["version"] == os.environ["TAG"].lstrip("v"), j["version"]
           print("latest.json ok:", j["version"], sorted(have))

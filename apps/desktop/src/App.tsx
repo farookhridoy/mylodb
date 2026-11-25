@@ -1010,11 +1010,13 @@ export default function App() {
         if (e.key === "F4") openTable(selectedDb, selectedTable, undefined, "properties"); else renameTable(selectedDb, selectedTable);
         return;
       }
-      if (e.metaKey && e.key.toLowerCase() === "k") { e.preventDefault(); setPaletteOpen(true); return; }
-      if (e.metaKey && e.key === ",") { e.preventDefault(); setPrefsOpen(true); return; }
-      if (e.metaKey && e.key === "/") { e.preventDefault(); setShortcutsOpen((o) => !o); return; }
-      if (e.metaKey && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "b") { e.preventDefault(); toggleSidebar(); return; }
-      if (!e.metaKey || activeId === null) return;
+      // ⌘ on a Mac, Ctrl on Windows (the shortcuts list shows ⌘; on Windows read it as Ctrl)
+      const mod = e.metaKey || (!/Mac/i.test(navigator.platform) && e.ctrlKey);
+      if (mod && e.key.toLowerCase() === "k") { e.preventDefault(); setPaletteOpen(true); return; }
+      if (mod && e.key === ",") { e.preventDefault(); setPrefsOpen(true); return; }
+      if (mod && e.key === "/") { e.preventDefault(); setShortcutsOpen((o) => !o); return; }
+      if (mod && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "b") { e.preventDefault(); toggleSidebar(); return; }
+      if (!mod || activeId === null) return;
       if (e.shiftKey && e.key.toLowerCase() === "b") { e.preventDefault(); setSidebarOpen(true); localStorage.setItem("mylodb.sidebarOpen", "1"); setSide("objects"); const focus = () => filterInput.current?.focus(); focus(); setTimeout(focus, 0); /* the second call covers the objects tab not being mounted yet */ return; }
       if (e.key === "t") { e.preventDefault(); addTab("", tab?.database ?? null); }
       if (e.key === "w") { e.preventDefault(); if (tab) closeTab(tab.id); }

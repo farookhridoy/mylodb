@@ -9,8 +9,9 @@ section of `CHANGELOG.md`, checks `latest.json`, and publishes the release. Inst
 3. Check: `cargo test --workspace` (against a test database, see CLAUDE.md), `npm run e2e` (with `npm run dev` running and `CHROME_PATH` set), `npx tsc --noEmit`.
 4. Regenerate screenshots if the UI changed: `node scripts/screenshots.mjs`.
 5. Merge to `main` through a pull request (`main` is protected).
-6. Tag and push: `git tag -a v<version> -m "MyLoDB <version>"` and `git push origin v<version>`. Watch the **Release** workflow; the two builds run one after the other (about 20 minutes). A failed run leaves a draft release: fix the cause and run the workflow again from the Actions page with the tag.
-7. Install the published release once from the `.dmg` and, from the previous version, try **Help → Check for Updates…**.
+6. Tag and push: `git tag -a v<version> -m "MyLoDB <version>"` and `git push origin v<version>`. Watch the **Release** workflow; the two Mac builds run one after the other and the Windows build after them (about 30 minutes; if the Windows build fails the Mac release still publishes, with a warning). A failed run leaves a draft release: fix the cause and run the workflow again from the Actions page with the tag.
+7. Run `scripts/after-release.sh` (updates the Homebrew tap to the new version and checksums, then commit the changed `packaging/homebrew/mylodb.rb`). The website, README and changelog are part of the version bump itself.
+8. Install the published release once from the `.dmg` and, from the previous version, try **Help → Check for Updates…**.
 
 ## The update key
 
@@ -25,4 +26,4 @@ The app is not signed with an Apple Developer ID. Gatekeeper warns on the first 
 ## Homebrew cask and install script
 
 * `scripts/install.sh` needs no change per release: it reads the latest release and its `.sha256` file.
-* `packaging/homebrew/mylodb.rb` holds the version and both checksums. After each release, copy the two values from the `.sha256` files into it and commit it to the tap repository `farookhridoy/homebrew-mylodb` as `Casks/mylodb.rb`. (The repository has to be created once, by the owner.)
+* `scripts/after-release.sh` does this for you. `packaging/homebrew/mylodb.rb` holds the version and both checksums. After each release, copy the two values from the `.sha256` files into it and commit it to the tap repository `farookhridoy/homebrew-mylodb` as `Casks/mylodb.rb`. (The repository has to be created once, by the owner.)

@@ -15,7 +15,7 @@ for (const need of ["farookhridoy.com", "thelarasoft.com", "github.com/farookhri
 for (const f of ["styles.css", "app.js"]) if (!fs.existsSync(path.join(root, f))) problems.push(`missing ${f}`);
 // the release notes on the page must start with the version in the app, so a release cannot go out without its entry
 const appVersion = JSON.parse(fs.readFileSync(new URL("../apps/desktop/package.json", import.meta.url), "utf8")).version;
-const firstNote = html.match(/<ol class="log">\s*<li>\s*<h3>(\d+\.\d+\.\d+)/)?.[1];
+const firstNote = html.match(/<ol class="log"[^>]*>\s*<li>\s*<h3>(\d+\.\d+\.\d+)/)?.[1];
 if (firstNote !== appVersion) problems.push(`the newest release note is ${firstNote ?? "missing"} but the app is at ${appVersion}: add the ${appVersion} entry to the Release notes section of site/index.html`);
 for (const m of html.matchAll(/(?:data-version>|MyLoDB_)(\d+\.\d+\.\d+)/g)) if (m[1] !== appVersion) problems.push(`stale version ${m[1]} in site/index.html (the app is at ${appVersion})`);
 if (problems.length) { console.error("site check failed:\n- " + problems.join("\n- ")); process.exit(1); }

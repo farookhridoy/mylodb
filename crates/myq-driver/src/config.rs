@@ -50,7 +50,7 @@ pub fn valid_collation(c: &str) -> bool {
 }
 
 fn path(p: &str) -> PathBuf {
-    match (p.strip_prefix("~/"), std::env::var("HOME")) {
+    match (p.strip_prefix("~/"), std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE"))) {
         (Some(rest), Ok(home)) => PathBuf::from(home).join(rest),
         _ => PathBuf::from(p),
     }

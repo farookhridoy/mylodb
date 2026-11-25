@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.6.0 (2026-11-25)
+
+**Added**
+* **MyLoDB for Windows** (Windows 10 and 11, 64-bit). A normal installer (`MyLoDB_<version>_x64-setup.exe`) that updates itself like the Mac app. Saved passwords go in the Windows Credential Manager (or the encrypted password file). Shortcuts use Ctrl where the Mac uses ⌘. The installer is not signed with a paid certificate yet, so Windows SmartScreen may ask you to click More info, then Run anyway.
+* **Website**: a Windows download button, and the release notes are a fixed-height list that scrolls.
+* **Release routine**: `scripts/after-release.sh` brings the Homebrew tap to each new version, and CI now also builds the app on Windows.
+
+**Known limits**
+* The Windows build is new and has had less testing than the Mac one. Report problems on GitHub.
 ## 0.5.1 (2026-11-24)
 
 **Fixed**

@@ -117,7 +117,7 @@ impl Drop for Tunnel {
 }
 
 fn expand_home(path: &str) -> String {
-    match (path.strip_prefix("~/"), std::env::var("HOME")) {
+    match (path.strip_prefix("~/"), std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE"))) {
         (Some(rest), Ok(home)) => format!("{home}/{rest}"),
         _ => path.to_string(),
     }

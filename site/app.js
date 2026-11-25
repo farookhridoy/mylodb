@@ -78,9 +78,9 @@ const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").match
     if (!version) return;
     document.querySelectorAll("[data-version]").forEach((el) => { el.textContent = version; });
     const dmgs = (rel.assets || []).filter((a) => /\.dmg$/.test(a.name));
-    const pick = { aarch64: dmgs.find((a) => /aarch64/.test(a.name)), x64: dmgs.find((a) => /x64|x86_64/.test(a.name)) };
+    const pick = { aarch64: dmgs.find((a) => /aarch64/.test(a.name)), x64: dmgs.find((a) => /x64|x86_64/.test(a.name)), win: (rel.assets || []).find((a) => /setup\.exe$/.test(a.name)) };
     const mb = (a) => `${(a.size / 1048576).toFixed(1)} MB`;
-    for (const [arch, ids] of [["aarch64", ["dl-arm", "dl-arm-2"]], ["x64", ["dl-intel", "dl-intel-2"]]]) {
+    for (const [arch, ids] of [["aarch64", ["dl-arm", "dl-arm-2"]], ["x64", ["dl-intel", "dl-intel-2"]], ["win", ["dl-win", "dl-win-2"]]]) {
       const a = pick[arch];
       if (!a) continue;
       ids.forEach((id) => { const el = document.getElementById(id); if (el) el.href = a.browser_download_url; });

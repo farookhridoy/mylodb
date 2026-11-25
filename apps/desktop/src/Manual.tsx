@@ -300,6 +300,7 @@ const SECTIONS: Section[] = [
   { id: "help", title: "Troubleshooting", body: (
     <>
       <ul>
+        <li><b>Windows: "Windows protected your PC"</b> on first run: the installer is not signed with a paid certificate. Click <b>More info</b>, then <b>Run anyway</b>. Shortcuts shown with ⌘ use <b>Ctrl</b> on Windows.</li>
         <li><b>"Apple could not verify MyLoDB"</b> on first launch: the app is not signed with a paid certificate. Click <b>Done</b>, then <b>System Settings → Privacy &amp; Security → Open Anyway</b>. Or run <code>xattr -dr com.apple.quarantine /Applications/MyLoDB.app</code>.</li>
         <li><b>Cannot connect</b>: check host and port, the user's allowed host, and the SSL mode. <b>Test</b> in the connection dialog shows the exact server message.</li>
         <li><b>Only one database is listed</b>: the connection has <i>Show all databases</i> off (shared hosting). Turn it on in the connection dialog.</li>

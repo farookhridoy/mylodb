@@ -17,7 +17,8 @@ export const TOUR_STEPS: TourStep[] = [
   { selector: ".main", title: "8. Import and export", text: "File → Import Data loads CSV, TSV, JSON or JSON Lines into a table, with a preview and column mapping. File → Export Data writes any SELECT as CSV, JSON, JSON Lines, SQL INSERT, XML, HTML or Excel. Copy as… on a result gives TSV, CSV, JSON, Markdown or INSERT." },
   { selector: ".main", title: "9. Backup, compare and tune", text: "File → Backup / Restore makes a consistent SQL dump and runs one back. The Database menu has Compare Schemas, Index Advisor, Users and Privileges, Server Tools and the table designer. Search → Search Data in Database finds a value in any table." },
   { selector: ".tasks-btn", title: "10. Background jobs", text: "Exports, imports, backups and scripts run here with progress and a Cancel button, so you can keep working." },
-  { selector: ".sidebar", title: "11. You are ready", text: "Settings (⌘,) has colour themes such as Monokai, GitHub Dark and Nord. ⌘/ lists every shortcut. Help → User Manual explains each menu, and Help → Quick Tour shows this again." },
+  { selector: ".ask-ai-btn", title: "11. Ask AI to write a query", text: "Describe what you need in plain words and a model writes the SQL in a panel on the right. Connect Ollama (free, on your computer), OpenRouter, Groq or Gemini (free tiers) or Claude from the gear in the panel. Only table and column names are sent, and nothing is run for you." },
+  { selector: ".sidebar", title: "12. You are ready", text: "Settings (⌘,) has colour themes such as Monokai, GitHub Dark and Nord. ⌘/ lists every shortcut. Help → User Manual explains each menu, and Help → Quick Tour shows this again." },
 ];
 
 /** A spotlight on one control with a short explanation beside it. Steps whose control is not on screen are skipped. */

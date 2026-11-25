@@ -3,7 +3,7 @@ import Select from "./Select";
 import Icon from "./Icon";
 import {
   serverApi, type BinaryLog, type BinlogEvent, type CheckOption, type KillKind, type LogLine, type LogSettings, type Maintenance,
-  type MaintenanceRow, type Node, type Process, type ServerInfo, type SlowQuery, type Variable, type VarScope,
+  type MaintenanceRow, type Node, type Process, type ServerInfo, type SlowQuery, type TopStatement, type Variable, type VarScope,
 } from "./api";
 import { ConfirmDialog } from "./SidePanels";
 import { usePoll } from "./usePoll";
@@ -369,17 +369,18 @@ function MaintenanceTab({ id, nodes }: { id: number; nodes: Node[] }) {
 // ---------------------------------------------------------------- logs
 
 function Logs({ id }: { id: number }) {
-  const [sub, setSub] = useState<"error" | "slow" | "binary" | "settings">("error");
+  const [sub, setSub] = useState<"error" | "slow" | "top" | "binary" | "settings">("error");
   const [settings, setSettings] = useState<LogSettings | null>(null);
   const reloadSettings = useCallback(() => serverApi.logSettings(id).then(setSettings).catch(() => {}), [id]);
   useEffect(() => { reloadSettings(); }, [reloadSettings]);
   return (
     <div className="logs">
       <div className="result-tabs sub">
-        {([["error", "Error log"], ["slow", "Slow queries"], ["binary", "Binary logs"], ["settings", "Settings"]] as const).map(([t, l]) => <button key={t} className={sub === t ? "active" : ""} onClick={() => setSub(t)}>{l}</button>)}
+        {([["error", "Error log"], ["slow", "Slow queries"], ["top", "Top statements"], ["binary", "Binary logs"], ["settings", "Settings"]] as const).map(([t, l]) => <button key={t} className={sub === t ? "active" : ""} onClick={() => setSub(t)}>{l}</button>)}
       </div>
       {sub === "error" && <ErrorLog id={id} />}
       {sub === "slow" && <SlowLog id={id} />}
+      {sub === "top" && <TopStatements id={id} />}
       {sub === "binary" && <BinaryLogs id={id} />}
       {sub === "settings" && <LogSettingsView id={id} s={settings} reload={reloadSettings} />}
     </div>
@@ -425,6 +426,41 @@ function SlowLog({ id }: { id: number }) {
         <table className="grid logtable"><thead><tr><th>Started</th><th>Time</th><th>Lock</th><th>Sent</th><th>Examined</th><th>DB</th><th>User</th><th>SQL</th></tr></thead>
           <tbody>{(rows ?? []).map((r, i) => <tr key={i}><td>{r.start_time}</td><td className="num">{r.query_time}</td><td className="num">{r.lock_time}</td><td className="num">{r.rows_sent}</td><td className="num">{r.rows_examined}</td><td>{r.db}</td><td>{r.user_host}</td><td className="msg">{r.sql_text}</td></tr>)}</tbody></table>
         {rows?.length === 0 && !note && <div className="empty">No slow queries recorded</div>}
+      </div>
+    </div>
+  );
+}
+
+/** The statements that cost the server most, from the Performance Schema, grouped by their shape (literals replaced by ?). */
+function TopStatements({ id }: { id: number }) {
+  const [sort, setSort] = useState("total");
+  const [search, setSearch] = useState("");
+  const [rows, setRows] = useState<TopStatement[] | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+  const load = useCallback(async () => { try { setRows(await serverApi.topStatements(id, sort, 100, search)); setNote(null); } catch (e) { setRows([]); setNote(String(e)); } }, [id, sort, search]);
+  useEffect(() => { const t = setTimeout(load, 250); return () => clearTimeout(t); }, [load]);
+  const max = Math.max(...(rows ?? []).map((r) => r.total_ms), 0.0001);
+  const ms = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(2)} s` : `${n.toFixed(n >= 10 ? 0 : 2)} ms`);
+  return (
+    <div className="vars">
+      <div className="dg-toolbar">
+        <label>Sort by <select value={sort} onChange={(e) => setSort(e.target.value)} aria-label="Sort statements by">
+          <option value="total">Total time</option><option value="avg">Average time</option><option value="calls">Times run</option><option value="examined">Rows examined</option></select></label>
+        <input placeholder="Search SQL…" value={search} onChange={(e) => setSearch(e.target.value)} /><button onClick={load} title="Reload">⟳</button>
+      </div>
+      {note && <div className="banner">{note}</div>}
+      <div className="dg-scroll">
+        <table className="grid logtable top-statements"><thead><tr><th>Statement</th><th>Runs</th><th>Total</th><th>Average</th><th>Slowest</th><th>Examined</th><th>Sent</th><th>No index</th><th>DB</th></tr></thead>
+          <tbody>{(rows ?? []).map((r, i) => (
+            <tr key={i} className={r.no_index > 0 ? "warn" : ""}>
+              <td className="msg"><code>{r.digest_text}</code></td>
+              <td className="num">{r.calls.toLocaleString()}</td>
+              <td className="num"><div className="mini-bar"><div style={{ width: `${Math.max(2, (r.total_ms / max) * 100)}%` }} /></div>{ms(r.total_ms)}</td>
+              <td className="num">{ms(r.avg_ms)}</td><td className="num">{ms(r.max_ms)}</td>
+              <td className="num">{r.rows_examined.toLocaleString()}</td><td className="num">{r.rows_sent.toLocaleString()}</td>
+              <td className="num" title="runs that used no index">{r.no_index ? r.no_index.toLocaleString() : ""}</td><td>{r.db}</td>
+            </tr>))}</tbody></table>
+        {rows?.length === 0 && !note && <div className="empty">No statements recorded yet</div>}
       </div>
     </div>
   );

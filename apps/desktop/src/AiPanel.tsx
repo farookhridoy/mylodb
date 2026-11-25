@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { aiApi, plainError, type AiTurn } from "./api";
 import { giveConsent, hasConsent, isLocal, loadAi, toSettings } from "./aiPrefs";
 import AiSetup from "./AiSetup";
+import ChatText from "./ChatText";
 import Icon from "./Icon";
 
 interface Msg { role: "user" | "assistant" | "error"; text: string; sql?: string | null; model?: string; note?: string | null }
@@ -76,7 +77,7 @@ export default function AiPanel(props: { connectionId: number; database: string 
                 {m.role === "assistant" && (
                   <>
                     {m.note && <div className="ai-note">{m.note}</div>}
-                    {explanation(m) && <p className="ai-text">{explanation(m)}</p>}
+                    {explanation(m) && <ChatText text={explanation(m)} />}
                     {m.sql && (
                       <div className="ai-code">
                         <pre aria-label="Suggested query">{m.sql}</pre>

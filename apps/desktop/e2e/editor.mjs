@@ -113,6 +113,8 @@ assert.equal(ex.sql, "SELECT * FROM orders", "explains the statement at the curs
 assert.equal(ex.analyze, false);
 assert.equal(await page.locator(".hint.warning").count(), 1);
 assert.equal(await page.locator(".hint.good").count(), 1);
+assert.match(await page.locator(".result-tabs.sub button.active").innerText(), /Diagram/, "the diagram is shown first");
+await page.click(".result-tabs.sub button:has-text('Plan')");
 assert.match(await page.locator(".result-tabs.sub button.active").innerText(), /Plan \(1\)/);
 assert.equal(await page.locator(".analysis-body table.grid tbody tr").count(), 1);
 ok("Explain targets the statement at the cursor and lists plain-language hints");
@@ -128,6 +130,7 @@ await page.keyboard.type("SELECT 1; SELECT * FROM orders");
 for (let i = 0; i < 20; i++) await page.keyboard.press("Shift+ArrowLeft");
 await page.click("button:text-is('Analyze')");
 await page.waitForSelector(".result-tabs.sub button:text-is('Timed tree')");
+await page.click(".result-tabs.sub button:text-is('Timed tree')");
 ex = await last("explain_query");
 assert.equal(ex.analyze, true);
 assert.equal(ex.sql, "SELECT * FROM orders", "the selection (not the whole script) is what gets analysed");

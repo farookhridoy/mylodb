@@ -215,7 +215,7 @@ Object.assign(handlers, {
   ai_chat: (a) => {
     if (window.__aiFail) throw window.__aiFail;
     const sql = "SELECT c.name, SUM(o.total) AS spent\nFROM customers c\nJOIN orders o ON o.customer_id = c.id\nGROUP BY c.name\nORDER BY spent DESC\nLIMIT 10;";
-    return { text: "```sql\n" + sql + "\n```\nTop customers by spend.", sql, model: window.__aiAnswerModel || a.settings.model, note: window.__aiNote || null };
+    return { text: window.__aiText || ("```sql\n" + sql + "\n```\nTop customers by spend."), sql, model: window.__aiAnswerModel || a.settings.model, note: window.__aiNote || null };
   },
   format_sql: (a) => a.sql.trim().replace(/\b(select|from|where)\b/gi, (m) => (a.options.keyword_case === "lower" ? m.toLowerCase() : m.toUpperCase())).replace(/\s+(FROM|WHERE|from|where)\b/g, (_, k) => "\n" + k).replace(/\n/g, a.options.indent.style === "tab" ? "\n\t" : "\n  "),
   statement_at: (a) => { const parts = a.sql.split(";"); let pos = 0; for (const p of parts) { if (a.cursor <= pos + p.length) return p.trim() || null; pos += p.length + 1; } return parts.at(-1).trim() || null; },
@@ -225,7 +225,7 @@ Object.assign(handlers, {
       plan: { columns: [{ name: "id", type_name: "x", binary: false }, { name: "table", type_name: "x", binary: false }, { name: "type", type_name: "x", binary: false }, { name: "rows", type_name: "x", binary: false }],
               rows: [["1", "orders", "ALL", "50000"]], total_rows: 1, truncated: false },
       json: JSON.stringify({ query_block: { select_id: 1, cost_info: { query_cost: "5100.25" }, table: { table_name: "orders", access_type: "ALL", rows_examined_per_scan: 50000 } } }),
-      tree: a.analyze ? "-> Table scan on orders  (cost=5100 rows=50000) (actual time=0.1..12 rows=50000 loops=1)" : null,
+      tree: a.analyze ? (window.__tree ?? "-> Table scan on orders  (cost=5100 rows=50000) (actual time=0.1..12 rows=50000 loops=1)") : null,
       hints: [{ severity: "warning", message: "Full table scan on `orders` (about 50000 rows).", table: "orders" }, { severity: "good", message: "`x` is answered from the index alone (covering index).", table: "x" }],
     };
   },
@@ -246,6 +246,27 @@ let statusCalls = 0;
 Object.assign(handlers, {
   server_info: () => ({ version: "9.7.2", version_comment: "MySQL Community Server", hostname: "mac", port: 3306, datadir: "/data/", charset: "utf8mb4", collation: "utf8mb4_0900_ai_ci", sql_mode: "STRICT_TRANS_TABLES", time_zone: "SYSTEM", max_connections: 151, uptime_seconds: 93784, ssl_cipher: null }),
   process_list: () => { window.__plCalls = (window.__plCalls || 0) + 1; return { processes: JSON.parse(JSON.stringify(procs)), self_id: 99 }; },
+  sqlite_maintain: (a) => ({ integrity: "Integrity check: ok. The file is sound.", foreign_keys: "Foreign key check: no violations.", vacuum: "VACUUM done: 4.00 MB → 3.10 MB (0.90 MB freed)" }[a.op] ?? `${a.op} done.`),
+  schedules_list: () => (window.__sched ?? []).map((s) => ({ ...s, next_run: s.enabled ? "2026-11-26 03:00:00" : null, running: false })),
+  schedule_save: (a) => {
+    const j = { ...a.job };
+    if (!j.name.trim()) throw "Give the job a name.";
+    if (!j.databases.length) throw "Choose at least one database.";
+    window.__sched = window.__sched ?? [];
+    const i = window.__sched.findIndex((s) => s.id && s.id === j.id);
+    if (i >= 0) window.__sched[i] = { ...window.__sched[i], ...j }; else window.__sched.push({ ...j, id: "j" + (window.__sched.length + 1), created: "2026-11-25 09:00:00", last_run: null, log: [] });
+    return window.__sched.map((s) => ({ ...s, next_run: s.enabled ? "2026-11-26 03:00:00" : null, running: false }));
+  },
+  schedule_delete: (a) => { window.__sched = (window.__sched ?? []).filter((s) => s.id !== a.id); return window.__sched; },
+  schedule_run_now: (a) => { const s = window.__sched.find((x) => x.id === a.id); s.last_run = "2026-11-25 10:00:00"; s.log.unshift({ time: "2026-11-25 10:00:00", ok: true, message: "shop-20261125-100000.zip: 12 table(s), 3400 rows, 0.1 MB in 0.4 s; removed 1 old backup(s)" }); return s.log[0].message; },
+  top_statements: (a) => {
+    if (window.__noPerfSchema) throw "the Performance Schema statement summary is not available (performance_schema is OFF). Turn it on with performance_schema=ON in the server settings and restart the server";
+    const rows = [
+      { db: "shop", digest_text: "SELECT * FROM `orders` WHERE `customer_id` = ?", calls: 9000, total_ms: 45000, avg_ms: 5, max_ms: 120, rows_examined: 9000000, rows_sent: 9000, no_index: 9000, last_seen: "2026-11-25 10:00:00" },
+      { db: "shop", digest_text: "UPDATE `stock` SET `qty` = `qty` - ? WHERE `id` = ?", calls: 120000, total_ms: 9000, avg_ms: 0.075, max_ms: 4, rows_examined: 120000, rows_sent: 0, no_index: 0, last_seen: "2026-11-25 10:00:01" },
+    ].filter((r) => !a.search || r.digest_text.includes(a.search));
+    return a.sort === "calls" ? rows.slice().sort((x, y) => y.calls - x.calls) : rows;
+  },
   kill_process: (a) => { window.__kills = (window.__kills || []).concat([{ id: a.processId, kind: a.kind }]); if (a.kind === "connection") procs = procs.filter((p) => p.id !== a.processId); return null; },
   server_variables: (a) => a.scope === "global"
     ? [{ name: "max_connections", value: "151", source: "COMPILED" }, { name: "sort_buffer_size", value: "262144", source: "DYNAMIC" }, { name: "version", value: "9.7.2", source: "COMPILED" }]
@@ -539,8 +560,9 @@ handlers.server_catalog = () => ({
   charsets: { columns: ["Charset", "Description", "Default collation", "Maxlen"], rows: [["utf8mb4", "UTF-8 Unicode", "utf8mb4_0900_ai_ci", "4"], ["latin1", "cp1252 West European", "latin1_swedish_ci", "1"]] },
   replication: { columns: [], rows: [] }, replication_note: null,
 });
-handlers.read_text_file = () => "SELECT 'from file';";
-handlers.write_text_file = () => null;
+handlers.read_text_file = () => window.__fileText ?? "SELECT 'from file';";
+handlers.write_text_file = (a) => { window.__written = a; return null; };
+handlers.save_connection = (a) => { window.__extraConns = (window.__extraConns || []).concat([{ ...a.connection, id: 100 + (window.__extraConns || []).length }]); return 100 + window.__extraConns.length; };
 
 // ---- in-app updates: window.__update = { version, date, body } offers one; the calls and their order are in window.__updateLog ----
 window.__TAURI_INTERNALS__.unregisterCallback = () => {};

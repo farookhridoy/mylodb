@@ -328,6 +328,28 @@ export interface ProfileResult {
 
 export interface SqlDiagnostic { from: number; to: number; severity: "error" | "warning"; message: string }
 
+export const sqliteApi = {
+  maintain: (id: number, op: "integrity" | "quick" | "foreign_keys" | "vacuum" | "analyze" | "reindex" | "optimize") => invoke<string>("sqlite_maintain", { id, op }),
+};
+
+/** Scheduled backups: jobs that run while MyLoDB is open, with a log and a "keep the last N" limit. */
+export type ScheduleRule = { kind: "hours"; hours: number } | { kind: "daily"; hour: number; minute: number } | { kind: "weekly"; weekday: number; hour: number; minute: number };
+export interface ScheduleLog { time: string; ok: boolean; message: string }
+export interface Schedule {
+  id: string; name: string; connection_id: number; databases: string[]; dir: string; rule: ScheduleRule; keep: number; compress: boolean; data: boolean; enabled: boolean;
+  created: string; last_run: string | null; log: ScheduleLog[]; next_run?: string | null; running?: boolean;
+}
+export const scheduleApi = {
+  list: () => invoke<Schedule[]>("schedules_list"),
+  save: (job: Schedule) => invoke<Schedule[]>("schedule_save", { job }),
+  remove: (id: string) => invoke<Schedule[]>("schedule_delete", { id }),
+  runNow: (id: string) => invoke<string>("schedule_run_now", { id }),
+};
+export async function onScheduleDone(cb: (e: { name: string; ok: boolean; message: string }) => void): Promise<() => void> {
+  const un = await listen<{ name: string; ok: boolean; message: string }>("schedule-done", (e) => cb(e.payload));
+  return () => { un(); };
+}
+
 export const editorApi = {
   diagnose: (id: number, sql: string, database: string | null) => invoke<SqlDiagnostic[]>("diagnose_sql", { id, sql, database }),
   complete: (id: number, sql: string, cursor: number, database: string | null) =>
@@ -358,6 +380,7 @@ export interface LogSettings {
   log_error: string | null; slow_query_log_file: string | null; general_log_file: string | null; log_bin: boolean; error_log_in_table: boolean;
 }
 export interface LogLine { time: string; level: string; source: string; text: string }
+export interface TopStatement { db: string; digest_text: string; calls: number; total_ms: number; avg_ms: number; max_ms: number; rows_examined: number; rows_sent: number; no_index: number; last_seen: string }
 export interface SlowQuery { start_time: string; user_host: string; query_time: string; lock_time: string; rows_sent: number; rows_examined: number; db: string; sql_text: string }
 export interface BinaryLog { name: string; size: number }
 export interface BinlogEvent { pos: number; event_type: string; end_pos: number; info: string }
@@ -372,6 +395,7 @@ export const serverApi = {
   maintain: (id: number, db: string, tables: string[], operation: Maintenance) => invoke<MaintenanceRow[]>("maintain_tables", { id, db, tables, operation }),
   logSettings: (id: number) => invoke<LogSettings>("log_settings", { id }),
   errorLog: (id: number, limit: number, levels: string[], search: string) => invoke<LogLine[]>("error_log", { id, limit, levels, search }),
+  topStatements: (id: number, sort: string, limit: number, search: string) => invoke<TopStatement[]>("top_statements", { id, sort, limit, search }),
   slowLog: (id: number, limit: number, search: string) => invoke<SlowQuery[]>("slow_log", { id, limit, search }),
   binaryLogs: (id: number) => invoke<BinaryLog[]>("binary_logs", { id }),
   binlogEvents: (id: number, file: string, fromPos: number, limit: number) => invoke<BinlogEvent[]>("binlog_events", { id, file, fromPos, limit }),

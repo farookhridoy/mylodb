@@ -2,7 +2,7 @@ import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 import { basicSetup } from "codemirror";
 import { Compartment, EditorState, Prec } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
-import { acceptCompletion, autocompletion, type CompletionContext, type CompletionResult } from "@codemirror/autocomplete";
+import { acceptCompletion, autocompletion, hasNextSnippetField, hasPrevSnippetField, nextSnippetField, prevSnippetField, snippet, type CompletionContext, type CompletionResult } from "@codemirror/autocomplete";
 import { indentLess, indentMore } from "@codemirror/commands";
 import { linter, lintGutter, type Diagnostic } from "@codemirror/lint";
 import { editorApi, type SuggestionKind } from "./api";
@@ -19,6 +19,8 @@ export interface EditorHandle {
   /** Replace the selection (or the whole document when nothing is selected). */
   replaceRunnable(text: string): void;
   insert(text: string): void;
+  /** Insert a template whose `${1:name}` parts are tab stops: Tab goes to the next one, Esc leaves them. */
+  insertSnippet(template: string): void;
   focus(): void;
 }
 
@@ -92,8 +94,8 @@ const Editor = forwardRef<EditorHandle, {
         // highest precedence: the default keymap binds Mod-Enter to "insert blank line"
         Prec.highest(keymap.of([
           // Tab takes the highlighted suggestion; otherwise it indents. It never moves focus out of the editor.
-          { key: "Tab", run: (v) => acceptCompletion(v) || indentMore(v) },
-          { key: "Shift-Tab", run: indentLess },
+          { key: "Tab", run: (v) => acceptCompletion(v) || (hasNextSnippetField(v.state) ? nextSnippetField(v) : indentMore(v)) },
+          { key: "Shift-Tab", run: (v) => (hasPrevSnippetField(v.state) ? prevSnippetField(v) : indentLess(v)) },
           { key: "Mod-Enter", run: () => (cb.current.onRun(), true) },
           { key: "Shift-Mod-f", run: () => (cb.current.onFormat(), true) },
         ])),
@@ -148,6 +150,12 @@ const Editor = forwardRef<EditorHandle, {
     insert(text) {
       const v = view.current!;
       v.dispatch(v.state.replaceSelection(text));
+      v.focus();
+    },
+    insertSnippet(template) {
+      const v = view.current!;
+      const sel = v.state.selection.main;
+      snippet(template)({ state: v.state, dispatch: v.dispatch }, null, sel.from, sel.to);
       v.focus();
     },
     focus: () => view.current?.focus(),

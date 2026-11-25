@@ -168,6 +168,17 @@ await page.click(".logs button:text-is('Slow queries')");
 await page.waitForSelector(".banner:has-text('log_output')");
 ok("slow log explains why it is empty when the server writes it to a file");
 
+await page.click(".logs button:text-is('Top statements')");
+await page.waitForSelector(".top-statements tbody tr");
+assert.equal(await page.locator(".top-statements tbody tr").count(), 2);
+assert.match(await page.locator(".top-statements tbody tr").first().innerText(), /customer_id/);
+assert.equal(await page.locator(".top-statements tbody tr.warn").count(), 1, "a statement that used no index is flagged");
+await page.selectOption("select[aria-label='Sort statements by']", "calls");
+await page.waitForFunction(() => /UPDATE/.test(document.querySelector(".top-statements tbody tr").innerText));
+await page.fill(".vars input[placeholder='Search SQL…']", "orders");
+await page.waitForFunction(() => document.querySelectorAll(".top-statements tbody tr").length === 1);
+ok("top statements: the costliest statements from the Performance Schema, sortable and searchable, with no-index runs flagged");
+
 await page.click(".logs button:text-is('Binary logs')");
 await page.waitForSelector(".tbl-pick .dz-item");
 assert.equal(await page.locator(".tbl-pick .dz-item").count(), 2);

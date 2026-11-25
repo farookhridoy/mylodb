@@ -1,6 +1,6 @@
 # MyLoDB user manual
 
-Version 0.9.0. The same text is inside the app: **Help → User Manual**. Screenshots show the real interface running on demo data (a fake `shop` database), not a real server.
+Version 0.10.0. The same text is inside the app: **Help → User Manual**. Screenshots show the real interface running on demo data (a fake `shop` database), not a real server.
 
 ## Contents
 
@@ -55,6 +55,7 @@ Several connections can be open at once; each is a tab above the workspace. Clos
 
 Choose **Database type → SQLite file** in the connection dialog, pick the file with **Browse…** and press **Test connection**. A SQLite connection:
 
+* has **upkeep** in the database's right-click menu: check integrity, check foreign keys, compact (VACUUM), update statistics (ANALYZE), rebuild indexes. The result is a flash message; checks also work on a read-only file.
 * opens the file **writable**, unless you tick **Open read-only** (then it is opened by the read-only flag with `query_only`, and nothing can change it). Opening a file never creates one; foreign keys are enforced on a writable connection;
 * edits rows in the data grid (staged, previewed as SQLite SQL, applied in one transaction, a failed change rolls the batch back) and runs `INSERT`, `UPDATE`, `DELETE` and DDL in the editor. A table needs a primary key to be edited in the grid; views are read-only;
 * browses tables, views, triggers, columns and indexes (the primary key is shown as `PRIMARY`), runs SQL with results as NULL-aware text (BLOBs as hex), and pages, filters, sorts and counts a table in the data grid (counts are exact; `REGEXP` is not available);
@@ -90,7 +91,10 @@ Updates are signed by the project's key and refused if the signature does not ma
 
 * **⌘T** opens a script. **⌘↵** runs the selection, or the whole script if nothing is selected. `DELIMITER` is supported.
 * **Preview** shows the statements and a risk review before anything runs. **Cancel** stops the running statement. **FK checks** can be switched off for a run.
-* Autocomplete knows tables, columns, aliases, functions and keywords, and works from the in-memory object index. After `JOIN` it lists the tables linked by a foreign key first; after `ON` it offers the ready join condition from the foreign key (`o.customer_id = c.id`). Foreign keys are read once per database the first time they are needed.
+* Autocomplete knows tables, columns, aliases, functions and keywords, and the columns of a `WITH` list or `(SELECT …) alias`, and works from the in-memory object index. After `JOIN` it lists the tables linked by a foreign key first; after `ON` it offers the ready join condition from the foreign key (`o.customer_id = c.id`). Foreign keys are read once per database the first time they are needed.
+* **Explain as a diagram**: Explain and Analyze open a Diagram first, a tree of steps with rows and a cost or time bar, the slowest step marked, full scans flagged. Running the same statement again says how much faster or slower it was.
+* **Snippets with tab stops**: ⌘K → Snippet selects the first name to replace; a repeated name changes everywhere; Tab goes to the next.
+* **Toolbar**: Run keeps its name, the others are icons with the name on hover; it wraps in a narrow window.
 * **Tab** takes the highlighted suggestion and stays in the editor; without a suggestion it indents.
 * **Underlines**: a wavy line marks an unclosed bracket or quote, a table missing from the database, or a column missing from its table (`alias.column`). Hover for the reason. It stays quiet when unsure.
 * **Ask AI** (toolbar button after Server, or the Ask AI menu): a chat panel on the right. Describe a query in words; the SQL comes back with Insert in editor, Replace editor text and Copy. It is never run for you. The gear connects a service: Ollama (on your computer, free), OpenRouter, Groq and Gemini (free tiers), or Claude (API key, billed apart from a subscription). Press *Get a key in your browser*, paste the key, press *Connect*; the service's models (for OpenRouter the free ones) fill the list. With automatic switching on, a model that is too small for the question, busy or out of quota is replaced by the next one. Only your question and the names of tables, columns and foreign keys are sent (after you allow it once per service), never rows or values.
@@ -198,6 +202,8 @@ File → **Backup / Restore…** and **Import Data… / Export Data…**.
 
 * **Backup** writes one consistent snapshot as SQL (structure, data, views, routines, triggers, events), as one file or a file per table, optionally zipped. A cancelled backup removes its partial output.
 * **Restore** runs a `.sql` file, a zip or a folder, streamed from disk, and lists errors with line numbers. **Preview script** shows the counts and the first statements first.
+* **Scheduled backups** (File → Scheduled Backups…): a job backs up chosen databases every day, every week or every few hours into a folder, keeps the last N and deletes older backups of that job only (never other files). *Run now* tests it; each job has a log. Jobs run while MyLoDB is open; a missed run happens when you open it again; a failure shows as a flash message.
+* **Share connections and snippets** (File → Export / Import Connections and Snippets…): one file for a colleague. Passwords are never written. Importing skips what you already have and renames name clashes.
 * **CSV import** detects the delimiter, previews rows, handles encodings, maps columns, and can insert, skip, update or replace; all-or-nothing or continue on error. It can also create a table from the file.
 
 * **Export Data…** writes any SELECT as **CSV**, **JSON** (array of objects), **JSON Lines**, **SQL INSERT**, **XML**, **HTML table** or **Excel (XLSX)**; CSV lets you choose the text written for NULL, and gzip is optional (not for Excel). It streams from the server as a cancellable background job. **Copy as…** above a result copies TSV, CSV, JSON, a Markdown table or INSERT statements.

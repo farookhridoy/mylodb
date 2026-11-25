@@ -175,6 +175,16 @@ async fn body(pool: Pool, db: String) {
         Err(Error::Unavailable(m)) => assert!(m.contains("log_output"), "{m}"),
         Err(e) => panic!("{e}"),
     }
+    // the costliest statements: sorted as asked, capped, and an odd sort name is not passed to the server
+    match top_statements(&mut c, "total", 5, "").await {
+        Ok(rows) => {
+            assert!(rows.len() <= 5);
+            assert!(rows.windows(2).all(|w| w[0].total_ms >= w[1].total_ms), "highest total time first");
+            assert!(top_statements(&mut c, "total; DROP TABLE t", 5, "").await.is_ok(), "an unknown sort falls back to total time");
+        }
+        Err(Error::Unavailable(m)) => assert!(m.contains("Performance Schema"), "{m}"),
+        Err(e) => panic!("{e}"),
+    }
     match binary_logs(&mut c).await {
         Ok(logs) => {
             assert!(!logs.is_empty() && logs.iter().all(|l| !l.name.is_empty()));

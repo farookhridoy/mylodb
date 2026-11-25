@@ -21,7 +21,7 @@ await page.evaluate(() => {
     rows: [["1", "Ann", "say \"hi\", ok"], ["2", "O'Neil", null], ["3", "Bo|b", "line1\nline2"]], total_rows: 3, truncated: false }];
 });
 await page.click(".cm-content"); await page.keyboard.type("SELECT * FROM t");
-await page.click("button:has-text('▶ Run')");
+await page.click(".toolbar button.primary");
 await page.waitForSelector("table.grid");
 
 await page.click(".seg button:text-is('Text')");
@@ -38,7 +38,7 @@ await page.selectOption(".conn-bar select", "1"); await page.waitForSelector(".t
 await page.evaluate(() => { window.__runSets = [{ columns: [{ name: "id", type_name: "INT" }, { name: "name", type_name: "VARCHAR" }, { name: "note", type_name: "TEXT" }],
   rows: [["1", "Ann", "say \"hi\", ok"], ["2", "O'Neil", null], ["3", "Bo|b", "line1\nline2"]], total_rows: 3, truncated: false }]; });
 await page.click(".cm-content"); await page.keyboard.type("SELECT * FROM t");
-await page.click("button:has-text('▶ Run')"); await page.waitForSelector(".grid-tools");
+await page.click(".toolbar button.primary"); await page.waitForSelector(".grid-tools");
 
 await copyAs("csv");
 assert.equal(await clip(), 'id,name,note\n1,Ann,"say ""hi"", ok"\n2,O\'Neil,\n3,Bo|b,"line1\nline2"');

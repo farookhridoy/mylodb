@@ -49,6 +49,18 @@ for (const [label, reason] of [["Users", /no users or privileges/], ["Server", /
 }
 assert.equal(await page.locator("header.topbar button:has-text('New query')").isDisabled(), false);
 ok("Users, Server, Transfer and Home are disabled with the engine's reason; New query stays on");
+// upkeep: integrity check and VACUUM from the database's right-click menu, with the result as a flash message
+await page.locator(".tree .db").first().click({ button: "right" });
+await page.waitForSelector(".ctx");
+assert.ok((await page.locator(".ctx .ctx-label").allInnerTexts()).some((t) => /Compact the file \(VACUUM\)/.test(t)));
+await page.click(".ctx .ctx-label:text-is('Check integrity')");
+await page.waitForSelector(".toast:has-text('Integrity check: ok')");
+assert.equal((await page.evaluate(() => window.__calls.filter((c) => c.cmd === "sqlite_maintain").map((c) => c.args.op))).at(-1), "integrity");
+await page.locator(".tree .db").first().click({ button: "right" });
+await page.click(".ctx .ctx-label:text-is('Compact the file (VACUUM)')");
+await page.waitForSelector(".toast:has-text('VACUUM done')");
+ok("a SQLite file can be checked and compacted from the database menu, and the result is announced");
+
 assert.deepEqual(errors, []);
 await browser.close();
 console.log("ALL SQLITE UI CHECKS PASSED");

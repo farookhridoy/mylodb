@@ -219,3 +219,31 @@ fn opening_for_writing_never_creates_a_file() {
     assert!(SqliteBackend::open_writable(dir.join("missing.db")).is_err());
     assert!(!dir.join("missing.db").exists());
 }
+
+/// The upkeep the app offers (checks, VACUUM, ANALYZE) runs through `Backend::run`, and the answers have the shape the app reads.
+#[tokio::test]
+async fn upkeep_statements_answer_in_the_shape_the_app_reads() {
+    let path = fixture("upkeep");
+    let b = SqliteBackend::open_writable(path.clone()).unwrap();
+    let first = |r: Vec<myq_core::StatementResult>| r[0].sets.first().map(|s| s.rows.iter().map(|r| r[0].clone().unwrap_or_default()).collect::<Vec<_>>()).unwrap_or_default();
+    assert_eq!(first(b.run(None, "PRAGMA integrity_check").await.unwrap()), vec!["ok"]);
+    assert_eq!(first(b.run(None, "PRAGMA quick_check").await.unwrap()), vec!["ok"]);
+    assert!(first(b.run(None, "PRAGMA foreign_key_check").await.unwrap()).is_empty(), "no violations in the fixture");
+    // a row that points at a missing parent is reported
+    let c = Connection::open(&path).unwrap();
+    c.execute_batch("PRAGMA foreign_keys=OFF; INSERT INTO orders VALUES (9, 77, 1.0, 'x');").unwrap();
+    drop(c);
+    assert_eq!(first(b.run(None, "PRAGMA foreign_key_check").await.unwrap()), vec!["orders"]);
+    // page_count and page_size are numbers, so the size before and after VACUUM can be told
+    let pages: u64 = first(b.run(None, "PRAGMA page_count").await.unwrap())[0].parse().unwrap();
+    let size: u64 = first(b.run(None, "PRAGMA page_size").await.unwrap())[0].parse().unwrap();
+    assert!(pages > 0 && size >= 512);
+    for sql in ["ANALYZE", "REINDEX", "PRAGMA optimize", "VACUUM"] {
+        let r = b.run(None, sql).await.unwrap();
+        assert!(r[0].error.is_none(), "{sql}: {:?}", r[0].error);
+    }
+    // a read-only connection cannot be changed by the same statements
+    let ro = SqliteBackend::open(path.clone()).unwrap();
+    assert!(!ro.writable());
+    let _ = std::fs::remove_dir_all(path.parent().unwrap());
+}

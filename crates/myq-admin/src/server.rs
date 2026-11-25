@@ -346,6 +346,47 @@ pub async fn slow_log(conn: &mut Conn, limit: u32, search: &str) -> Result<Vec<S
     Ok(rows.into_iter().map(|(start_time, user_host, query_time, lock_time, rows_sent, rows_examined, db, sql_text)| SlowQuery { start_time, user_host, query_time, lock_time, rows_sent, rows_examined, db, sql_text }).collect())
 }
 
+/// One normalised statement from the Performance Schema, with how often it ran and how long it took in total.
+#[derive(Debug, Clone, Serialize)]
+pub struct TopStatement {
+    pub db: String,
+    /// The statement with its literals replaced by `?`.
+    pub digest_text: String,
+    pub calls: u64,
+    pub total_ms: f64,
+    pub avg_ms: f64,
+    pub max_ms: f64,
+    pub rows_examined: u64,
+    pub rows_sent: u64,
+    /// How many runs used no index.
+    pub no_index: u64,
+    pub last_seen: String,
+}
+
+/// The statements that cost the most, from `performance_schema.events_statements_summary_by_digest`. `sort` is `total`, `avg`,
+/// `calls` or `examined`. Fails with a plain message when the Performance Schema is off.
+pub async fn top_statements(conn: &mut Conn, sort: &str, limit: u32, search: &str) -> Result<Vec<TopStatement>> {
+    let order = match sort { "avg" => "AVG_TIMER_WAIT", "calls" => "COUNT_STAR", "examined" => "SUM_ROWS_EXAMINED", _ => "SUM_TIMER_WAIT" };
+    let mut sql = format!(
+        "SELECT COALESCE(SCHEMA_NAME,''), COALESCE(DIGEST_TEXT,''), CAST(COUNT_STAR AS CHAR), CAST(SUM_TIMER_WAIT/1000000000 AS CHAR), CAST(AVG_TIMER_WAIT/1000000000 AS CHAR), CAST(MAX_TIMER_WAIT/1000000000 AS CHAR), \
+         CAST(SUM_ROWS_EXAMINED AS CHAR), CAST(SUM_ROWS_SENT AS CHAR), CAST(SUM_NO_INDEX_USED AS CHAR), COALESCE(CAST(LAST_SEEN AS CHAR),'') \
+         FROM performance_schema.events_statements_summary_by_digest WHERE DIGEST_TEXT IS NOT NULL"
+    );
+    let mut params: Vec<Value> = Vec::new();
+    if !search.is_empty() {
+        sql.push_str(" AND DIGEST_TEXT LIKE ?");
+        params.push(Value::Bytes(like(search).into_bytes()));
+    }
+    sql.push_str(&format!(" ORDER BY {order} DESC LIMIT {}", limit.clamp(1, 500)));
+    let rows: Vec<(String, String, String, String, String, String, String, String, String, String)> = conn
+        .exec(sql, params)
+        .await
+        .map_err(|e| unavailable(&format!("the Performance Schema statement summary is not available ({e}). Turn it on with performance_schema=ON in the server settings and restart the server")))?;
+    let n = |s: &str| s.parse::<u64>().unwrap_or(0);
+    let f = |s: &str| (s.parse::<f64>().unwrap_or(0.0) * 100.0).round() / 100.0;
+    Ok(rows.into_iter().map(|(db, digest_text, calls, total, avg, max, ex, sent, noidx, last)| TopStatement { db, digest_text, calls: n(&calls), total_ms: f(&total), avg_ms: f(&avg), max_ms: f(&max), rows_examined: n(&ex), rows_sent: n(&sent), no_index: n(&noidx), last_seen: last }).collect())
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct BinaryLog {
     pub name: String,

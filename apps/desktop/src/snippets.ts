@@ -1,3 +1,21 @@
+/**
+ * The names a snippet asks the user to replace, in the order Tab visits them. Each distinct name becomes one tab stop, and every other
+ * use of the same name is filled in as you type (`table_name` in a JOIN and in its WHERE change together).
+ */
+const STOPS = ["table_name", "table_a", "table_b", "column_name", "column_a", "column_b", "idx_name"];
+
+/** A snippet as an editor template: `table_name` becomes `${1:table_name}` the first time and `${1}` after that. */
+export function withTabStops(sql: string): string {
+  const number = new Map<string, number>();
+  return sql.replace(new RegExp(`\\b(${STOPS.join("|")})\\b`, "g"), (word) => {
+    const known = number.get(word);
+    if (known !== undefined) return `\${${known}}`;
+    const n = number.size + 1;
+    number.set(word, n);
+    return `\${${n}:${word}}`;
+  }).replace(/\n$/, "\n\${0}");
+}
+
 /** Starting points for common statements, inserted into the editor from the command palette ("Snippet: …"). */
 export const SNIPPETS: { label: string; sql: string }[] = [
   { label: "SELECT with filter and order", sql: "SELECT *\nFROM table_name\nWHERE column_name = 'value'\nORDER BY id DESC\nLIMIT 100;\n" },

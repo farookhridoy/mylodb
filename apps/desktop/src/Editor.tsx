@@ -21,7 +21,7 @@ export interface EditorHandle {
 }
 
 const TYPE: Record<SuggestionKind, string> = {
-  column: "property", table: "class", view: "interface", database: "namespace", alias: "variable", function: "function", keyword: "keyword",
+  column: "property", table: "class", view: "interface", database: "namespace", alias: "variable", function: "function", keyword: "keyword", join: "constant", related: "class",
 };
 
 /**

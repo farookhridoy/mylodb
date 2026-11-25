@@ -18,11 +18,25 @@ pub struct TableInfo {
     pub columns: Vec<String>,
 }
 
+/// A foreign key: `db.table(columns)` points at `ref_db.ref_table(ref_columns)`.
+#[derive(Debug, Clone)]
+pub struct Fk {
+    pub name: String,
+    pub db: String,
+    pub table: String,
+    pub columns: Vec<String>,
+    pub ref_db: String,
+    pub ref_table: String,
+    pub ref_columns: Vec<String>,
+}
+
 /// Databases, their tables/views and each table's columns.
 #[derive(Debug, Clone, Default)]
 pub struct Catalog {
     pub databases: Vec<String>,
     pub tables: HashMap<String, Vec<TableInfo>>,
+    /// Foreign keys of the databases that were loaded; they drive the join suggestions.
+    pub fks: Vec<Fk>,
 }
 
 impl Catalog {
@@ -97,6 +111,10 @@ pub enum SuggestionKind {
     Alias,
     Function,
     Keyword,
+    /// A ready join condition built from a foreign key (`o.customer_id = c.id`).
+    Join,
+    /// A table linked by a foreign key to a table already in the statement.
+    Related,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -466,11 +484,12 @@ impl Builder {
 
 fn kind_weight(k: SuggestionKind) -> u8 {
     match k {
-        SuggestionKind::Column => 0,
-        SuggestionKind::Alias | SuggestionKind::Table | SuggestionKind::View => 1,
-        SuggestionKind::Database => 2,
-        SuggestionKind::Function => 3,
-        SuggestionKind::Keyword => 4,
+        SuggestionKind::Join | SuggestionKind::Related => 0,
+        SuggestionKind::Column => 1,
+        SuggestionKind::Alias | SuggestionKind::Table | SuggestionKind::View => 2,
+        SuggestionKind::Database => 3,
+        SuggestionKind::Function => 4,
+        SuggestionKind::Keyword => 5,
     }
 }
 
@@ -523,6 +542,68 @@ fn column_items(t: &TableInfo, owner: &str, force_quote: bool, qualifier: Option
 }
 
 /// Complete at `cursor_utf16` of `sql`. `current_db` resolves unqualified table names.
+/// The table a `JOIN … ON` condition is being written for: the reference just before the last `ON` of this clause
+/// (`AND` / `OR` continue the same condition). `None` when the cursor is not in an ON condition.
+fn on_target<'a>(toks: &[Tok], refs: &'a [TableRef]) -> Option<&'a TableRef> {
+    let mut depth = 0i32;
+    for i in (0..toks.len()).rev() {
+        let t = &toks[i];
+        if is_punct(t, ")") { depth += 1; continue; }
+        if is_punct(t, "(") { if depth == 0 { return None; } depth -= 1; continue; }
+        if depth > 0 { continue; }
+        if is_kw(t, "ON") {
+            let name = toks.get(i.checked_sub(1)?)?;
+            if !is_ident(name) { return None; }
+            let n = name.text.trim_matches('`');
+            return refs.iter().find(|r| r.alias.as_deref().is_some_and(|a| a.eq_ignore_ascii_case(n)) || (r.alias.is_none() && r.table.eq_ignore_ascii_case(n)));
+        }
+        if ["WHERE", "SELECT", "GROUP", "ORDER", "HAVING", "LIMIT", "FROM", "JOIN", "SET", "UNION"].iter().any(|k| is_kw(t, k)) { return None; }
+    }
+    None
+}
+
+/// Join conditions from the foreign keys between `new` and each other table of the statement.
+fn join_conditions(cat: &Catalog, new: &TableRef, refs: &[TableRef], current_db: Option<&str>) -> Vec<Suggestion> {
+    let eq = |a: &str, b: &str| a.eq_ignore_ascii_case(b);
+    let Some((ndb, nt)) = cat.find_table(new.db.as_deref(), &new.table, current_db) else { return vec![] };
+    let owner = |r: &TableRef| r.alias.clone().unwrap_or_else(|| r.table.clone());
+    let mut out = Vec::new();
+    for other in refs.iter().filter(|r| !std::ptr::eq(*r, new)) {
+        let Some((odb, ot)) = cat.find_table(other.db.as_deref(), &other.table, current_db) else { continue };
+        for fk in &cat.fks {
+            // the new table holds the key, or the other one does
+            let (new_cols, other_cols) = if eq(&fk.db, ndb) && eq(&fk.table, &nt.name) && eq(&fk.ref_db, odb) && eq(&fk.ref_table, &ot.name) {
+                (&fk.columns, &fk.ref_columns)
+            } else if eq(&fk.db, odb) && eq(&fk.table, &ot.name) && eq(&fk.ref_db, ndb) && eq(&fk.ref_table, &nt.name) {
+                (&fk.ref_columns, &fk.columns)
+            } else {
+                continue;
+            };
+            let (no, oo) = (ident(&owner(new), false), ident(&owner(other), false));
+            let text = new_cols.iter().zip(other_cols).map(|(a, b)| format!("{no}.{} = {oo}.{}", ident(a, false), ident(b, false))).collect::<Vec<_>>().join(" AND ");
+            out.push(Suggestion { label: text.clone(), kind: SuggestionKind::Join, detail: Some(format!("foreign key {}", fk.name)), insert: text });
+        }
+    }
+    out
+}
+
+/// Tables linked by a foreign key to a table already in the statement, for the table name after `JOIN`.
+fn related_tables(cat: &Catalog, refs: &[TableRef], current_db: Option<&str>, force_quote: bool) -> Vec<Suggestion> {
+    let eq = |a: &str, b: &str| a.eq_ignore_ascii_case(b);
+    let mut out: Vec<Suggestion> = Vec::new();
+    for r in refs {
+        let Some((db, t)) = cat.find_table(r.db.as_deref(), &r.table, current_db) else { continue };
+        for fk in &cat.fks {
+            let (rdb, rt) = if eq(&fk.db, db) && eq(&fk.table, &t.name) { (&fk.ref_db, &fk.ref_table) } else if eq(&fk.ref_db, db) && eq(&fk.ref_table, &t.name) { (&fk.db, &fk.table) } else { continue };
+            if refs.iter().any(|x| eq(&x.table, rt)) || out.iter().any(|s| eq(&s.label, rt)) { continue; }
+            let qualified = !current_db.is_some_and(|d| eq(d, rdb));
+            let insert = if qualified { format!("{}.{}", ident(rdb, false), ident(rt, force_quote)) } else { ident(rt, force_quote) };
+            out.push(Suggestion { label: rt.clone(), kind: SuggestionKind::Related, detail: Some(format!("linked to {}", r.table)), insert });
+        }
+    }
+    out
+}
+
 pub fn complete(sql: &str, cursor_utf16: usize, cat: &Catalog, current_db: Option<&str>, limit: usize) -> Completions {
     let cursor = utf16_to_byte(sql, cursor_utf16);
     let empty = |at: usize| Completions { from: byte_to_utf16(sql, at), to: byte_to_utf16(sql, at), items: vec![] };
@@ -628,8 +709,13 @@ pub fn complete(sql: &str, cursor_utf16: usize, cat: &Catalog, current_db: Optio
             }
         }
         Ctx::Tables => {
+            // after JOIN: the tables linked to the ones already in the statement come first
+            if toks.last().is_some_and(|t| is_kw(t, "JOIN")) {
+                b.items.extend(related_tables(cat, &refs, current_db, quoted_prefix));
+            }
             if let Some(db) = current_db {
-                b.items.extend(table_items(cat, db, quoted_prefix));
+                let related: Vec<String> = b.items.iter().map(|s| s.label.to_lowercase()).collect();
+                b.items.extend(table_items(cat, db, quoted_prefix).into_iter().filter(|s| !related.contains(&s.label.to_lowercase())));
             }
             for d in &cat.databases {
                 b.add(d, SuggestionKind::Database, None, ident(d, quoted_prefix));
@@ -651,6 +737,10 @@ pub fn complete(sql: &str, cursor_utf16: usize, cat: &Catalog, current_db: Optio
             b.items.extend(keyword_items(list));
         }
         Ctx::Operand => {
+            // `JOIN t ON |`: the conditions the foreign keys suggest, then the usual columns
+            if let Some(new) = on_target(&toks, &refs) {
+                b.items.extend(join_conditions(cat, new, &refs, current_db));
+            }
             let resolved: Vec<(&TableRef, Option<&TableInfo>)> = refs.iter().map(|r| (r, resolve(r).map(|x| x.1))).collect();
             let known: Vec<&(&TableRef, Option<&TableInfo>)> = resolved.iter().filter(|(_, t)| t.is_some()).collect();
             // a column name that exists in several referenced tables is inserted qualified
@@ -734,6 +824,39 @@ mod tests {
     }
     fn has(v: &[String], s: &str) -> bool {
         v.iter().any(|x| x == s)
+    }
+
+    fn catalog_fk() -> Catalog {
+        let mut c = catalog();
+        let fk = |name: &str, t: &str, col: &str, rt: &str, rc: &str| Fk { name: name.into(), db: "shop".into(), table: t.into(), columns: vec![col.into()], ref_db: "shop".into(), ref_table: rt.into(), ref_columns: vec![rc.into()] };
+        c.fks = vec![fk("fk_orders_customer", "orders", "customer_id", "customers", "id")];
+        c
+    }
+    fn fk_labels(sql: &str) -> Vec<String> {
+        let cursor = sql.find('|').expect("marker");
+        let text = sql.replacen('|', "", 1);
+        complete(&text, text[..cursor].encode_utf16().count(), &catalog_fk(), Some("shop"), 200).items.into_iter().map(|i| i.label).collect()
+    }
+
+    #[test]
+    fn join_on_suggests_the_foreign_key_condition() {
+        let l = fk_labels("SELECT * FROM orders o JOIN customers c ON |");
+        assert_eq!(l[0], "c.id = o.customer_id", "{l:?}");
+        // the key can be on either side, and the condition can be extended with AND
+        let l = fk_labels("SELECT * FROM customers c JOIN orders o ON c.id = o.customer_id AND |");
+        assert_eq!(l[0], "o.customer_id = c.id", "{l:?}");
+        // no suggestion in a WHERE, and none without a key between the tables
+        assert!(!fk_labels("SELECT * FROM orders o JOIN customers c ON c.id = o.customer_id WHERE |").iter().any(|x| x.contains(" = ")));
+        assert!(!fk_labels("SELECT * FROM orders o JOIN v_orders v ON |").iter().any(|x| x.contains(" = ")));
+    }
+
+    #[test]
+    fn join_offers_linked_tables_first() {
+        let l = fk_labels("SELECT * FROM orders o JOIN |");
+        assert_eq!(l[0], "customers", "{l:?}");
+        assert_eq!(l.iter().filter(|x| *x == "customers").count(), 1, "not listed twice");
+        // a table with no key to the others (a view) links nothing: the plain alphabetical list
+        assert_eq!(fk_labels("SELECT * FROM v_orders v JOIN |")[0], "customers");
     }
 
     #[test]

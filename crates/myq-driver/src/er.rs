@@ -38,6 +38,29 @@ pub struct ErModel {
     pub relations: Vec<ErRelation>,
 }
 
+/// Only the foreign keys of one database (what autocomplete needs for join suggestions); the rules are left empty.
+pub async fn foreign_keys(pool: &Pool, db: &str) -> Result<Vec<ErRelation>> {
+    let mut conn = pool.get_conn().await?;
+    let usage: Vec<(String, String, String, String, String, String)> = conn
+        .exec(
+            "SELECT TABLE_NAME, CONSTRAINT_NAME, COLUMN_NAME, REFERENCED_TABLE_SCHEMA, REFERENCED_TABLE_NAME, REFERENCED_COLUMN_NAME FROM information_schema.KEY_COLUMN_USAGE
+             WHERE TABLE_SCHEMA = ? AND REFERENCED_TABLE_NAME IS NOT NULL ORDER BY TABLE_NAME, CONSTRAINT_NAME, ORDINAL_POSITION",
+            (db,),
+        )
+        .await?;
+    let mut relations: Vec<ErRelation> = Vec::new();
+    for (table, name, col, ref_schema, ref_table, ref_col) in usage {
+        match relations.iter_mut().find(|r| r.table == table && r.name == name) {
+            Some(r) => {
+                r.columns.push(col);
+                r.ref_columns.push(ref_col);
+            }
+            None => relations.push(ErRelation { name, table, columns: vec![col], ref_schema, ref_table, ref_columns: vec![ref_col], on_delete: String::new(), on_update: String::new() }),
+        }
+    }
+    Ok(relations)
+}
+
 pub async fn er_model(pool: &Pool, db: &str) -> Result<ErModel> {
     let mut conn = pool.get_conn().await?;
     let cols: Vec<(String, String, String, String, String)> = conn

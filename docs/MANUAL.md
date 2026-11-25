@@ -1,6 +1,6 @@
 # MyLoDB user manual
 
-Version 0.6.0. The same text is inside the app: **Help → User Manual**. Screenshots show the real interface running on demo data (a fake `shop` database), not a real server.
+Version 0.7.0. The same text is inside the app: **Help → User Manual**. Screenshots show the real interface running on demo data (a fake `shop` database), not a real server.
 
 ## Contents
 
@@ -90,7 +90,8 @@ Updates are signed by the project's key and refused if the signature does not ma
 
 * **⌘T** opens a script. **⌘↵** runs the selection, or the whole script if nothing is selected. `DELIMITER` is supported.
 * **Preview** shows the statements and a risk review before anything runs. **Cancel** stops the running statement. **FK checks** can be switched off for a run.
-* Autocomplete knows tables, columns, aliases, functions and keywords, and works from the in-memory object index, so it needs no server round trip. **⇧⌘F** formats. **Explain**, **Analyze** and **Profile** show how a query ran.
+* Autocomplete knows tables, columns, aliases, functions and keywords, and works from the in-memory object index. After `JOIN` it lists the tables linked by a foreign key first; after `ON` it offers the ready join condition from the foreign key (`o.customer_id = c.id`). Foreign keys are read once per database the first time they are needed.
+* Messages: what an action did (done, failed, copied) pops up at the bottom right as well as in the status bar. Hover for a copy button; click × to close. Errors stay longer. **⇧⌘F** formats. **Explain**, **Analyze** and **Profile** show how a query ran.
 * Result tabs: **Results**, **Profile**, **Messages**, **Table Data**, **Info**, **History**. Switch to **Text** for a mysql-client style output, or **Copy as** TSV, CSV, JSON, Markdown or INSERT.
 * **History** and **Favorites** (with folders) are tabs in the sidebar. File → **Open SQL File…** and **Save** work with `.sql` files.
 

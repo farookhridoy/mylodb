@@ -276,7 +276,7 @@ export const userApi = {
 };
 
 // ---- editor intelligence ----
-export type SuggestionKind = "column" | "table" | "view" | "database" | "alias" | "function" | "keyword";
+export type SuggestionKind = "column" | "table" | "view" | "database" | "alias" | "function" | "keyword" | "join" | "related";
 export interface Suggestion { label: string; kind: SuggestionKind; detail: string | null; insert: string }
 export interface Completions { from: number; to: number; items: Suggestion[] }
 export interface FormatOptions {

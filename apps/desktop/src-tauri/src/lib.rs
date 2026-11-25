@@ -1,6 +1,7 @@
 //! Thin Tauri bridge. All logic lives in the `myq-*` crates; this only exposes it as commands.
 
 mod ai;
+mod audit;
 mod schedule;
 mod engine;
 use engine::Engine;
@@ -123,8 +124,25 @@ struct AppState {
     sqlite_runs: Mutex<HashMap<String, std::sync::Arc<myq_sqlite::CancelToken>>>,
     /// Scheduled backups (kept in `schedules.json`), and the ones running right now.
     schedules: Mutex<Vec<schedule::Schedule>>,
+    /// The audit log of changes (off until the user turns it on).
+    audit: audit::Audit,
     schedule_file: std::path::PathBuf,
     schedule_running: Mutex<std::collections::HashSet<String>>,
+}
+
+impl AppState {
+    /// Note a statement in the history and, when the audit log is on, in the audit log if it changed something.
+    fn record(&self, id: i64, sql: &str, ms: u64, ok: bool) -> myq_store::Result<()> {
+        let result = self.store.lock().unwrap().add_history(id, sql, ms, ok);
+        if self.audit.enabled() && audit::should_log(sql) {
+            let (connection, who, database) = match self.store.lock().unwrap().connection(id) {
+                Ok(Some(c)) => (c.name.clone(), if c.engine == myq_store::EngineKind::Sqlite { c.file.clone().unwrap_or_default() } else { format!("{}@{}", c.config.user, c.config.host) }, c.config.database.clone()),
+                _ => (format!("#{id}"), String::new(), None),
+            };
+            self.audit.record(audit::Entry { time: schedule::format_time(now_local()), connection, who, database, ok, ms, sql: sql.to_string() });
+        }
+        result
+    }
 }
 
 fn err(e: impl std::fmt::Display) -> String {
@@ -585,7 +603,7 @@ async fn drop_object(state: tauri::State<'_, AppState>, id: i64, kind: Kind, db:
     let sql = myq_schema::ddl::drop_object_sql(kind, &db, &name).ok_or_else(|| format!("{kind:?} cannot be dropped here"))?;
     let mut c = conn_for(&state, id).await?;
     let result = myq_admin::run_statements(&mut c, std::slice::from_ref(&sql)).await;
-    let _ = state.store.lock().unwrap().add_history(id, &sql, 0, result.is_ok());
+    let _ = state.record(id, &sql, 0, result.is_ok());
     result.map_err(err)?;
     reindex(&state, id).await?;
     Ok(sql)
@@ -619,7 +637,7 @@ async fn run_query(
         state.sqlite_runs.lock().unwrap().remove(&run_id);
         let results = results?;
         let ok = results.iter().all(|r| r.error.is_none());
-        let _ = state.store.lock().unwrap().add_history(id, sql.trim(), started.elapsed().as_millis() as u64, ok);
+        let _ = state.record(id, sql.trim(), started.elapsed().as_millis() as u64, ok);
         return Ok(results);
     }
     let pool = session_pool(&state, id)?;
@@ -638,7 +656,7 @@ async fn run_query(
     }
     let ok = results.iter().all(|r| r.error.is_none());
     // History is best-effort: a logging failure must not hide the query result.
-    let _ = state.store.lock().unwrap().add_history(id, sql.trim(), started.elapsed().as_millis() as u64, ok);
+    let _ = state.record(id, sql.trim(), started.elapsed().as_millis() as u64, ok);
     Ok(results)
 }
 
@@ -809,7 +827,7 @@ async fn apply_changes(state: tauri::State<'_, AppState>, id: i64, db: String, t
             Ok((myq_sqlite::preview_changes(&meta, &changes).unwrap_or_default(), outcome))
         })
         .await?;
-        let _ = state.store.lock().unwrap().add_history(id, &sqls.join(";\n"), 0, true);
+        let _ = state.record(id, &sqls.join(";\n"), 0, true);
         return Ok(outcome);
     }
     let mut c = conn_for(&state, id).await?;
@@ -817,7 +835,7 @@ async fn apply_changes(state: tauri::State<'_, AppState>, id: i64, db: String, t
     let outcome = myq_data::apply_changes(&mut c, &meta, &changes).await.map_err(err)?;
     // Edits are part of the audit trail: log what ran, best-effort.
     if let Ok(sqls) = myq_data::preview_changes(&meta, &changes) {
-        let _ = state.store.lock().unwrap().add_history(id, &sqls.join(";\n"), 0, true);
+        let _ = state.record(id, &sqls.join(";\n"), 0, true);
     }
     Ok(outcome)
 }
@@ -1126,7 +1144,7 @@ async fn run_plan(state: tauri::State<'_, AppState>, id: i64, statements: Vec<St
     let (results, _) = myq_driver::execute_script_with_timeout(&pool, &mut conn, None, &sql, safety.timeout_secs).await;
     myq_driver::restore_foreign_key_checks(&mut conn).await;
     let ok = results.iter().all(|r| r.error.is_none());
-    let _ = state.store.lock().unwrap().add_history(id, sql.trim(), started.elapsed().as_millis() as u64, ok);
+    let _ = state.record(id, sql.trim(), started.elapsed().as_millis() as u64, ok);
     let _ = reindex(&state, id).await;
     Ok(results)
 }
@@ -1257,7 +1275,7 @@ async fn csv_create_table(state: tauri::State<'_, AppState>, id: i64, db: String
     let sql = create_table_sql(Some(&db), &def).map_err(err)?;
     let mut c = conn_for(&state, id).await?;
     myq_admin::run_statements(&mut c, std::slice::from_ref(&sql)).await.map_err(err)?;
-    let _ = state.store.lock().unwrap().add_history(id, &sql, 0, true);
+    let _ = state.record(id, &sql, 0, true);
     reindex(&state, id).await
 }
 
@@ -1276,7 +1294,7 @@ async fn import_csv_job(
     let guard = JobGuard::start(&state, &job_id);
     let mut progress = job_progress(app, job_id);
     let result = myq_transfer::import_csv(&mut c, std::path::Path::new(&path), &format, &plan, &mut progress, &guard.flag).await;
-    let _ = state.store.lock().unwrap().add_history(id, &format!("IMPORT CSV {path} INTO {}.{}", plan.database, plan.table), 0, result.is_ok());
+    let _ = state.record(id, &format!("IMPORT CSV {path} INTO {}.{}", plan.database, plan.table), 0, result.is_ok());
     result.map_err(err)
 }
 
@@ -1306,7 +1324,7 @@ async fn run_sql_source_job(
         let mut progress = job_progress(app, job_id);
         myq_transfer::run_source(&mut c, std::path::Path::new(&path), &options, &mut progress, &guard.flag).await
     };
-    let _ = state.store.lock().unwrap().add_history(id, &format!("RESTORE {path}"), 0, result.is_ok());
+    let _ = state.record(id, &format!("RESTORE {path}"), 0, result.is_ok());
     let _ = reindex(&state, id).await;
     result.map_err(err)
 }
@@ -1326,11 +1344,236 @@ async fn backup_job(
     let mut progress = job_progress(app, job_id);
     let target = myq_transfer::BackupTarget { dir: dir.into(), name };
     let result = myq_transfer::backup(&mut c, &options, &target, &mut progress, &guard.flag).await;
-    let _ = state.store.lock().unwrap().add_history(id, &format!("BACKUP {}", options.databases.iter().map(|d| d.name.as_str()).collect::<Vec<_>>().join(", ")), 0, result.is_ok());
+    let _ = state.record(id, &format!("BACKUP {}", options.databases.iter().map(|d| d.name.as_str()).collect::<Vec<_>>().join(", ")), 0, result.is_ok());
     result.map_err(err)
 }
 
+// ---- data compare and sync, and copying a database ----
+
+#[derive(serde::Deserialize, Clone)]
+struct DataCompareRequest {
+    source_id: i64,
+    source_db: String,
+    source_table: String,
+    target_id: i64,
+    target_db: String,
+    target_table: String,
+    /// The key columns; empty means the source's primary key.
+    #[serde(default)]
+    key: Vec<String>,
+    /// Compare only the rows that match this condition (applied to both tables).
+    #[serde(default)]
+    where_sql: Option<String>,
+    #[serde(default)]
+    delete_extra: bool,
+}
+
+#[derive(serde::Serialize)]
+struct DataCompareResult {
+    columns: Vec<String>,
+    key: Vec<String>,
+    same: u64,
+    only_source_count: usize,
+    only_target_count: usize,
+    changed_count: usize,
+    only_source: Vec<myq_transfer::Cells>,
+    only_target: Vec<myq_transfer::Cells>,
+    changed: Vec<myq_transfer::Changed>,
+    statements_total: usize,
+    statements: Vec<String>,
+    /// Columns only one of the two tables has (not compared).
+    skipped: Vec<String>,
+}
+
+const SAMPLE: usize = 100;
+
+/// Read both tables and work out the difference. Needs a MySQL or MariaDB server on both sides.
+async fn data_diff(state: &tauri::State<'_, AppState>, r: &DataCompareRequest) -> Result<(myq_transfer::Diff, Vec<String>, Vec<String>), String> {
+    for id in [r.source_id, r.target_id] {
+        if sqlite_file(state, id).is_some() {
+            return Err("Comparing data needs MySQL or MariaDB connections on both sides.".into());
+        }
+    }
+    let mut a = conn_for(state, r.source_id).await?;
+    let mut b = conn_for(state, r.target_id).await?;
+    let key = if r.key.is_empty() { myq_transfer::primary_key(&mut a, &r.source_db, &r.source_table).await.map_err(err)? } else { r.key.clone() };
+    if key.is_empty() {
+        return Err(format!("{}.{} has no primary key. Choose the column(s) that identify a row.", r.source_db, r.source_table));
+    }
+    let source = myq_transfer::read_table(&mut a, &r.source_db, &r.source_table, r.where_sql.as_deref()).await.map_err(err)?;
+    let target = myq_transfer::read_table(&mut b, &r.target_db, &r.target_table, r.where_sql.as_deref()).await.map_err(err)?;
+    let skipped: Vec<String> = source.cols.iter().filter(|c| !target.cols.iter().any(|t| t.name.eq_ignore_ascii_case(&c.name))).map(|c| c.name.clone()).chain(target.cols.iter().filter(|c| !source.cols.iter().any(|s| s.name.eq_ignore_ascii_case(&c.name))).map(|c| c.name.clone())).collect();
+    let diff = myq_transfer::diff_tables(&source, &target, &key).map_err(err)?;
+    let statements = myq_transfer::sync_statements(&diff, &format!("{}.{}", myq_core::q(&r.target_db), myq_core::q(&r.target_table)), myq_transfer::SyncOptions { delete_extra: r.delete_extra, ..Default::default() });
+    Ok((diff, statements, skipped))
+}
+
+#[tauri::command]
+async fn data_compare(state: tauri::State<'_, AppState>, request: DataCompareRequest) -> Result<DataCompareResult, String> {
+    let (d, statements, skipped) = data_diff(&state, &request).await?;
+    Ok(DataCompareResult {
+        columns: d.columns.iter().map(|c| c.name.clone()).collect(),
+        key: d.key.clone(),
+        same: d.same,
+        only_source_count: d.only_source.len(),
+        only_target_count: d.only_target.len(),
+        changed_count: d.changed.len(),
+        only_source: d.only_source.iter().take(SAMPLE).cloned().collect(),
+        only_target: d.only_target.iter().take(SAMPLE).cloned().collect(),
+        changed: d.changed_view(SAMPLE),
+        statements_total: statements.len(),
+        statements: statements.into_iter().take(SAMPLE).collect(),
+        skipped,
+    })
+}
+
+#[derive(serde::Serialize)]
+struct SyncApplied {
+    statements: u64,
+    inserted: usize,
+    updated: usize,
+    deleted: usize,
+}
+
+/// Make the target match the source: the comparison is run again here, and its statements are run in one transaction on the target.
+#[tauri::command]
+async fn data_sync_apply(state: tauri::State<'_, AppState>, request: DataCompareRequest, disable_fk_checks: bool) -> Result<SyncApplied, String> {
+    guard_writable(&state, request.target_id, "changing the target table")?;
+    let (d, statements, _) = data_diff(&state, &request).await?;
+    if statements.is_empty() {
+        return Ok(SyncApplied { statements: 0, inserted: 0, updated: 0, deleted: 0 });
+    }
+    let mut c = conn_for(&state, request.target_id).await?;
+    let result = myq_transfer::apply_sync(&mut c, &statements, disable_fk_checks).await;
+    let deleted = if request.delete_extra { d.only_target.len() } else { 0 };
+    let label = format!("DATA SYNC {}.{} from {}.{}: {} inserted, {} updated, {} deleted\n{}", request.target_db, request.target_table, request.source_db, request.source_table, d.only_source.len(), d.changed.len(), deleted, statements.iter().take(20).cloned().collect::<Vec<_>>().join(";\n"));
+    let _ = state.record(request.target_id, &label, 0, result.is_ok());
+    let n = result.map_err(err)?;
+    Ok(SyncApplied { statements: n, inserted: d.only_source.len(), updated: d.changed.len(), deleted })
+}
+
+#[derive(serde::Serialize)]
+struct CopySummary {
+    tables: u64,
+    rows: u64,
+    statements: u64,
+    warnings: Vec<String>,
+    elapsed_ms: u64,
+}
+
+/// Copy `source_db` of one connection into `target_db` of another (or the same) connection, as a job: a dump into a temporary
+/// folder, then the dump run on the target. A table of the same name in the target is replaced.
+#[tauri::command]
+async fn copy_database(app: tauri::AppHandle, state: tauri::State<'_, AppState>, job_id: String, source_id: i64, source_db: String, target_id: i64, target_db: String, with_data: bool) -> Result<CopySummary, String> {
+    guard_writable(&state, target_id, "copying a database into it")?;
+    if source_id == target_id && source_db.eq_ignore_ascii_case(&target_db) {
+        return Err("The source and the target are the same database.".into());
+    }
+    if target_db.trim().is_empty() {
+        return Err("Name the database to copy into.".into());
+    }
+    for id in [source_id, target_id] {
+        if sqlite_file(&state, id).is_some() {
+            return Err("Copying a database needs MySQL or MariaDB connections.".into());
+        }
+    }
+    let started = std::time::Instant::now();
+    let guard = JobGuard::start(&state, &job_id);
+    let mut src = conn_for(&state, source_id).await?;
+    let mut dst = conn_for(&state, target_id).await?;
+    // the target database: made like the source's (character set and collation) when it is not there yet
+    myq_transfer::create_database_like(&mut src, &mut dst, &source_db, &target_db).await.map_err(err)?;
+    let dir = std::env::temp_dir().join(format!("mylodb_copy_{}", job_id.replace(|c: char| !c.is_ascii_alphanumeric(), "_")));
+    std::fs::create_dir_all(&dir).map_err(err)?;
+    let cleanup = |dir: &std::path::Path| { let _ = std::fs::remove_dir_all(dir); };
+    let options: myq_transfer::BackupOptions = serde_json::from_value(serde_json::json!({
+        "databases": [{ "name": source_db }], "data": with_data, "create_database": false, "drop_if_exists": true, "compress": false, "file_per_table": false,
+    })).map_err(err)?;
+    let mut progress = job_progress(app.clone(), job_id.clone());
+    let made = myq_transfer::backup(&mut src, &options, &myq_transfer::BackupTarget { dir: dir.clone(), name: "copy".into() }, &mut |p: myq_transfer::Progress| progress(myq_transfer::Progress { phase: format!("reading · {}", p.phase), ..p }), &guard.flag).await;
+    let made = match made { Ok(m) => m, Err(e) => { cleanup(&dir); return Err(err(e)); } };
+    // a view or trigger body names its database: point it at the new one
+    if !source_db.eq_ignore_ascii_case(&target_db) {
+        if let Err(e) = rename_database_in_dump(&made.path, &source_db, &target_db) { cleanup(&dir); return Err(e); }
+    }
+    let mut progress = job_progress(app, job_id.clone());
+    let ran = myq_transfer::run_source(&mut dst, &made.path, &myq_transfer::RunOptions { stop_on_error: true, disable_fk_checks: true, database: Some(target_db.clone()) }, &mut |p: myq_transfer::Progress| progress(myq_transfer::Progress { phase: format!("writing · {}", p.phase), ..p }), &guard.flag).await;
+    cleanup(&dir);
+    let ran = ran.map_err(err);
+    let _ = state.record(target_id, &format!("COPY DATABASE {source_db} -> {target_db}"), started.elapsed().as_millis() as u64, ran.is_ok());
+    let ran = ran?;
+    if let Some(e) = ran.errors.first() {
+        return Err(format!("the copy stopped: {} (statement {})", e.message, e.statement));
+    }
+    let _ = reindex(&state, target_id).await;
+    Ok(CopySummary { tables: made.tables, rows: made.rows, statements: ran.statements, warnings: made.warnings, elapsed_ms: started.elapsed().as_millis() as u64 })
+}
+
+/// Rewrite `` `old`. `` to `` `new`. `` in a dump file, line by line (so a large dump is not held in memory).
+fn rename_database_in_dump(path: &std::path::Path, old: &str, new: &str) -> Result<(), String> {
+    use std::io::{BufRead, Write};
+    let from = format!("{}.", myq_core::q(old));
+    let to = format!("{}.", myq_core::q(new));
+    let tmp = path.with_extension("sql.renamed");
+    {
+        let input = std::io::BufReader::new(std::fs::File::open(path).map_err(err)?);
+        let mut out = std::io::BufWriter::new(std::fs::File::create(&tmp).map_err(err)?);
+        for line in input.split(b'\n') {
+            let line = line.map_err(err)?;
+            // row data is never touched (a text value could contain the old name); definitions are
+            if line.starts_with(b"INSERT INTO") || line.starts_with(b"REPLACE INTO") {
+                out.write_all(&line).map_err(err)?;
+                out.write_all(b"\n").map_err(err)?;
+                continue;
+            }
+            match String::from_utf8(line) {
+                Ok(text) => out.write_all(text.replace(&from, &to).as_bytes()),
+                Err(bad) => out.write_all(bad.as_bytes()),
+            }.map_err(err)?;
+            out.write_all(b"\n").map_err(err)?;
+        }
+        out.flush().map_err(err)?;
+    }
+    std::fs::rename(tmp, path).map_err(err)
+}
+
+// ---- the audit log ----
+
+#[derive(serde::Serialize)]
+struct AuditStatus {
+    enabled: bool,
+    path: String,
+    size: u64,
+}
+
+#[tauri::command]
+fn audit_status(state: tauri::State<'_, AppState>) -> AuditStatus {
+    AuditStatus { enabled: state.audit.enabled(), path: state.audit.path().to_string_lossy().into_owned(), size: state.audit.size() }
+}
+
+#[tauri::command]
+fn audit_set(state: tauri::State<'_, AppState>, enabled: bool) -> Result<AuditStatus, String> {
+    state.audit.set_enabled(enabled).map_err(err)?;
+    Ok(audit_status(state))
+}
+
+#[tauri::command]
+fn audit_tail(state: tauri::State<'_, AppState>, limit: usize) -> Vec<audit::Entry> {
+    state.audit.tail(limit.clamp(1, 500))
+}
+
 // ---- where is this used ----
+
+/// The statements that point the views mentioning a table at its new name, for the rename dialog to run right after the rename.
+/// (SQLite updates its views itself when a table is renamed.)
+#[tauri::command]
+async fn rename_view_statements(state: tauri::State<'_, AppState>, id: i64, db: String, from: String, to: String) -> Result<Vec<String>, String> {
+    if sqlite_file(&state, id).is_some() {
+        return Ok(vec![]);
+    }
+    let mut c = conn_for(&state, id).await?;
+    myq_admin::rename_view_statements(&mut c, &db, &from, &to).await.map_err(err)
+}
 
 /// The views, routines, triggers, events and foreign keys that mention a table (or one of its columns). A rename does not change them.
 #[tauri::command]
@@ -1570,7 +1813,7 @@ async fn set_global_variable(state: tauri::State<'_, AppState>, id: i64, name: S
     guard_writable(&state, id, "changing a server setting")?;
     let mut c = conn_for(&state, id).await?;
     let result = myq_admin::set_variable(&mut c, myq_admin::VarScope::Global, &name, &value).await;
-    let _ = state.store.lock().unwrap().add_history(id, &format!("SET GLOBAL {name} = {value}"), 0, result.is_ok());
+    let _ = state.record(id, &format!("SET GLOBAL {name} = {value}"), 0, result.is_ok());
     result.map_err(err)
 }
 
@@ -1579,7 +1822,7 @@ async fn maintain_tables(state: tauri::State<'_, AppState>, id: i64, db: String,
     guard_writable(&state, id, "table maintenance")?;
     let mut c = conn_for(&state, id).await?;
     let result = myq_admin::maintain(&mut c, &db, &tables, operation).await;
-    let _ = state.store.lock().unwrap().add_history(id, &format!("{operation:?} {db}: {}", tables.join(", ")), 0, result.is_ok());
+    let _ = state.record(id, &format!("{operation:?} {db}: {}", tables.join(", ")), 0, result.is_ok());
     result.map_err(err)
 }
 
@@ -1888,7 +2131,7 @@ async fn ddl_apply(state: tauri::State<'_, AppState>, id: i64, db: String, origi
         }
         let list = statements.clone();
         let result = tokio::task::spawn_blocking(move || myq_sqlite::apply_ddl(&file, &list)).await.map_err(err)?;
-        let _ = state.store.lock().unwrap().add_history(id, &statements.join(";\n"), 0, result.is_ok());
+        let _ = state.record(id, &statements.join(";\n"), 0, result.is_ok());
         result?;
         reindex(&state, id).await?;
         return Ok(statements);
@@ -1899,7 +2142,7 @@ async fn ddl_apply(state: tauri::State<'_, AppState>, id: i64, db: String, origi
     }
     let mut c = conn_for(&state, id).await?;
     let result = myq_admin::run_statements(&mut c, &statements).await;
-    let _ = state.store.lock().unwrap().add_history(id, &statements.join(";\n"), 0, result.is_ok());
+    let _ = state.record(id, &statements.join(";\n"), 0, result.is_ok());
     result.map_err(err)?;
     reindex(&state, id).await?;
     Ok(statements)
@@ -1934,7 +2177,7 @@ async fn table_op(state: tauri::State<'_, AppState>, id: i64, db: String, table:
         }
     };
     let result = myq_admin::run_statements(&mut c, &statements).await;
-    let _ = state.store.lock().unwrap().add_history(id, &statements.join(";\n"), 0, result.is_ok());
+    let _ = state.record(id, &statements.join(";\n"), 0, result.is_ok());
     result.map_err(err)?;
     reindex(&state, id).await?;
     Ok(statements)
@@ -1960,7 +2203,7 @@ async fn database_op(state: tauri::State<'_, AppState>, id: i64, operation: Data
     };
     let mut c = conn_for(&state, id).await?;
     let result = myq_admin::run_statements(&mut c, std::slice::from_ref(&sql)).await;
-    let _ = state.store.lock().unwrap().add_history(id, &sql, 0, result.is_ok());
+    let _ = state.record(id, &sql, 0, result.is_ok());
     result.map_err(err)?;
     reindex(&state, id).await?;
     Ok(sql)
@@ -2171,6 +2414,8 @@ fn build_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::
         .item(&with_icon("structure", "Tables of Selected Database", icon!("table"))?)
         .item(&with_icon("new_table", "New Table…", icon!("plus"))?)
         .item(&with_icon("compare", "Compare Schemas…", icon!("transfer"))?)
+        .item(&item("data_compare", "Compare Data of Two Tables…", None)?)
+        .item(&item("copy_database", "Copy Database to Another Connection…", None)?)
         .item(&with_icon("advisor", "Index Advisor…", icon!("table"))?)
         .separator()
         .item(&SubmenuBuilder::new(app, "Tools")
@@ -2219,7 +2464,7 @@ pub fn run() {
             std::fs::create_dir_all(&dir)?;
             let secrets = std::sync::Arc::new(SecretRouter::open(&dir, Box::new(Keychain::default()), Vault::new(&dir.join("secrets.json"))));
             let store = Store::open(&dir.join("mylodb.sqlite"), Box::new(secrets.clone()))?;
-            app.manage(AppState { store: Mutex::new(store), secrets, sessions: Mutex::new(HashMap::new()), running: Mutex::new(HashMap::new()), sqlite_runs: Mutex::new(HashMap::new()), jobs: Mutex::new(HashMap::new()), schedules: Mutex::new(schedule::load(&dir.join("schedules.json"))), schedule_file: dir.join("schedules.json"), schedule_running: Mutex::new(Default::default()) });
+            app.manage(AppState { store: Mutex::new(store), secrets, sessions: Mutex::new(HashMap::new()), running: Mutex::new(HashMap::new()), sqlite_runs: Mutex::new(HashMap::new()), jobs: Mutex::new(HashMap::new()), schedules: Mutex::new(schedule::load(&dir.join("schedules.json"))), schedule_file: dir.join("schedules.json"), schedule_running: Mutex::new(Default::default()), audit: audit::Audit::open(&dir) });
             start_scheduler(app.handle().clone());
             Ok(())
         })
@@ -2320,6 +2565,13 @@ pub fn run() {
             top_statements,
             sqlite_maintain,
             find_usages,
+            rename_view_statements,
+            data_compare,
+            data_sync_apply,
+            copy_database,
+            audit_status,
+            audit_set,
+            audit_tail,
             schedules_list,
             schedule_save,
             schedule_delete,

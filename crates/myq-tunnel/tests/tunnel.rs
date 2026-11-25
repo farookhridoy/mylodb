@@ -136,10 +136,27 @@ async fn forwards_data_concurrently_and_closes_with_the_tunnel() {
     }
     for j in joins { j.await.unwrap(); }
 
-    // dropping the tunnel stops listening
+    // a connection that is still open when the tunnel is dropped is closed with it
+    let mut open_one = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+    open_one.write_all(b"hello").await.unwrap();
+    let mut buf = [0u8; 5];
+    open_one.read_exact(&mut buf).await.unwrap();
+    assert_eq!(&buf, b"hello");
+
+    // dropping the tunnel stops listening. Aborting is asynchronous, so wait for it (up to 10 s) instead of guessing a delay.
     drop(tunnel);
-    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
-    assert!(TcpStream::connect(("127.0.0.1", port)).await.is_err(), "the listener must be gone");
+    let mut gone = false;
+    for _ in 0..100 {
+        if TcpStream::connect(("127.0.0.1", port)).await.is_err() {
+            gone = true;
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    assert!(gone, "the listener must be gone");
+    let mut rest = Vec::new();
+    let closed = tokio::time::timeout(std::time::Duration::from_secs(10), open_one.read_to_end(&mut rest)).await;
+    assert!(closed.is_ok(), "the open connection must be closed when the tunnel is dropped");
 }
 
 #[tokio::test]

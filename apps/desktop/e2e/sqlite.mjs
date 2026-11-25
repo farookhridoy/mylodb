@@ -85,7 +85,12 @@ await page.click(".dz-tabs button:has-text('Indexes')");
 await page.click(".dz-item >> nth=0");
 const kinds = await page.locator(".dz-edit select.ss-native").first().evaluate((el) => [...el.options].map((o) => o.value));
 assert.deepEqual(kinds, ["primary", "unique", "index"], "SQLite has no fulltext or spatial indexes");
-ok("the table designer works for a SQLite file with SQLite's own types and index kinds");
+await page.click(".dz-tabs button:has-text('Columns')");
+await page.locator(".dz-grid tbody tr").first().locator("button.mini").click();
+await page.waitForSelector(".more");
+assert.match(await page.locator(".more").innerText(), /Generated expression/);
+assert.doesNotMatch(await page.locator(".more").innerText(), /Invisible|Character set/, "MySQL-only options are not offered");
+ok("the table designer works for a SQLite file with SQLite's own types, index kinds and generated columns");
 
 assert.deepEqual(errors, []);
 await browser.close();

@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-Finishes phases 20 to 23 of the roadmap.
+Finishes phases 20 to 23 and 25 of the roadmap.
 
 **Added**
 * **Where is it used?** Right-click a table → *Where is it used…*: the views, routines, triggers, events and foreign keys that mention it, grouped by kind, optionally narrowed to a column (MySQL, MariaDB and SQLite). The rename dialog now says how many other objects still use the old name, because a rename does not change them.
@@ -11,12 +11,22 @@ Finishes phases 20 to 23 of the roadmap.
 * **SQLite export.** *Transfer* is available for a file with the Export tab (a table with its filters and sort, or a SELECT) in every format.
 * **Cancel a running SQLite query.** The Cancel button now stops a query on a file; the statements after it are not started.
 
+* **Compare data and make the target match** (Database menu, or right-click a table): two tables on any two open MySQL or MariaDB connections are matched on the primary key (or chosen columns). The result shows identical, different, source-only and target-only rows with samples and the exact SQL; applying runs in one transaction and asks first (a production target asks for the table name). Deleting target-only rows is a separate tick.
+* **Copy a database to another connection** (right-click a database): tables, views and rows, under the same or a new name; same-named tables in the target are replaced after you confirm.
+* **Audit log** (Settings → Audit log): a file with one line per statement that changed something, including syncs and copies. Off until you turn it on; stays on your computer; rotates at 10 MB.
+* **Renaming a table updates its views.** The rename plan now also contains the `CREATE OR REPLACE VIEW` statements that point the views at the new name, so you can read them before anything runs.
+* **SQLite generated columns** in the designer (and they are no longer lost when the table is rebuilt: the designer used to read the table without them).
+
+**Fixed**
+* **Closing a tunnel now closes its open connections.** Dropping an SSH tunnel stopped it listening but left the connections already open; they are closed with it. The tunnel test that failed at random in CI now waits for the close instead of guessing a delay.
+
 **Changed**
 * Menu entries that only make sense for MySQL and MariaDB (restore, CSV import) now say so instead of opening a tab that cannot work for a file.
 
 **Known limits**
 * Scheduled imports, and jobs that run while MyLoDB is closed, are not available.
-* The SQLite designer does not edit generated columns, and rewriting views or triggers after a rename is up to you.
+* Data compare reads both tables into memory (up to a million rows each) and works for MySQL and MariaDB only. Copying a database goes through a dump, so a view that names another database keeps pointing at it.
+* After a rename, routines, triggers and events that use the old name are listed but not rewritten.
 
 ## 0.10.0 (2026-11-25)
 

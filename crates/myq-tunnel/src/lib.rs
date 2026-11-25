@@ -171,11 +171,18 @@ pub async fn open(cfg: &SshConfig, secrets: &SshSecrets, trust: HostTrust, remot
     let (rhost, rport) = (remote_host.to_string(), remote_port);
 
     let accept = tokio::spawn(async move {
+        // every forwarded connection lives in this set: when the tunnel is dropped the accept task is aborted, the set is dropped with
+        // it, and so every open connection is closed too (not only the listener)
+        let mut connections = tokio::task::JoinSet::new();
         loop {
-            let Ok((mut tcp, peer)) = listener.accept().await else { break };
+            let accepted = tokio::select! {
+                a = listener.accept() => a,
+                Some(_) = connections.join_next(), if !connections.is_empty() => continue, // finished ones are cleaned up
+            };
+            let Ok((mut tcp, peer)) = accepted else { break };
             let handle = handle.clone();
             let rhost = rhost.clone();
-            tokio::spawn(async move {
+            connections.spawn(async move {
                 match handle.channel_open_direct_tcpip(rhost, rport as u32, peer.ip().to_string(), peer.port() as u32).await {
                     Ok(channel) => {
                         let mut stream = channel.into_stream();

@@ -87,7 +87,7 @@ ok("at least one kind stays on, the choice survives a restart, and it can be res
 await page.click(".tree .db:has-text('shop')");
 await page.click(".row-item.leaf:has-text('orders')", { button: "right" });
 const top = await text(page.locator(".ctx:not(.ctx-nested) > .ctx-item > .ctx-label"));
-assert.deepEqual(top, ["Create", "View Table", "Design table…", "Where is it used…", "Lock the filter to this table", "View Diagram", "View Data", "Export Data…", "Import Data…", "Tools", "Generate SQL", "Read data in SQL console", "Copy name", "Copy Advanced Info", "Duplicate…", "Rename…", "Drop…", "Refresh"]);
+assert.deepEqual(top, ["Create", "View Table", "Design table…", "Compare data with another table…", "Where is it used…", "Lock the filter to this table", "View Diagram", "View Data", "Export Data…", "Import Data…", "Tools", "Generate SQL", "Read data in SQL console", "Copy name", "Copy Advanced Info", "Duplicate…", "Rename…", "Drop…", "Refresh"]);
 assert.ok(await page.locator(".ctx:not(.ctx-nested) > .ctx-item .ctx-icon svg").count() >= 15, "every entry has an icon");
 assert.deepEqual(await text(page.locator(".ctx:not(.ctx-nested) > .ctx-item > .ctx-key")), ["F4", "F2", "F5"]);
 assert.ok(await page.locator(".ctx:not(.ctx-nested) > .ctx-sep").count() >= 5, "grouped by separators");

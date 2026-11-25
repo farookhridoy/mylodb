@@ -6,7 +6,7 @@
 //! at the end, so a failing change leaves the table as it was.
 
 use crate::backend::open;
-use myq_schema::ddl::{parse_column_type, ColumnDef, ColumnDefault, ForeignKeyDef, IndexColumn, IndexDef, IndexKind, RefAction, TableDef};
+use myq_schema::ddl::{parse_column_type, ColumnDef, ColumnDefault, ForeignKeyDef, Generated, IndexColumn, IndexDef, IndexKind, RefAction, TableDef};
 use rusqlite::Connection;
 use std::path::Path;
 
@@ -23,6 +23,56 @@ fn is_number(s: &str) -> bool {
 }
 
 // ---------- reading ----------
+
+/// The expression and kind (stored or virtual) of each generated column, read from the text of `CREATE TABLE`.
+/// `PRAGMA table_xinfo` says which columns are generated but not how.
+fn generated_expressions(create_sql: &str) -> std::collections::HashMap<String, (String, bool)> {
+    let mut out = std::collections::HashMap::new();
+    let chars: Vec<char> = create_sql.chars().collect();
+    let Some(open) = chars.iter().position(|c| *c == '(') else { return out };
+    // split the column list at commas that are not inside brackets or quotes
+    let (mut depth, mut quote, mut start, mut parts) = (0i32, None::<char>, open + 1, Vec::<String>::new());
+    let mut i = open + 1;
+    while i < chars.len() {
+        let c = chars[i];
+        match quote {
+            Some(q) => { if c == q { quote = None; } }
+            None => match c {
+                '\'' | '"' | '`' | '[' => quote = Some(if c == '[' { ']' } else { c }),
+                '(' => depth += 1,
+                ')' if depth == 0 => { parts.push(chars[start..i].iter().collect()); break; }
+                ')' => depth -= 1,
+                ',' if depth == 0 => { parts.push(chars[start..i].iter().collect()); start = i + 1; }
+                _ => {}
+            },
+        }
+        i += 1;
+    }
+    for part in parts {
+        let p = part.trim();
+        let upper = p.to_uppercase();
+        let Some(at) = upper.find("AS (").or_else(|| upper.find("AS(")) else { continue };
+        // the column name is the first word, possibly quoted
+        let name: String = match p.chars().next() {
+            Some(q @ ('"' | '`')) => p[1..].split(q).next().unwrap_or("").to_string(),
+            Some('[') => p[1..].split(']').next().unwrap_or("").to_string(),
+            _ => p.split_whitespace().next().unwrap_or("").to_string(),
+        };
+        // the balanced bracket after AS
+        let body: Vec<char> = p[at..].chars().collect();
+        let Some(b0) = body.iter().position(|c| *c == '(') else { continue };
+        let (mut d, mut end) = (0i32, None);
+        for (k, c) in body.iter().enumerate().skip(b0) {
+            if *c == '(' { d += 1; }
+            if *c == ')' { d -= 1; if d == 0 { end = Some(k); break; } }
+        }
+        let Some(e) = end else { continue };
+        let expr: String = body[b0 + 1..e].iter().collect();
+        let tail: String = body[e + 1..].iter().collect::<String>().to_uppercase();
+        out.insert(name.to_lowercase(), (expr.trim().to_string(), tail.contains("STORED")));
+    }
+    out
+}
 
 fn parse_default(raw: Option<String>) -> ColumnDefault {
     let Some(d) = raw else { return ColumnDefault::None };
@@ -52,13 +102,24 @@ pub fn read_table_def(path: &Path, table: &str) -> Result<TableDef, String> {
 
     let mut cols: Vec<(ColumnDef, i64)> = Vec::new();
     {
-        let mut st = conn.prepare(&format!("PRAGMA table_info({})", q(table))).map_err(e)?;
-        let rows = st.query_map([], |r| Ok((r.get::<_, String>(1)?, r.get::<_, Option<String>>(2)?.unwrap_or_default(), r.get::<_, i64>(3)?, r.get::<_, Option<String>>(4)?, r.get::<_, i64>(5)?))).map_err(e)?;
+        // table_xinfo, not table_info: only it lists generated columns (hidden = 2 virtual, 3 stored)
+        let generated = generated_expressions(&create_sql);
+        let mut st = conn.prepare(&format!("PRAGMA table_xinfo({})", q(table))).map_err(e)?;
+        let rows = st.query_map([], |r| Ok((r.get::<_, String>(1)?, r.get::<_, Option<String>>(2)?.unwrap_or_default(), r.get::<_, i64>(3)?, r.get::<_, Option<String>>(4)?, r.get::<_, i64>(5)?, r.get::<_, i64>(6)?))).map_err(e)?;
         for row in rows {
-            let (name, ty, notnull, dflt, pk) = row.map_err(e)?;
+            let (name, ty, notnull, dflt, pk, hidden) = row.map_err(e)?;
+            if hidden == 1 {
+                continue; // a hidden column of a virtual table
+            }
             let (base, params, _, _) = parse_column_type(&ty);
+            let gen = if hidden >= 2 {
+                let (expression, stored) = generated.get(&name.to_lowercase()).cloned().unwrap_or_else(|| (String::new(), hidden == 3));
+                Some(Generated { expression, stored })
+            } else {
+                None
+            };
             cols.push((
-                ColumnDef { name: name.clone(), original_name: Some(name), data_type: base, params, nullable: notnull == 0 && pk == 0, default: parse_default(dflt), ..Default::default() },
+                ColumnDef { name: name.clone(), original_name: Some(name), data_type: base, params, nullable: notnull == 0 && pk == 0, default: if gen.is_some() { ColumnDefault::None } else { parse_default(dflt) }, generated: gen, ..Default::default() },
                 pk,
             ));
         }
@@ -136,8 +197,13 @@ fn validate(t: &TableDef) -> Vec<String> {
         if c.data_type.trim().is_empty() {
             e.push(format!("column {} has no type", c.name));
         }
-        if c.generated.is_some() {
-            e.push(format!("column {}: generated columns are not available in this designer", c.name));
+        if let Some(g) = &c.generated {
+            if g.expression.trim().is_empty() {
+                e.push(format!("column {}: the generated expression is empty", c.name));
+            }
+            if c.auto_increment || !matches!(c.default, ColumnDefault::None) {
+                e.push(format!("column {}: a generated column has no default and cannot auto-increment", c.name));
+            }
         }
     }
     let has = |n: &str| t.columns.iter().any(|c| c.name == n);
@@ -159,6 +225,11 @@ fn validate(t: &TableDef) -> Vec<String> {
         }
         if i.kind != IndexKind::Primary && i.name.to_lowercase().starts_with("sqlite_") && !i.name.to_lowercase().starts_with("sqlite_autoindex") {
             e.push(format!("index names starting with sqlite_ are reserved ({})", i.name));
+        }
+    }
+    for c in t.columns.iter().filter(|c| c.generated.is_some()) {
+        if pks.first().is_some_and(|p| p.columns.iter().any(|x| x.name == c.name)) {
+            e.push(format!("column {} is generated: it cannot be part of the primary key", c.name));
         }
     }
     for c in t.columns.iter().filter(|c| c.auto_increment) {
@@ -204,6 +275,13 @@ fn default_sql(d: &ColumnDefault) -> Option<String> {
 
 fn column_sql(c: &ColumnDef, inline_pk: bool) -> String {
     let mut s = format!("{} {}", q(&c.name), type_sql(c));
+    if let Some(g) = &c.generated {
+        s.push_str(&format!(" GENERATED ALWAYS AS ({}) {}", g.expression.trim(), if g.stored { "STORED" } else { "VIRTUAL" }));
+        if !c.nullable {
+            s.push_str(" NOT NULL");
+        }
+        return s;
+    }
     if inline_pk {
         s.push_str(" PRIMARY KEY AUTOINCREMENT");
     } else if !c.nullable {
@@ -265,7 +343,7 @@ pub fn ddl_statements(original: Option<&TableDef>, desired: &TableDef) -> Result
     };
 
     let old_col = |name: &str| old.columns.iter().find(|c| c.name == name);
-    let same_shape = |a: &ColumnDef, b: &ColumnDef| a.data_type.eq_ignore_ascii_case(&b.data_type) && a.params.as_deref().unwrap_or("") == b.params.as_deref().unwrap_or("") && a.nullable == b.nullable && a.default == b.default && a.auto_increment == b.auto_increment;
+    let same_shape = |a: &ColumnDef, b: &ColumnDef| a.data_type.eq_ignore_ascii_case(&b.data_type) && a.params.as_deref().unwrap_or("") == b.params.as_deref().unwrap_or("") && a.nullable == b.nullable && a.default == b.default && a.auto_increment == b.auto_increment && a.generated == b.generated;
     let pk_of = |t: &TableDef| t.indexes.iter().find(|i| i.kind == IndexKind::Primary).map(|p| p.columns.iter().map(|c| c.name.clone()).collect::<Vec<_>>()).unwrap_or_default();
     let fk_key = |t: &TableDef| t.foreign_keys.iter().map(|f| (f.columns.clone(), f.ref_table.clone(), f.ref_columns.clone(), f.on_delete, f.on_update)).collect::<Vec<_>>();
     // desired columns paired with the column they were
@@ -275,7 +353,7 @@ pub fn ddl_statements(original: Option<&TableDef>, desired: &TableDef) -> Result
     let in_place_ok = kept.iter().all(|(c, was)| was.map_or(true, |w| same_shape(c, w)))
         && pk_of(old) == pk_of(desired).iter().map(|n| kept.iter().find(|(c, _)| &c.name == n).and_then(|(_, w)| w.map(|w| w.name.clone())).unwrap_or_else(|| n.clone())).collect::<Vec<_>>()
         && fk_key(old) == fk_key(desired)
-        && added.iter().all(|c| (c.nullable || !matches!(c.default, ColumnDefault::None)) && !pk_of(desired).contains(&c.name) && !desired.indexes.iter().any(|i| is_inline_unique(i) && i.columns.iter().any(|x| x.name == c.name)))
+        && added.iter().all(|c| (c.nullable || c.generated.is_some() || !matches!(c.default, ColumnDefault::None)) && c.generated.as_ref().map_or(true, |g| !g.stored) && !pk_of(desired).contains(&c.name) && !desired.indexes.iter().any(|i| is_inline_unique(i) && i.columns.iter().any(|x| x.name == c.name)))
         && dropped.iter().all(|c| !pk_of(old).contains(&c.name) && !old.foreign_keys.iter().any(|f| f.columns.contains(&c.name)) && !old.indexes.iter().any(|i| is_inline_unique(i) && i.columns.iter().any(|x| x.name == c.name)))
         && old.indexes.iter().filter(|i| is_inline_unique(i)).all(|i| desired.indexes.iter().any(|d| is_inline_unique(d) && d.original_name == i.original_name && d.columns == i.columns));
 
@@ -310,7 +388,8 @@ pub fn ddl_statements(original: Option<&TableDef>, desired: &TableDef) -> Result
     // rebuild: new table, copy the rows the columns that survive, drop the old table, rename, recreate the indexes
     let temp = format!("__new_{}", desired.name);
     out.push(create_table_sql(desired, &temp));
-    let pairs: Vec<(String, String)> = kept.iter().filter_map(|(c, was)| was.map(|w| (c.name.clone(), w.name.clone()))).collect();
+    // a generated column is computed, so it is not copied (the new table computes it again)
+    let pairs: Vec<(String, String)> = kept.iter().filter(|(c, _)| c.generated.is_none()).filter_map(|(c, was)| was.map(|w| (c.name.clone(), w.name.clone()))).collect();
     if !pairs.is_empty() {
         out.push(format!("INSERT INTO {} ({}) SELECT {} FROM {}", q(&temp), pairs.iter().map(|(n, _)| q(n)).collect::<Vec<_>>().join(", "), pairs.iter().map(|(_, o)| q(o)).collect::<Vec<_>>().join(", "), q(&old.name)));
     }

@@ -7,7 +7,7 @@ const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH 
 const page = await (await browser.newContext({ viewport: { width: 1400, height: 900 } })).newPage();
 const errors = [];
 page.on("pageerror", (e) => errors.push("pageerror: " + e.message));
-await page.addInitScript({ content: "localStorage.setItem('mylodb.tourDone','1');\n" + fs.readFileSync(new URL("./mock.js", import.meta.url), "utf8") });
+await page.addInitScript({ content: "localStorage.setItem('mylodb.tourDone','1'); window.__viewDeps = true;\n" + fs.readFileSync(new URL("./mock.js", import.meta.url), "utf8") });
 await page.goto(process.env.APP_URL || "http://localhost:1420/");
 let step = 0;
 const ok = (m) => console.log(`ok ${++step} ${m}`);
@@ -40,7 +40,8 @@ await page.fill(".dialog input", "purchases");
 await page.click(".dialog button.primary:has-text('Rename')");
 await page.waitForSelector(".preview-dialog");
 assert.match(await page.locator(".dialog").last().innerText(), /3 other object\(s\) mention orders \(1 view, 1 trigger, 1 foreign key\)/);
-ok("a rename says how many other objects still use the old name");
+assert.match(await page.locator(".preview-sql").innerText(), /RENAME TABLE[\s\S]*CREATE OR REPLACE VIEW `shop`\.`v_big_orders` AS select `shop`\.`purchases`/, "the views are pointed at the new name, after the rename");
+ok("a rename says how many other objects use the old name, and updates the views after it");
 
 assert.deepEqual(errors, []);
 await browser.close();

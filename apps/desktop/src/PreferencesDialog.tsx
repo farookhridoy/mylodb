@@ -1,11 +1,12 @@
 import SecuritySettings from "./SecuritySettings";
 import AiSetup from "./AiSetup";
+import AuditSettings from "./AuditSettings";
 import { useMemo, useState } from "react";
 import Select from "./Select";
 import { AREA_LABEL, DEFAULTS, FAMILIES, SCHEMES, SIZE_RANGE, applyPrefs, savePrefs, type Area, type Prefs } from "./prefs";
 import { THEMES, themeById, type ThemePref } from "./theme";
 
-type PageId = "theme" | "font-ui" | "font-tree" | "font-grid" | "font-editor" | "colours" | "passwords" | "ai";
+type PageId = "theme" | "font-ui" | "font-tree" | "font-grid" | "font-editor" | "colours" | "passwords" | "audit" | "ai";
 interface Page { id: PageId; group: string; label: string; words: string }
 const PAGES: Page[] = [
   { id: "theme", group: "Appearance", label: "Theme", words: "light dark system mode colour" },
@@ -14,6 +15,7 @@ const PAGES: Page[] = [
   { id: "font-grid", group: "Fonts", label: "Data grid", words: "font family size bold results table cells" },
   { id: "font-editor", group: "Fonts", label: "Query editor", words: "font family size bold line height sql code" },
   { id: "passwords", group: "Security", label: "Saved passwords", words: "keychain master password encrypted file prompt unlock security" },
+  { id: "audit", group: "Security", label: "Audit log", words: "audit log changes history file who what when compliance record" },
   { id: "ai", group: "AI", label: "Ask AI", words: "ai assistant write query ollama groq openrouter gemini free model key llm" },
   { id: "colours", group: "Editor", label: "Syntax colours", words: "editor colour scheme highlight solarized contrast vivid multi-colour" },
 ];
@@ -115,6 +117,7 @@ export default function PreferencesDialog(props: {
               </div>
             )}
             {current?.id === "passwords" && <SecuritySettings />}
+            {current?.id === "audit" && <AuditSettings />}
             {current?.id === "ai" && <div className="prefs-page ai-page"><AiSetup /></div>}
             {current?.id === "font-ui" && fontPage("ui")}
             {current?.id === "font-tree" && fontPage("tree")}

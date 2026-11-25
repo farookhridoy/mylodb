@@ -175,6 +175,15 @@ pub fn sync_statements(d: &Diff, target: &str, opts: SyncOptions) -> Vec<String>
     out
 }
 
+/// Create `dst_db` on the target connection like `src_db` on the source (same character set and collation), when it is not there yet.
+pub async fn create_database_like(src: &mut Conn, dst: &mut Conn, src_db: &str, dst_db: &str) -> Result<()> {
+    let row: Option<(String, String)> = src.query_first(format!("SHOW CREATE DATABASE {}", q(src_db))).await?;
+    let create = row.ok_or_else(|| Error::Invalid(format!("database {src_db} does not exist")))?.1;
+    let create = create.replacen("CREATE DATABASE", "CREATE DATABASE IF NOT EXISTS", 1).replacen(&q(src_db), &q(dst_db), 1);
+    dst.query_drop(create).await?;
+    Ok(())
+}
+
 /// The primary key columns of a table, in order (empty when it has none).
 pub async fn primary_key(conn: &mut Conn, db: &str, table: &str) -> Result<Vec<String>> {
     let rows: Vec<String> = conn

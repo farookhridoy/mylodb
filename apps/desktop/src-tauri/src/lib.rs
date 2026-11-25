@@ -1482,13 +1482,7 @@ async fn copy_database(app: tauri::AppHandle, state: tauri::State<'_, AppState>,
     let mut src = conn_for(&state, source_id).await?;
     let mut dst = conn_for(&state, target_id).await?;
     // the target database: made like the source's (character set and collation) when it is not there yet
-    {
-        use myq_driver::mysql_async::prelude::Queryable;
-        let row: Option<(String, String)> = src.query_first(format!("SHOW CREATE DATABASE {}", myq_core::q(&source_db))).await.map_err(err)?;
-        let create = row.ok_or_else(|| format!("database {source_db} does not exist"))?.1;
-        let create = create.replacen("CREATE DATABASE", "CREATE DATABASE IF NOT EXISTS", 1).replacen(&myq_core::q(&source_db), &myq_core::q(&target_db), 1);
-        dst.query_drop(create).await.map_err(err)?;
-    }
+    myq_transfer::create_database_like(&mut src, &mut dst, &source_db, &target_db).await.map_err(err)?;
     let dir = std::env::temp_dir().join(format!("mylodb_copy_{}", job_id.replace(|c: char| !c.is_ascii_alphanumeric(), "_")));
     std::fs::create_dir_all(&dir).map_err(err)?;
     let cleanup = |dir: &std::path::Path| { let _ = std::fs::remove_dir_all(dir); };

@@ -41,9 +41,9 @@ ok("Tab without a suggestion indents and does not leave the editor");
 await clear();
 await page.keyboard.press("Meta+k");
 await page.fill("input[aria-label=Command]", "GROUP BY with count");
-await page.waitForFunction(() => (document.querySelector(".palette li")?.innerText ?? "").includes("GROUP BY"));
-await page.keyboard.press("Enter");
-await page.waitForFunction(() => /column_name/.test(document.querySelector(".cm-content").innerText));
+// click the snippet itself rather than trusting which entry is first while the list is still filtering
+await page.locator(".palette li", { hasText: "Snippet: GROUP BY with count" }).first().click();
+await page.waitForFunction(() => /column_name/.test(document.querySelector(".cm-content").innerText), null, { timeout: 15000 });
 await page.keyboard.type("city");
 await page.keyboard.press("Tab");
 await page.keyboard.type("customers");

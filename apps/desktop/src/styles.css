@@ -632,3 +632,11 @@ table.kv th { text-align: left; font-weight: 500; color: var(--dim); width: 170p
 .toast-btn:hover { background: color-mix(in srgb, var(--text) 12%, transparent); color: var(--text); }
 @keyframes toast-in { from { opacity: 0; transform: translateY(8px); } }
 @media (prefers-reduced-motion: reduce) { .toast { animation: none; } }
+
+/* ---- AI assistant ---- */
+.ai-dialog { width: min(640px, calc(100vw - 48px)); display: grid; gap: 10px; }
+.ai-dialog textarea { width: 100%; resize: vertical; font: inherit; padding: 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--control, var(--bg)); color: var(--text); }
+.ai-sql { margin: 0; max-height: 260px; overflow: auto; padding: 10px 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--inset, var(--panel)); font: 12.5px/1.6 var(--font-editor, ui-monospace, Menlo, monospace); white-space: pre-wrap; user-select: text; }
+.ai-dialog .actions { display: flex; gap: 8px; align-items: center; justify-content: flex-end; } .ai-dialog .actions .grow { flex: 1; }
+.ai-page label { display: grid; gap: 4px; margin: 10px 0; } .ai-page input, .ai-page select { padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--control, var(--bg)); color: var(--text); font: inherit; }
+.ai-page .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }

@@ -2,7 +2,9 @@ import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 import { basicSetup } from "codemirror";
 import { Compartment, EditorState, Prec } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
-import { autocompletion, type CompletionContext, type CompletionResult } from "@codemirror/autocomplete";
+import { acceptCompletion, autocompletion, type CompletionContext, type CompletionResult } from "@codemirror/autocomplete";
+import { indentLess, indentMore } from "@codemirror/commands";
+import { linter, lintGutter, type Diagnostic } from "@codemirror/lint";
 import { editorApi, type SuggestionKind } from "./api";
 import { MySQL, sql } from "@codemirror/lang-sql";
 import { oneDark } from "@codemirror/theme-one-dark";
@@ -79,8 +81,19 @@ const Editor = forwardRef<EditorHandle, {
         sql({ dialect: MySQL, upperCaseKeywords: true }),
         themeSlot.current.of(themeFor(cb.current.dark)),
         autocompletion({ override: [completionSource], icons: true }),
+        // problems found without running the statement are underlined (unclosed brackets, unknown tables and columns)
+        linter(async (v): Promise<Diagnostic[]> => {
+          const doc = v.state.doc.toString();
+          if (!doc.trim() || cb.current.connectionId < 0) return [];
+          const found = await editorApi.diagnose(cb.current.connectionId, doc, cb.current.database).catch(() => []);
+          return found.filter((d) => d.to <= doc.length).map((d) => ({ from: d.from, to: d.to, severity: d.severity, message: d.message }));
+        }, { delay: 600 }),
+        lintGutter(),
         // highest precedence: the default keymap binds Mod-Enter to "insert blank line"
         Prec.highest(keymap.of([
+          // Tab takes the highlighted suggestion; otherwise it indents. It never moves focus out of the editor.
+          { key: "Tab", run: (v) => acceptCompletion(v) || indentMore(v) },
+          { key: "Shift-Tab", run: indentLess },
           { key: "Mod-Enter", run: () => (cb.current.onRun(), true) },
           { key: "Shift-Mod-f", run: () => (cb.current.onFormat(), true) },
         ])),

@@ -42,7 +42,7 @@ fn derive(password: &str, salt: &[u8], c: Cost) -> Result<Zeroizing<[u8; 32]>> {
         .map_err(|e| Error::Vault(format!("could not derive the key: {e}")))?;
     Ok(key)
 }
-pub(crate) fn key(slot: Slot, id: i64) -> String { format!("{id}:{}", match slot { Slot::DbPassword => "db", Slot::SshPassword => "ssh-password", Slot::SshPassphrase => "ssh-passphrase" }) }
+pub(crate) fn key(slot: Slot, id: i64) -> String { format!("{id}:{}", match slot { Slot::DbPassword => "db", Slot::SshPassword => "ssh-password", Slot::SshPassphrase => "ssh-passphrase", Slot::AiKey => "ai-key" }) }
 
 impl Vault {
     pub fn new(path: &Path) -> Vault { Vault::with_cost(path, DEFAULT_COST) }

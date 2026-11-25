@@ -36,6 +36,8 @@ pub enum Slot {
     DbPassword,
     SshPassword,
     SshPassphrase,
+    /// The key of the AI assistant's service (not tied to a connection: always stored under id 0).
+    AiKey,
 }
 
 impl Slot {
@@ -45,6 +47,7 @@ impl Slot {
             Slot::DbPassword => id.to_string(),
             Slot::SshPassword => format!("{id}:ssh-password"),
             Slot::SshPassphrase => format!("{id}:ssh-passphrase"),
+            Slot::AiKey => format!("{id}:ai-key"),
         }
     }
 }
@@ -379,7 +382,9 @@ impl Store {
     pub fn secret_keys(&self) -> Result<Vec<(i64, Slot)>> {
         let mut st = self.db.prepare("SELECT id FROM connections")?;
         let ids: Vec<i64> = st.query_map([], |r| r.get(0))?.collect::<std::result::Result<_, _>>()?;
-        Ok(ids.into_iter().flat_map(|id| ALL_SLOTS.into_iter().map(move |s| (id, s))).collect())
+        let mut keys: Vec<(i64, Slot)> = ids.into_iter().flat_map(|id| ALL_SLOTS.into_iter().map(move |s| (id, s))).collect();
+        keys.push((0, Slot::AiKey));
+        Ok(keys)
     }
 
     pub fn connection(&self, id: i64) -> Result<Option<SavedConnection>> {

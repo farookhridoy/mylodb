@@ -1,10 +1,11 @@
 import SecuritySettings from "./SecuritySettings";
+import AiSettings from "./AiSettings";
 import { useMemo, useState } from "react";
 import Select from "./Select";
 import { AREA_LABEL, DEFAULTS, FAMILIES, SCHEMES, SIZE_RANGE, applyPrefs, savePrefs, type Area, type Prefs } from "./prefs";
 import { THEMES, themeById, type ThemePref } from "./theme";
 
-type PageId = "theme" | "font-ui" | "font-tree" | "font-grid" | "font-editor" | "colours" | "passwords";
+type PageId = "theme" | "font-ui" | "font-tree" | "font-grid" | "font-editor" | "colours" | "passwords" | "ai";
 interface Page { id: PageId; group: string; label: string; words: string }
 const PAGES: Page[] = [
   { id: "theme", group: "Appearance", label: "Theme", words: "light dark system mode colour" },
@@ -13,6 +14,7 @@ const PAGES: Page[] = [
   { id: "font-grid", group: "Fonts", label: "Data grid", words: "font family size bold results table cells" },
   { id: "font-editor", group: "Fonts", label: "Query editor", words: "font family size bold line height sql code" },
   { id: "passwords", group: "Security", label: "Saved passwords", words: "keychain master password encrypted file prompt unlock security" },
+  { id: "ai", group: "Editor", label: "AI assistant", words: "ai assistant write query ollama groq openrouter gemini free model key llm" },
   { id: "colours", group: "Editor", label: "Syntax colours", words: "editor colour scheme highlight solarized contrast vivid multi-colour" },
 ];
 
@@ -25,9 +27,11 @@ export default function PreferencesDialog(props: {
   /** Called on every edit, so the editor can preview the colour scheme. */
   onLive(p: Prefs): void;
   onClose(): void;
+  /** Open on this page instead of Theme. */
+  startPage?: PageId;
 }) {
   const [p, setP] = useState<Prefs>(props.initial);
-  const [page, setPage] = useState<PageId>("theme");
+  const [page, setPage] = useState<PageId>(props.startPage ?? "theme");
   const [filter, setFilter] = useState("");
   const update = (next: Prefs) => { setP(next); applyPrefs(next); props.onLive(next); };
   const setArea = (a: Area, patch: Partial<Prefs[Area]>) => update({ ...p, [a]: { ...p[a], ...patch } });
@@ -111,6 +115,7 @@ export default function PreferencesDialog(props: {
               </div>
             )}
             {current?.id === "passwords" && <SecuritySettings />}
+            {current?.id === "ai" && <AiSettings />}
             {current?.id === "font-ui" && fontPage("ui")}
             {current?.id === "font-tree" && fontPage("tree")}
             {current?.id === "font-grid" && fontPage("grid")}

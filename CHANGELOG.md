@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.8.0 (2026-11-25)
+
+**Added**
+* **Ask AI.** Describe a query in plain words and a model writes the SQL. It works with any service that speaks the common chat protocol: **Ollama** on your own computer (free and private), or the free tiers of **Groq**, **OpenRouter** and **Google Gemini** (each needs a key from that service). Set it up under Preferences, AI assistant. It is off until you do. Only your sentence and the *names* of the tables, columns and foreign keys of the selected database are sent, never rows or values, and only after you allow it once per service. The SQL is shown for review and put in the editor only when you choose; it is never run for you. The key is stored with your other saved passwords.
+* **Errors underlined as you type** (phase 20): a bracket or quote that never closes, a table that is not in the database, a column that is not in its table (`alias.column`). Hover for the reason.
+* **Tab takes the highlighted suggestion** and stays in the editor. Without a suggestion it indents (it used to move focus to another control).
+
+**Known limits**
+* The assistant has been tested against a stand-in service only, not yet against the real Ollama, Groq, OpenRouter or Gemini. Free-tier model names change; the model name is editable.
+* Underlining checks `alias.column` and table names only, not bare column names.
+
 ## 0.7.0 (2026-11-25)
 
 **Added**

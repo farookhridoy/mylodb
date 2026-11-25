@@ -1,13 +1,13 @@
 <h1 align="center">MyLoDB</h1>
 
 <p align="center">
-  <b>An open-source MySQL, MariaDB and SQLite manager for macOS, written in Rust and React.</b><br>
+  <b>An open-source MySQL, MariaDB and SQLite manager for macOS and Windows, written in Rust and React.</b><br>
   Browse, query, edit, design and administer your databases in one fast native window.
 </p>
 
 <p align="center">
   <a href="https://github.com/farookhridoy/mylodb/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/farookhridoy/mylodb?color=3794ff"></a>
-  <img alt="macOS" src="https://img.shields.io/badge/macOS-Apple%20Silicon-lightgrey">
+  <img alt="macOS and Windows" src="https://img.shields.io/badge/macOS%20%C2%B7%20Windows-lightgrey">
   <img alt="MySQL and MariaDB" src="https://img.shields.io/badge/MySQL%20%7C%20MariaDB-4479a1">
   <a href="LICENSE"><img alt="Apache-2.0 license" src="https://img.shields.io/badge/license-Apache--2.0-green"></a>
 </p>
@@ -31,7 +31,7 @@
 > **The first time you open MyLoDB, macOS shows a warning. That is expected.** The app is not signed with a paid Apple Developer certificate.
 > Click **Done** (not *Move to Trash*), then **System Settings → Privacy & Security → Open Anyway**. [Step-by-step](#how-to-install-and-open-mylodb).
 
-MyLoDB is for people who miss SQLyog on the Mac. It connects to MySQL and MariaDB (and opens SQLite files) and gives you a tree of your objects with a fast filter, a SQL editor with autocomplete, an editable data grid, a table designer, user and privilege management, server tools, and backup and import. It is built for safety (production colouring, server-enforced read-only, a review before destructive SQL) and for big tables (keyset paging, windowed grid, streamed exports).
+MyLoDB is for people who miss SQLyog on the Mac or Windows. It connects to MySQL and MariaDB (and opens SQLite files) and gives you a tree of your objects with a fast filter, a SQL editor with autocomplete, an editable data grid, a table designer, user and privilege management, server tools, and backup and import. It is built for safety (production colouring, server-enforced read-only, a review before destructive SQL) and for big tables (keyset paging, windowed grid, streamed exports).
 
 *Screenshots show the real interface running on demo data, not a real server.*
 
@@ -50,7 +50,7 @@ MyLoDB is for people who miss SQLyog on the Mac. It connects to MySQL and MariaD
 | **Visual tools** | A visual **query builder** (tables, joins from foreign keys, columns with functions, conditions, order, limit; the SQL is built and quoted by the backend) and a whole-database **ER diagram** (drag, zoom, filter, copy as Mermaid). |
 | **Analysis tools** | **Schema compare** (make one database match another, with Preview SQL), **data search** across every table, an **index advisor** (duplicate, redundant, missing foreign key indexes), live **server charts**, and **JSON / JSON Lines import**. |
 | **SQLite** | Open a `.sqlite` / `.db` file (writable, or read-only if you choose): browse tables, views and triggers, run SQL that changes data, edit rows in the data grid, page, sort and filter. Features a file cannot have (users, server tools, backup) are disabled with the reason. |
-| **Connections** | Passwords in the macOS Keychain. SSH tunnels (host key confirmation), SSL modes, connect by URL, groups, several connections open at once. |
+| **Connections** | Passwords in the macOS Keychain or Windows Credential Manager (or an encrypted file). SSH tunnels (host key confirmation), SSL modes, connect by URL, groups, several connections open at once. |
 | **Safe by default** | Environment badge and colour, server-enforced read-only, query time limit, row-estimate review of destructive SQL, type-to-confirm on production. No telemetry. |
 | **Comfortable** | Light, dark and system themes, per-area fonts, four editor colour schemes, command palette (⌘K), native macOS menus, a built-in manual and a first-run tour. |
 
@@ -62,6 +62,7 @@ Get the installer from the **[Releases page](https://github.com/farookhridoy/myl
 |---|---|
 | Mac with Apple Silicon (M1 and later) | `MyLoDB_<version>_aarch64.dmg` |
 | Mac with an Intel processor (from 0.4.0) | `MyLoDB_<version>_x64.dmg` |
+| Windows 10 or 11, 64-bit (from 0.6.0) | `MyLoDB_<version>_x64-setup.exe` (SmartScreen may warn: **More info**, then **Run anyway**) |
 
 A notarised build is on the [roadmap](docs/ROADMAP.md). Not sure which Mac you have? Apple menu → **About This Mac**: *Chip: Apple M…* is Apple Silicon, *Processor: Intel…* is Intel.
 
@@ -144,7 +145,7 @@ Version **0.6.0** adds a Windows build (installer and self-update). 0.5.1 keeps 
 
 ## Build it yourself
 
-You need Rust, Node.js 20 or later, and the Tauri prerequisites for macOS.
+You need Rust, Node.js 20 or later, and the [Tauri prerequisites](https://tauri.app/start/prerequisites/) for your system (macOS or Windows).
 
 ```sh
 cd apps/desktop

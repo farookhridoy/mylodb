@@ -29,6 +29,14 @@ pub struct Schedule {
     pub name: String,
     pub connection_id: i64,
     pub databases: Vec<String>,
+    /// `backup` (a SQL dump of the databases) or `export` (the result of one SELECT, run in the first database).
+    #[serde(default = "backup_kind")]
+    pub kind: String,
+    #[serde(default)]
+    pub sql: String,
+    /// For an export: `csv`, `json`, `json_lines`, `sql_insert`, `xml`, `html` or `xlsx`.
+    #[serde(default = "csv_format")]
+    pub format: String,
     /// Folder the backups are written to.
     pub dir: String,
     pub rule: Rule,
@@ -49,6 +57,15 @@ pub struct Schedule {
 }
 
 fn yes() -> bool { true }
+fn backup_kind() -> String { "backup".into() }
+fn csv_format() -> String { "csv".into() }
+
+pub const EXPORT_FORMATS: [(&str, &str); 7] = [("csv", "csv"), ("json", "json"), ("json_lines", "jsonl"), ("sql_insert", "sql"), ("xml", "xml"), ("html", "html"), ("xlsx", "xlsx")];
+
+/// The file extension of an export format.
+pub fn export_extension(format: &str) -> Option<&'static str> {
+    EXPORT_FORMATS.iter().find(|(f, _)| *f == format).map(|(_, e)| *e)
+}
 
 pub const TIME_FORMAT: &str = "%Y-%m-%d %H:%M:%S";
 pub const LOG_LIMIT: usize = 40;
@@ -113,7 +130,15 @@ pub fn valid(s: &Schedule) -> Result<(), String> {
     if s.name.trim().is_empty() { return Err("Give the job a name.".into()); }
     if s.databases.is_empty() { return Err("Choose at least one database.".into()); }
     if s.dir.trim().is_empty() { return Err("Choose the folder the backups go to.".into()); }
-    if s.keep == 0 { return Err("Keep at least one backup.".into()); }
+    if s.keep == 0 { return Err("Keep at least one copy.".into()); }
+    match s.kind.as_str() {
+        "backup" => {}
+        "export" => {
+            if s.sql.trim().is_empty() { return Err("Write the SELECT to export.".into()); }
+            if export_extension(&s.format).is_none() { return Err("Choose a file format.".into()); }
+        }
+        _ => return Err("Choose what the job does: a backup or an export.".into()),
+    }
     match s.rule {
         Rule::Hours { hours } if !(1..=24 * 30).contains(&hours) => Err("Hours must be between 1 and 720.".into()),
         Rule::Daily { hour, minute } | Rule::Weekly { hour, minute, .. } if hour > 23 || minute > 59 => Err("That is not a time of day.".into()),
@@ -143,7 +168,7 @@ mod tests {
 
     fn at(s: &str) -> NaiveDateTime { parse_time(s).unwrap() }
     fn job(rule: Rule, created: &str, last: Option<&str>) -> Schedule {
-        Schedule { id: "j".into(), name: "n".into(), connection_id: 1, databases: vec!["shop".into()], dir: "/b".into(), rule, keep: 5, compress: false, data: true, enabled: true, created: created.into(), last_run: last.map(String::from), log: vec![] }
+        Schedule { id: "j".into(), name: "n".into(), connection_id: 1, databases: vec!["shop".into()], dir: "/b".into(), rule, keep: 5, compress: false, data: true, enabled: true, created: created.into(), last_run: last.map(String::from), log: vec![], kind: "backup".into(), sql: String::new(), format: "csv".into() }
     }
 
     #[test]
@@ -204,6 +229,24 @@ mod tests {
         for i in 0..60 { push_log(&mut j, at("2026-11-25 10:00:00"), i % 2 == 0, format!("run {i}")); }
         assert_eq!(j.log.len(), LOG_LIMIT);
         assert_eq!(j.log[0].message, "run 59", "newest first");
+    }
+
+    #[test]
+    fn an_export_needs_its_select_and_a_known_format_and_old_files_still_load() {
+        let mut j = job(Rule::Daily { hour: 3, minute: 0 }, "2026-11-01 00:00:00", None);
+        j.kind = "export".into();
+        assert!(valid(&j).unwrap_err().contains("SELECT"));
+        j.sql = "SELECT 1".into();
+        assert!(valid(&j).is_ok());
+        j.format = "pdf".into();
+        assert!(valid(&j).is_err());
+        assert_eq!(export_extension("json_lines"), Some("jsonl"));
+        j.kind = "other".into();
+        assert!(valid(&j).is_err());
+        // a job saved before exports existed has none of the new fields
+        let old = r#"{"id":"a","name":"n","connection_id":1,"databases":["shop"],"dir":"/b","rule":{"kind":"hours","hours":6},"keep":3,"created":"2026-11-01 00:00:00"}"#;
+        let s: Schedule = serde_json::from_str(old).unwrap();
+        assert_eq!((s.kind.as_str(), s.format.as_str(), s.data, s.enabled), ("backup", "csv", true, true));
     }
 
     #[test]

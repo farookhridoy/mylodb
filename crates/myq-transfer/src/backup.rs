@@ -274,9 +274,15 @@ pub fn strip_definer(sql: &str) -> String {
 /// Delete the oldest backups of `name` in `dir`, keeping the newest `keep`. Only entries this module could have written are touched:
 /// `<name>-YYYYMMDD-HHMMSS.sql`, `.zip`, or a folder of that name. Returns what was removed.
 pub fn prune_backups(dir: &Path, name: &str, keep: usize) -> std::io::Result<Vec<PathBuf>> {
+    prune_files(dir, name, keep, &["sql", "zip"], true)
+}
+
+/// The same for any job that writes `<name>-YYYYMMDD-HHMMSS.<ext>` with one of `exts` (a scheduled export); `folders` also counts a
+/// folder of that name (a backup with one file per table).
+pub fn prune_files(dir: &Path, name: &str, keep: usize, exts: &[&str], folders: bool) -> std::io::Result<Vec<PathBuf>> {
     let prefix = format!("{}-", file_safe(name));
     let stamp = |rest: &str| -> bool {
-        let base = rest.strip_suffix(".sql").or_else(|| rest.strip_suffix(".zip")).unwrap_or(rest);
+        let base = exts.iter().find_map(|x| rest.strip_suffix(&format!(".{x}"))).unwrap_or(rest);
         let b = base.as_bytes();
         b.len() == 15 && b[8] == b'-' && b.iter().enumerate().all(|(i, c)| i == 8 || c.is_ascii_digit())
     };
@@ -285,7 +291,7 @@ pub fn prune_backups(dir: &Path, name: &str, keep: usize) -> std::io::Result<Vec
         .filter_map(|e| {
             let file = e.file_name().to_string_lossy().into_owned();
             let rest = file.strip_prefix(&prefix)?;
-            let ok = stamp(rest) && (e.path().is_dir() || rest.ends_with(".sql") || rest.ends_with(".zip"));
+            let ok = stamp(rest) && ((folders && e.path().is_dir()) || exts.iter().any(|x| rest.ends_with(&format!(".{x}"))));
             ok.then(|| (rest.to_string(), e.path()))
         })
         .collect();
@@ -796,6 +802,14 @@ mod tests {
             assert!(dir.join(keep).exists(), "{keep} must stay");
         }
         assert!(prune_backups(&dir, "shop", 5).unwrap().is_empty(), "nothing to remove when there are fewer than the limit");
+        // exports: only the chosen extensions, and never a folder
+        for f in ["sales-20260101-010000.csv", "sales-20260102-010000.csv", "sales-20260103-010000.csv", "sales-20260101-010000.sql"] {
+            std::fs::write(dir.join(f), "x").unwrap();
+        }
+        std::fs::create_dir_all(dir.join("sales-20260102-010000")).unwrap();
+        let gone = prune_files(&dir, "sales", 1, &["csv"], false).unwrap();
+        assert_eq!(gone.len(), 2, "the two older csv files go");
+        assert!(dir.join("sales-20260103-010000.csv").exists() && dir.join("sales-20260101-010000.sql").exists() && dir.join("sales-20260102-010000").exists());
         let _ = std::fs::remove_dir_all(&dir);
     }
 

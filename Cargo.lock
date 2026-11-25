@@ -3077,8 +3077,10 @@ version = "0.10.0"
 dependencies = [
  "myq-core",
  "myq-data",
+ "myq-schema",
  "myq-sql",
  "rusqlite",
+ "serde_json",
  "tokio",
 ]
 

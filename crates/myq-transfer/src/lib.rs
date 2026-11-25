@@ -7,7 +7,7 @@ mod csv_import;
 mod json_import;
 mod sql_run;
 
-pub use backup::{backup, prune_backups, strip_definer, BackupOptions, BackupResult, BackupTarget, DbSelection};
+pub use backup::{backup, prune_backups, prune_files, strip_definer, BackupOptions, BackupResult, BackupTarget, DbSelection};
 pub use csv_import::{import_csv, infer_schema, preview_csv, sniff_delimiter, CsvFormat, CsvPreview, ImportMode, ImportPlan, ImportResult, InferredColumn, RowError};
 pub use json_import::{json_to_csv, JsonConversion, MAX_ARRAY_BYTES, NULL_TEXT};
 pub use sql_run::{preview_source, run_source, PreviewStatement, RunOptions, RunResult, ScriptError, SourcePreview};

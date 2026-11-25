@@ -14,6 +14,31 @@ fn failed(e: impl std::fmt::Display) -> BackendError {
     BackendError(e.to_string())
 }
 
+/// Lets a running statement be stopped from another task (the Cancel button): `cancel` interrupts the statement in progress and
+/// makes the script skip the statements after it.
+#[derive(Default)]
+pub struct CancelToken {
+    handle: std::sync::Mutex<Option<rusqlite::InterruptHandle>>,
+    stopped: std::sync::atomic::AtomicBool,
+}
+
+impl CancelToken {
+    pub fn new() -> CancelToken {
+        CancelToken::default()
+    }
+
+    pub fn cancel(&self) {
+        self.stopped.store(true, std::sync::atomic::Ordering::SeqCst);
+        if let Some(h) = self.handle.lock().unwrap().as_ref() {
+            h.interrupt();
+        }
+    }
+
+    fn stopped(&self) -> bool {
+        self.stopped.load(std::sync::atomic::Ordering::SeqCst)
+    }
+}
+
 /// A SQLite file. Every call opens its own connection (cheap for a file), so there is no pool and no shared state to lose.
 /// A read-only backend opens the file by the read-only flag and `PRAGMA query_only`; a writable one opens it read-write
 /// (an existing file only: opening never creates one).
@@ -62,6 +87,16 @@ impl SqliteBackend {
     /// Whether this backend may change the file.
     pub fn writable(&self) -> bool {
         self.writable
+    }
+
+    /// Like `run`, but the script can be cancelled through `token` while it executes.
+    pub async fn run_cancellable(&self, sql: &str, token: std::sync::Arc<CancelToken>) -> BackendResult<Vec<StatementResult>> {
+        let sql = sql.to_string();
+        self.blocking(move |c| {
+            *token.handle.lock().unwrap() = Some(c.get_interrupt_handle());
+            Ok(run_script_until(c, &sql, Some(&token)))
+        })
+        .await
     }
 
     async fn blocking<T: Send + 'static>(&self, f: impl FnOnce(&Connection) -> rusqlite::Result<T> + Send + 'static) -> BackendResult<T> {
@@ -236,16 +271,25 @@ pub(crate) fn table_pk(conn: &Connection, table: &str) -> rusqlite::Result<Vec<(
 }
 
 fn run_script(conn: &Connection, sql: &str) -> Vec<StatementResult> {
+    run_script_until(conn, sql, None)
+}
+
+fn run_script_until(conn: &Connection, sql: &str, token: Option<&CancelToken>) -> Vec<StatementResult> {
     let mut results = Vec::new();
     for stmt in myq_sql::split_statements(sql) {
         let text = stmt.text.trim().to_string();
         if text.is_empty() {
             continue;
         }
+        if token.is_some_and(|t| t.stopped()) {
+            // the statements after a cancelled one are not started
+            results.push(StatementResult { sql: text, error: Some("Cancelled before it started.".into()), ..Default::default() });
+            continue;
+        }
         let started = Instant::now();
         let mut res = StatementResult { sql: text.clone(), ..Default::default() };
         if let Err(e) = run_one(conn, &text, &mut res) {
-            res.error = Some(e.to_string());
+            res.error = Some(if token.is_some_and(|t| t.stopped()) && e.to_string().to_lowercase().contains("interrupt") { "Cancelled.".to_string() } else { e.to_string() });
         }
         res.elapsed_ms = started.elapsed().as_millis() as u64;
         results.push(res);

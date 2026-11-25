@@ -119,6 +119,8 @@ struct AppState {
     jobs: Mutex<HashMap<String, std::sync::Arc<std::sync::atomic::AtomicBool>>>,
     /// run_id -> (connection id, server-side connection id) of queries currently executing.
     running: Mutex<HashMap<String, (i64, u32)>>,
+    /// SQLite runs that can be cancelled, by run id.
+    sqlite_runs: Mutex<HashMap<String, std::sync::Arc<myq_sqlite::CancelToken>>>,
     /// Scheduled backups (kept in `schedules.json`), and the ones running right now.
     schedules: Mutex<Vec<schedule::Schedule>>,
     schedule_file: std::path::PathBuf,
@@ -608,10 +610,14 @@ async fn run_query(
             return Err(format!("Not run: this connection is read-only, and statement {} ({}) {why}. Edit the connection to turn read-only off.", n + 1, text.lines().next().unwrap_or("").chars().take(60).collect::<String>()));
         }
     }
-    if matches!(engine, Engine::Sqlite(_)) {
-        // a SQLite file: no foreign-key switch, no server-side cancel (a read-only connection also opened the file read-only)
+    if let Engine::Sqlite(backend) = &engine {
+        // a SQLite file: no foreign-key switch (a read-only connection also opened the file read-only); Cancel interrupts the statement
         let started = std::time::Instant::now();
-        let results = engine.run(database.as_deref(), &sql).await.map_err(err)?;
+        let token = std::sync::Arc::new(myq_sqlite::CancelToken::new());
+        state.sqlite_runs.lock().unwrap().insert(run_id.clone(), token.clone());
+        let results = backend.run_cancellable(&sql, token).await.map_err(err);
+        state.sqlite_runs.lock().unwrap().remove(&run_id);
+        let results = results?;
         let ok = results.iter().all(|r| r.error.is_none());
         let _ = state.store.lock().unwrap().add_history(id, sql.trim(), started.elapsed().as_millis() as u64, ok);
         return Ok(results);
@@ -683,10 +689,14 @@ fn is_row_statement(sql: &str) -> bool {
 
 #[tauri::command]
 async fn cancel_query(state: tauri::State<'_, AppState>, run_id: String) -> Result<(), String> {
+    if let Some(token) = state.sqlite_runs.lock().unwrap().get(&run_id).cloned() {
+        token.cancel();
+        return Ok(());
+    }
     let target = state.running.lock().unwrap().get(&run_id).copied();
     let Some((id, server_conn)) = target else { return Ok(()) };
     let pool = state.sessions.lock().unwrap().get(&id).map(|s| s.pool.clone()).ok_or("not connected")?;
-    // a SQLite run cannot be cancelled from here (it is registered nowhere), so only MySQL sessions get here with a pool
+    // only MySQL sessions have a pool; SQLite runs were handled above
     match pool {
         Some(pool) => kill_query(&pool, server_conn).await.map_err(err),
         None => Ok(()),
@@ -851,6 +861,32 @@ struct ExportSummary {
 /// A partial file is removed on failure or cancel (the error is then "cancelled").
 #[tauri::command]
 async fn export_table(app: tauri::AppHandle, state: tauri::State<'_, AppState>, id: i64, job_id: String, db: String, table: String, spec: PageSpec, options: ExportOptions, path: String) -> Result<ExportSummary, String> {
+    if let Some(file) = sqlite_file(&state, id) {
+        // a SQLite file: the rows are streamed from the file into the same writers
+        let meta = myq_sqlite::table_meta(&file, &table, false)?;
+        let options = ExportOptions { name: options.name.clone().or_else(|| Some(table.clone())), ..options };
+        let total = myq_sqlite::count_rows(&file, &meta, &spec.filters, spec.where_sql.as_deref()).ok();
+        let guard = JobGuard::start(&state, &job_id);
+        let mut progress = job_progress(app, job_id);
+        let flag = guard.flag.clone();
+        let out_path = path.clone();
+        let result = tokio::task::spawn_blocking(move || {
+            let mut tick = move |rows: u64| {
+                progress(myq_transfer::Progress { phase: "export".into(), done: rows, total, message: format!("{rows} rows written") });
+                !flag.load(std::sync::atomic::Ordering::Relaxed)
+            };
+            myq_sqlite::export_table(&file, &meta, &spec, &options, myq_data::Dest::File(std::path::Path::new(&out_path)), &mut tick)
+        })
+        .await
+        .map_err(err)?;
+        return match result {
+            Ok(o) => Ok(ExportSummary { rows: o.rows, warnings: o.warnings }),
+            Err(e) => {
+                let _ = std::fs::remove_file(&path);
+                Err(e)
+            }
+        };
+    }
     let mut c = conn_for(&state, id).await?;
     let meta = myq_data::table_meta(&mut c, &db, &table).await.map_err(err)?;
     let options = ExportOptions { name: options.name.clone().or_else(|| Some(table.clone())), ..options };
@@ -875,6 +911,28 @@ async fn export_table(app: tauri::AppHandle, state: tauri::State<'_, AppState>, 
 /// Export the result of one SELECT to a file, as a job (see `export_table`).
 #[tauri::command]
 async fn export_query(app: tauri::AppHandle, state: tauri::State<'_, AppState>, id: i64, job_id: String, database: Option<String>, sql: String, options: ExportOptions, path: String) -> Result<ExportSummary, String> {
+    if let Some(file) = sqlite_file(&state, id) {
+        let guard = JobGuard::start(&state, &job_id);
+        let mut progress = job_progress(app, job_id);
+        let flag = guard.flag.clone();
+        let out_path = path.clone();
+        let result = tokio::task::spawn_blocking(move || {
+            let mut tick = move |rows: u64| {
+                progress(myq_transfer::Progress { phase: "export".into(), done: rows, total: None, message: format!("{rows} rows written") });
+                !flag.load(std::sync::atomic::Ordering::Relaxed)
+            };
+            myq_sqlite::export_query(&file, &sql, &options, myq_data::Dest::File(std::path::Path::new(&out_path)), &mut tick)
+        })
+        .await
+        .map_err(err)?;
+        return match result {
+            Ok(o) => Ok(ExportSummary { rows: o.rows, warnings: o.warnings }),
+            Err(e) => {
+                let _ = std::fs::remove_file(&path);
+                Err(e)
+            }
+        };
+    }
     let mut c = conn_for(&state, id).await?;
     let guard = JobGuard::start(&state, &job_id);
     let mut progress = job_progress(app, job_id);
@@ -1272,6 +1330,33 @@ async fn backup_job(
     result.map_err(err)
 }
 
+// ---- where is this used ----
+
+/// The views, routines, triggers, events and foreign keys that mention a table (or one of its columns). A rename does not change them.
+#[tauri::command]
+async fn find_usages(state: tauri::State<'_, AppState>, id: i64, db: String, table: String, column: Option<String>) -> Result<Vec<myq_admin::Usage>, String> {
+    let engine = state.sessions.lock().unwrap().get(&id).ok_or("not connected")?.engine.clone();
+    if engine.sqlite_path().is_some() {
+        let res = engine.run(None, "SELECT type, name, tbl_name, sql FROM sqlite_master WHERE sql IS NOT NULL").await.map_err(err)?;
+        let rows: Vec<Vec<String>> = res.iter().flat_map(|r| r.sets.iter()).flat_map(|s| s.rows.iter()).map(|r| r.iter().map(|c| c.clone().unwrap_or_default()).collect()).collect();
+        let mut out = Vec::new();
+        let mut defs = Vec::new();
+        for r in rows.into_iter().filter(|r| r.len() == 4) {
+            let (kind, name, on, sql) = (r[0].clone(), r[1].clone(), r[2].clone(), r[3].clone());
+            match kind.as_str() {
+                "index" if on.eq_ignore_ascii_case(&table) && !name.starts_with("sqlite_") && column.as_deref().map_or(true, |c| myq_admin::mentions(&sql, c)) => out.push(myq_admin::Usage { kind: "index".into(), db: db.clone(), name, detail: sql.lines().next().unwrap_or("").trim().to_string() }),
+                "table" if !name.eq_ignore_ascii_case(&table) && myq_admin::mentions(&sql, &table) => out.push(myq_admin::Usage { kind: "foreign key (points here)".into(), db: db.clone(), name: name.clone(), detail: myq_admin::first_mention(&sql, &table).unwrap_or_default() }),
+                "view" | "trigger" => defs.push((kind, db.clone(), name, sql)),
+                _ => {}
+            }
+        }
+        out.extend(myq_admin::filter_definitions(defs, &db, &table, column.as_deref()));
+        return Ok(out);
+    }
+    let mut c = conn_for(&state, id).await?;
+    myq_admin::find_usages(&mut c, &db, &table, column.as_deref()).await.map_err(err)
+}
+
 // ---- scheduled backups ----
 
 #[derive(serde::Serialize, Clone)]
@@ -1304,6 +1389,10 @@ fn schedule_save(state: tauri::State<'_, AppState>, mut job: schedule::Schedule)
     schedule::valid(&job)?;
     {
         let mut list = state.schedules.lock().unwrap();
+        // two jobs with one name in one folder would delete each other's files when they trim to the last N
+        if list.iter().any(|s| s.id != job.id && s.name.trim().eq_ignore_ascii_case(job.name.trim()) && s.dir == job.dir) {
+            return Err("Another job already uses this name in this folder. Give it a different name.".into());
+        }
         match list.iter_mut().find(|s| !job.id.is_empty() && s.id == job.id) {
             Some(old) => {
                 job.created = old.created.clone();
@@ -1350,7 +1439,48 @@ async fn run_schedule(app: tauri::AppHandle, id: String) -> Result<String, Strin
             })?;
         }
         std::fs::create_dir_all(&job.dir).map_err(|e| format!("cannot use the folder {}: {e}", job.dir))?;
+        if let Some(file) = sqlite_file(&state, job.connection_id) {
+            // a SQLite file: a backup is a consistent copy made by VACUUM INTO; an export streams the rows
+            let stamp = now_local().format("%Y%m%d-%H%M%S").to_string();
+            let safe: String = job.name.chars().map(|c| if c.is_alphanumeric() || matches!(c, '_' | '-' | '.' | ' ') { c } else { '_' }).collect();
+            let started = std::time::Instant::now();
+            let (path, ext) = if job.kind == "export" {
+                let ext = schedule::export_extension(&job.format).ok_or("unknown file format")?;
+                (std::path::Path::new(&job.dir).join(format!("{}-{stamp}.{ext}", safe.trim())), ext)
+            } else {
+                (std::path::Path::new(&job.dir).join(format!("{}-{stamp}.sqlite", safe.trim())), "sqlite")
+            };
+            let (p2, j2) = (path.clone(), job.clone());
+            let rows = tokio::task::spawn_blocking(move || -> Result<Option<u64>, String> {
+                if j2.kind == "export" {
+                    let options: myq_data::ExportOptions = serde_json::from_value(serde_json::json!({ "format": j2.format, "name": j2.name })).map_err(err)?;
+                    myq_sqlite::export_query(&file, &j2.sql, &options, myq_data::Dest::File(&p2), &mut |_| true).map(|o| Some(o.rows))
+                } else {
+                    myq_sqlite::backup_to(&file, &p2).map(|_| None)
+                }
+            })
+            .await
+            .map_err(err)?;
+            let rows = match rows { Ok(r) => r, Err(e) => { let _ = std::fs::remove_file(&path); return Err(e); } };
+            let removed = myq_transfer::prune_files(std::path::Path::new(&job.dir), &job.name, job.keep as usize, &[ext], false).unwrap_or_default().len();
+            let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+            return Ok(format!("{}: {}{:.1} MB in {:.1} s{}", path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(), rows.map(|r| format!("{r} rows, ")).unwrap_or_default(), size as f64 / 1_048_576.0, started.elapsed().as_secs_f64(), if removed > 0 { format!("; removed {removed} old file(s)") } else { String::new() }));
+        }
         let mut c = conn_for(&state, job.connection_id).await?;
+        if job.kind == "export" {
+            // the result of one SELECT, written to <name>-<stamp>.<ext>; older files of this job beyond the limit are removed
+            let ext = schedule::export_extension(&job.format).ok_or("unknown file format")?;
+            let stamp = now_local().format("%Y%m%d-%H%M%S");
+            let safe: String = job.name.chars().map(|c| if c.is_alphanumeric() || matches!(c, '_' | '-' | '.' | ' ') { c } else { '_' }).collect();
+            let path = std::path::Path::new(&job.dir).join(format!("{}-{stamp}.{ext}", safe.trim()));
+            let options: myq_data::ExportOptions = serde_json::from_value(serde_json::json!({ "format": job.format, "name": job.name })).map_err(err)?;
+            let started = std::time::Instant::now();
+            let out = myq_data::export_query(&mut c, job.databases.first().map(String::as_str), &job.sql, &options, myq_data::Dest::File(&path), &mut |_rows: u64| true).await;
+            let out = match out { Ok(o) => o, Err(e) => { let _ = std::fs::remove_file(&path); return Err(err(e)); } };
+            let removed = myq_transfer::prune_files(std::path::Path::new(&job.dir), &job.name, job.keep as usize, &[ext], false).unwrap_or_default().len();
+            let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+            return Ok(format!("{}: {} rows, {:.1} MB in {:.1} s{}", path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(), out.rows, size as f64 / 1_048_576.0, started.elapsed().as_secs_f64(), if removed > 0 { format!("; removed {removed} old file(s)") } else { String::new() }));
+        }
         let options: myq_transfer::BackupOptions = serde_json::from_value(serde_json::json!({
             "databases": job.databases.iter().map(|d| serde_json::json!({ "name": d })).collect::<Vec<_>>(),
             "data": job.data, "compress": job.compress,
@@ -1677,6 +1807,10 @@ struct TableDefResult {
 
 #[tauri::command]
 async fn table_def(state: tauri::State<'_, AppState>, id: i64, db: String, table: String) -> Result<TableDefResult, String> {
+    if let Some(file) = sqlite_file(&state, id) {
+        let def = tokio::task::spawn_blocking(move || myq_sqlite::read_table_def(&file, &table)).await.map_err(err)??;
+        return Ok(TableDefResult { def, warnings: vec![] });
+    }
     let mut c = conn_for(&state, id).await?;
     let (def, warnings) = myq_admin::read_table_def(&mut c, &db, &table).await.map_err(err)?;
     Ok(TableDefResult { def, warnings })
@@ -1698,8 +1832,9 @@ fn ddl_statements(db: &str, original: &Option<TableDef>, desired: &TableDef) -> 
 }
 
 #[tauri::command]
-fn ddl_preview(db: String, original: Option<TableDef>, desired: TableDef) -> DdlPreview {
-    match ddl_statements(&db, &original, &desired) {
+fn ddl_preview(db: String, original: Option<TableDef>, desired: TableDef, sqlite: Option<bool>) -> DdlPreview {
+    let result = if sqlite == Some(true) { myq_sqlite::ddl_statements(original.as_ref(), &desired) } else { ddl_statements(&db, &original, &desired) };
+    match result {
         Ok(statements) => DdlPreview { statements, errors: vec![] },
         Err(errors) => DdlPreview { statements: vec![], errors },
     }
@@ -1743,6 +1878,21 @@ async fn refresh_index(state: tauri::State<'_, AppState>, id: i64) -> Result<Vec
 #[tauri::command]
 async fn ddl_apply(state: tauri::State<'_, AppState>, id: i64, db: String, original: Option<TableDef>, desired: TableDef) -> Result<Vec<String>, String> {
     guard_writable(&state, id, "changing a table definition")?;
+    if let Some((file, writable)) = sqlite_target(&state, id) {
+        if !writable {
+            return Err("This SQLite file is open read-only.".into());
+        }
+        let statements = myq_sqlite::ddl_statements(original.as_ref(), &desired).map_err(|e| e.join("; "))?;
+        if statements.is_empty() {
+            return Ok(statements);
+        }
+        let list = statements.clone();
+        let result = tokio::task::spawn_blocking(move || myq_sqlite::apply_ddl(&file, &list)).await.map_err(err)?;
+        let _ = state.store.lock().unwrap().add_history(id, &statements.join(";\n"), 0, result.is_ok());
+        result?;
+        reindex(&state, id).await?;
+        return Ok(statements);
+    }
     let statements = ddl_statements(&db, &original, &desired).map_err(|e| e.join("; "))?;
     if statements.is_empty() {
         return Ok(statements);
@@ -2069,7 +2219,7 @@ pub fn run() {
             std::fs::create_dir_all(&dir)?;
             let secrets = std::sync::Arc::new(SecretRouter::open(&dir, Box::new(Keychain::default()), Vault::new(&dir.join("secrets.json"))));
             let store = Store::open(&dir.join("mylodb.sqlite"), Box::new(secrets.clone()))?;
-            app.manage(AppState { store: Mutex::new(store), secrets, sessions: Mutex::new(HashMap::new()), running: Mutex::new(HashMap::new()), jobs: Mutex::new(HashMap::new()), schedules: Mutex::new(schedule::load(&dir.join("schedules.json"))), schedule_file: dir.join("schedules.json"), schedule_running: Mutex::new(Default::default()) });
+            app.manage(AppState { store: Mutex::new(store), secrets, sessions: Mutex::new(HashMap::new()), running: Mutex::new(HashMap::new()), sqlite_runs: Mutex::new(HashMap::new()), jobs: Mutex::new(HashMap::new()), schedules: Mutex::new(schedule::load(&dir.join("schedules.json"))), schedule_file: dir.join("schedules.json"), schedule_running: Mutex::new(Default::default()) });
             start_scheduler(app.handle().clone());
             Ok(())
         })
@@ -2169,6 +2319,7 @@ pub fn run() {
             slow_log,
             top_statements,
             sqlite_maintain,
+            find_usages,
             schedules_list,
             schedule_save,
             schedule_delete,

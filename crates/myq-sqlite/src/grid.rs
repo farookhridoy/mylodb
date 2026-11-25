@@ -142,6 +142,19 @@ fn build_where(meta: &TableMeta, filters: &[ColumnFilter], where_sql: Option<&st
     Ok((parts.join(" AND "), params))
 }
 
+/// The WHERE condition, its parameters and the ORDER BY of a spec, for an export that wants every matching row.
+pub(crate) fn build_where_for_export(meta: &TableMeta, spec: &PageSpec) -> Result<(String, Vec<Value>, String)> {
+    let (cond, params) = build_where(meta, &spec.filters, spec.where_sql.as_deref())?;
+    let mut order = Vec::new();
+    for s in &spec.sort {
+        if !meta.columns.iter().any(|c| c.name == s.column) {
+            return Err(format!("unknown column `{}`", s.column));
+        }
+        order.push(format!("{}{}", q(&s.column), if s.desc { " DESC" } else { "" }));
+    }
+    Ok((cond, params, if order.is_empty() { String::new() } else { format!(" ORDER BY {}", order.join(", ")) }))
+}
+
 /// One page of rows. Paging is by `OFFSET` (no keyset cursor): `keyset` is reported as false so the grid does the same.
 pub fn fetch_page(path: &Path, meta: &TableMeta, spec: &PageSpec) -> Result<Page> {
     let started = Instant::now();

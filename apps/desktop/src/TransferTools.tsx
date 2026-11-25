@@ -16,10 +16,11 @@ export interface TransferPreset { tab?: TransferTab; db?: string; table?: string
 const fmtBytes = (n: number) => (n >= 1 << 30 ? `${(n / (1 << 30)).toFixed(2)} GB` : n >= 1 << 20 ? `${(n / (1 << 20)).toFixed(1)} MB` : n >= 1024 ? `${(n / 1024).toFixed(1)} KB` : `${n} B`);
 const fmtMs = (ms: number) => (ms >= 60000 ? `${(ms / 60000).toFixed(1)} min` : ms >= 1000 ? `${(ms / 1000).toFixed(1)} s` : `${ms} ms`);
 
-export default function TransferTools(props: { connectionId: number; nodes: Node[]; preset: TransferPreset; onSchemaChanged(): void; ensureColumns(db: string): Promise<unknown> }) {
-  const [tab, setTab] = useState<TransferTab>(props.preset.tab ?? "backup");
-  useEffect(() => { if (props.preset.tab) setTab(props.preset.tab); }, [props.preset]);
-  const names: [TransferTab, string][] = [["backup", "Backup"], ["restore", "Restore / run script"], ["import", "Import CSV"], ["export", "Export query"]];
+export default function TransferTools(props: { connectionId: number; nodes: Node[]; preset: TransferPreset; onSchemaChanged(): void; ensureColumns(db: string): Promise<unknown>; /** A SQLite file: only exporting is available. */ exportOnly?: boolean }) {
+  const [tab, setTab] = useState<TransferTab>(props.exportOnly ? "export" : props.preset.tab ?? "backup");
+  useEffect(() => { if (props.preset.tab && !props.exportOnly) setTab(props.preset.tab); }, [props.preset]); // eslint-disable-line react-hooks/exhaustive-deps
+  const all: [TransferTab, string][] = [["backup", "Backup"], ["restore", "Restore / run script"], ["import", "Import CSV"], ["export", "Export query"]];
+  const names = props.exportOnly ? all.filter(([t]) => t === "export") : all;
   return (
     <div className="transfer">
       <div className="dz-tabs">{names.map(([t, l]) => <button key={t} className={tab === t ? "active" : ""} onClick={() => setTab(t)}>{l}</button>)}</div>

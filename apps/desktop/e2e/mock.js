@@ -259,6 +259,14 @@ Object.assign(handlers, {
   },
   schedule_delete: (a) => { window.__sched = (window.__sched ?? []).filter((s) => s.id !== a.id); return window.__sched; },
   schedule_run_now: (a) => { const s = window.__sched.find((x) => x.id === a.id); s.last_run = "2026-11-25 10:00:00"; s.log.unshift({ time: "2026-11-25 10:00:00", ok: true, message: "shop-20261125-100000.zip: 12 table(s), 3400 rows, 0.1 MB in 0.4 s; removed 1 old backup(s)" }); return s.log[0].message; },
+  find_usages: (a) => {
+    const all = [
+      { kind: "view", db: "shop", name: "v_big_orders", detail: "select `o`.`total` from `shop`.`orders` o where `o`.`total` > 100" },
+      { kind: "trigger", db: "shop", name: "trg_orders_ai", detail: "on orders: INSERT INTO orders_log SELECT * FROM orders" },
+      { kind: "foreign key (points here)", db: "shop", name: "order_items.fk_items_order", detail: "order_items.order_id → orders.id" },
+    ];
+    return a.column ? all.filter((u) => u.detail.includes(a.column)) : all;
+  },
   top_statements: (a) => {
     if (window.__noPerfSchema) throw "the Performance Schema statement summary is not available (performance_schema is OFF). Turn it on with performance_schema=ON in the server settings and restart the server";
     const rows = [

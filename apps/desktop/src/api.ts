@@ -223,8 +223,8 @@ export type DatabaseOp = { op: "create"; name: string; charset: string | null; c
 
 export const schemaApi = {
   tableDef: (id: number, db: string, table: string) => invoke<{ def: TableDef; warnings: string[] }>("table_def", { id, db, table }),
-  preview: (db: string, original: TableDef | null, desired: TableDef) =>
-    invoke<{ statements: string[]; errors: string[] }>("ddl_preview", { db, original, desired }),
+  preview: (db: string, original: TableDef | null, desired: TableDef, sqlite?: boolean) =>
+    invoke<{ statements: string[]; errors: string[] }>("ddl_preview", { db, original, desired, sqlite: sqlite ?? false }),
   apply: (id: number, db: string, original: TableDef | null, desired: TableDef) => invoke<string[]>("ddl_apply", { id, db, original, desired }),
   refreshIndex: (id: number) => invoke<Node[]>("refresh_index", { id }),
   tableOp: (id: number, db: string, table: string, operation: TableOp) => invoke<string[]>("table_op", { id, db, table, operation }),
@@ -328,6 +328,11 @@ export interface ProfileResult {
 
 export interface SqlDiagnostic { from: number; to: number; severity: "error" | "warning"; message: string }
 
+export interface Usage { kind: string; db: string; name: string; detail: string }
+export const usagesApi = {
+  find: (id: number, db: string, table: string, column: string | null) => invoke<Usage[]>("find_usages", { id, db, table, column }),
+};
+
 export const sqliteApi = {
   maintain: (id: number, op: "integrity" | "quick" | "foreign_keys" | "vacuum" | "analyze" | "reindex" | "optimize") => invoke<string>("sqlite_maintain", { id, op }),
 };
@@ -336,7 +341,7 @@ export const sqliteApi = {
 export type ScheduleRule = { kind: "hours"; hours: number } | { kind: "daily"; hour: number; minute: number } | { kind: "weekly"; weekday: number; hour: number; minute: number };
 export interface ScheduleLog { time: string; ok: boolean; message: string }
 export interface Schedule {
-  id: string; name: string; connection_id: number; databases: string[]; dir: string; rule: ScheduleRule; keep: number; compress: boolean; data: boolean; enabled: boolean;
+  id: string; name: string; connection_id: number; databases: string[]; kind: "backup" | "export"; sql: string; format: string; dir: string; rule: ScheduleRule; keep: number; compress: boolean; data: boolean; enabled: boolean;
   created: string; last_run: string | null; log: ScheduleLog[]; next_run?: string | null; running?: boolean;
 }
 export const scheduleApi = {
@@ -442,7 +447,7 @@ export interface Cap { available: boolean; reason: string | null }
 export interface Capabilities {
   flavor: "mysql" | "mariadb" | "sqlite";
   schemas: Cap; routines: Cap; triggers: Cap; events: Cap; users: Cap; replication: Cap; explain_analyze: Cap; read_only_session: Cap; row_estimates: Cap;
-  server_tools: Cap; dump_restore: Cap; writes: Cap;
+  server_tools: Cap; dump_restore: Cap; /** Export to a file; older builds of the backend do not send it. */ data_export?: Cap; writes: Cap;
 }
 export const capabilitiesApi = { get: (id: number) => invoke<Capabilities>("capabilities", { id }) };
 

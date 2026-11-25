@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Select from "./Select";
 import { open as pickPath, save as savePath } from "@tauri-apps/plugin-dialog";
-import { capabilitiesApi, type Capabilities, fileApi, onMenuAction, api, describeError, isVaultLocked, secretsApi, editorApi, sqliteApi, onScheduleDone, planApi, queryApi, schemaApi, serverApi, type PlanOp, type ConnectError, type Favorite, type FormatOptions, type Kind, type Environment, type Maintenance, type Review, type Node, type SavedConnection, type TableOp } from "./api";
+import { capabilitiesApi, type Capabilities, fileApi, onMenuAction, api, describeError, isVaultLocked, secretsApi, editorApi, sqliteApi, usagesApi, onScheduleDone, planApi, queryApi, schemaApi, serverApi, type PlanOp, type ConnectError, type Favorite, type FormatOptions, type Kind, type Environment, type Maintenance, type Review, type Node, type SavedConnection, type TableOp } from "./api";
 import AnalysisPane, { type Analysis } from "./AnalysisPane";
 import ConnectionDialog from "./ConnectionDialog";
 import ContextMenu, { type MenuItem } from "./ContextMenu";
@@ -51,6 +51,7 @@ import type { IconName } from "./Icon";
 import { ToastHost, useToasts } from "./Toasts";
 import AiPanel from "./AiPanel";
 import SchedulesDialog from "./SchedulesDialog";
+import UsagesDialog from "./UsagesDialog";
 import { buildShare, parseShare, planImport } from "./shareFile";
 import ResultsPane, { type RunState } from "./ResultsPane";
 import { ConfirmDialog, FavoritesPanel, HistoryPanel, SaveFavoriteDialog } from "./SidePanels";
@@ -165,6 +166,7 @@ export default function App() {
   const [prefsPage, setPrefsPage] = useState<"ai" | undefined>(undefined);
   // the Ask AI panel on the right: open or closed is remembered, and so is its width
   const [schedulesOpen, setSchedulesOpen] = useState(false);
+  const [usages, setUsages] = useState<{ db: string; table: string } | null>(null);
   const [aiOpen, setAiOpenState] = useState(() => localStorage.getItem("mylodb.aiOpen") === "1");
   const setAiOpen = (open: boolean) => { localStorage.setItem("mylodb.aiOpen", open ? "1" : "0"); setAiOpenState(open); };
   const aiSize = useSize("mylodb.aiWidth", 400, 300, () => Math.min(760, window.innerWidth - 520));
@@ -179,6 +181,8 @@ export default function App() {
   const runIds = useRef<Record<string, string>>({});
 
   const [caps, setCaps] = useState<Capabilities | null>(null);
+  // a SQLite file can export (table or query) but has no dump-based backup, restore or CSV import
+  const exportOnly = caps?.dump_restore.available === false && caps?.data_export?.available !== false;
   const capOff = (k: "server_tools" | "users" | "dump_restore") => caps?.[k].available === false;
   const capTitle = (k: "server_tools" | "users" | "dump_restore", on: string) => (caps?.[k].available === false ? (caps[k].reason ?? "Not available for this connection") : on);
   const [aboutOpen, setAboutOpen] = useState(false);
@@ -248,7 +252,7 @@ export default function App() {
       colQueue.current = Promise.resolve();
       // what this connection's engine can do; a SQLite file has no server home, users, server tools or dump-based transfer
       const cp = await capabilitiesApi.get(id).catch(() => null);
-      const serverKinds = cp && !cp.server_tools.available ? ["home", "users", "server", "transfer", "catalog", "designer"] : [];
+      const serverKinds = cp && !cp.server_tools.available ? ["home", "users", "server", "transfer", "catalog"] : [];
       let restoredTabs: QueryTab[] = [];
       let restoredActive = "";
       try {
@@ -523,7 +527,7 @@ export default function App() {
       case "open_file": return need(() => { openSqlFile(); });
       case "save_file": return saveSqlFile(false);
       case "save_file_as": return saveSqlFile(true);
-      case "run_file": return need(() => openTransfer({ tab: "restore" }));
+      case "run_file": return need(() => gate("dump_restore", () => openTransfer({ tab: "restore" })));
       case "run": return need(run);
       case "preview": return need(previewRun);
       case "explain": return need(() => { analyse("explain"); });
@@ -554,7 +558,7 @@ export default function App() {
       case "structure": return need(() => (selectedDb ? openStructure(selectedDb) : setStatus("Select a database in the tree first")));
       case "new_table": return need(() => (selectedDb ? openDesigner(selectedDb, null) : setStatus("Select a database in the tree first")));
       case "export": return need(() => openTransfer({ tab: "export" }));
-      case "import": return need(() => openTransfer({ tab: "import" }));
+      case "import": return need(() => gate("dump_restore", () => openTransfer({ tab: "import" })));
       case "backup": return need(() => gate("dump_restore", () => openTransfer({ tab: "backup" })));
       case "users": return need(() => gate("users", openUsers));
       case "server_tools": return need(() => gate("server_tools", openServer));
@@ -857,7 +861,21 @@ export default function App() {
   };
 
   const renameTable = (d: string, t: string) => setPrompt({ title: `Rename ${t}`, label: "New name", initial: t, confirmLabel: "Rename",
-    onCancel: () => setPrompt(null), onSubmit: (to) => { setPrompt(null); if (to !== t) openPlan({ op: "rename_table", db: d, from: t, to }, { title: `Rename ${t}`, confirmLabel: "Rename", after: () => renameTabs(d, t, to) }); } });
+    onCancel: () => setPrompt(null), onSubmit: async (to) => {
+      setPrompt(null);
+      if (to === t) return;
+      // a rename does not change the views, routines, triggers and keys that use the old name: say how many there are
+      let summary: string | undefined;
+      try {
+        const found = (await usagesApi.find(activeId!, d, t, null)).filter((u) => !u.kind.startsWith("foreign key (from"));
+        if (found.length) {
+          const kinds = new Map<string, number>();
+          for (const u of found) kinds.set(u.kind.replace(" (points here)", ""), (kinds.get(u.kind.replace(" (points here)", "")) ?? 0) + 1);
+          summary = `${found.length} other object(s) mention ${t} (${[...kinds].map(([k, n]) => `${n} ${k}`).join(", ")}). A rename does not change them: use "Where is it used…" to see them.`;
+        }
+      } catch { /* the list is only a warning */ }
+      openPlan({ op: "rename_table", db: d, from: t, to }, { title: `Rename ${t}`, confirmLabel: "Rename", summary, after: () => renameTabs(d, t, to) });
+    } });
 
   const maintainTable = async (op: Maintenance, d: string, t: string) => {
     if (activeId === null) return;
@@ -901,6 +919,7 @@ export default function App() {
       { label: "Create", icon: "plus", children: createItems(d) },
       { label: "View Table", icon: "properties", shortcut: "F4", onClick: () => openTable(d, t, undefined, "properties") },
       { label: "Design table…", icon: "edit", onClick: () => openDesigner(d, t) },
+      { label: "Where is it used…", icon: "search", onClick: async () => { await ensureColumns(d); setUsages({ db: d, table: t }); } },
       { label: locked ? "Unlock the filter" : "Lock the filter to this table", icon: "filter", onClick: () => (locked ? unlock() : lockTable(d, t)) },
       { separator: true },
       { label: "View Diagram", icon: "diagram", onClick: () => openTable(d, t, undefined, "diagram") },
@@ -1102,7 +1121,7 @@ export default function App() {
         <button title="New query tab (⌘T)" disabled={activeId === null} onClick={() => addTab("", selectedDb)}><Icon name="terminal" /> New query</button>
         <button title="List, create and drop databases" disabled={activeId === null} onClick={openDatabases}><Icon name="database" /> Databases</button>
         <span className="sep" />
-        <button title={capTitle("dump_restore", "Backup, restore, import and export")} disabled={activeId === null || capOff("dump_restore")} onClick={() => openTransfer()}><Icon name="transfer" /> Transfer</button>
+        <button title={exportOnly ? "Export a table or a query to a file. Backup, restore and CSV import are for MySQL and MariaDB." : capTitle("dump_restore", "Backup, restore, import and export")} disabled={activeId === null || (capOff("dump_restore") && !exportOnly)} onClick={() => openTransfer()}><Icon name="transfer" /> Transfer</button>
         <button title={capTitle("users", "Users and privileges")} disabled={activeId === null || capOff("users")} onClick={openUsers}><Icon name="user" /> Users</button>
         <button title={capTitle("server_tools", "Server: processes, variables, status, maintenance, logs")} disabled={activeId === null || capOff("server_tools")} onClick={openServer}><Icon name="pulse" /> Server</button>
         <button className={`ask-ai-btn${aiOpen ? " on" : ""}`} aria-pressed={aiOpen} title="Ask AI: describe a query in plain words and let a model write it" onClick={() => setAiOpen(!aiOpen)}><Icon name="sparkle" /> Ask AI</button>
@@ -1316,11 +1335,11 @@ export default function App() {
               </div>
             )}
             {tab.kind === "designer" && tab.table && (
-              <TableDesigner key={`${activeId}:${tab.id}`} connectionId={activeId} db={tab.table.db} table={tab.table.name} initial={tab.initialTable} nodes={index} ensureColumns={ensureColumns}
+              <TableDesigner key={`${activeId}:${tab.id}`} sqlite={isSqlite} connectionId={activeId} db={tab.table.db} table={tab.table.name} initial={tab.initialTable} nodes={index} ensureColumns={ensureColumns}
                 onOpenData={(d, t) => openTable(d, t)}
                 readOnly={readOnly} onApplied={async (name) => { await reloadIndex(); patchTab(tab.id, { title: name, table: { db: tab.table!.db, name } }); }} />
             )}
-            {tab.kind === "transfer" && <TransferTools key={`${activeId}:${tab.id}`} connectionId={activeId} nodes={index} ensureColumns={ensureColumns} preset={tab.transfer ?? {}} onSchemaChanged={() => reloadIndex()} />}
+            {tab.kind === "transfer" && <TransferTools key={`${activeId}:${tab.id}`} connectionId={activeId} nodes={index} ensureColumns={ensureColumns} exportOnly={exportOnly} preset={tab.transfer ?? {}} onSchemaChanged={() => reloadIndex()} />}
             {tab.kind === "home" && (
               <HomePage key={`${activeId}:${tab.id}`} connectionId={activeId} name={connections.find((c) => c.id === activeId)?.name ?? "Server"} readOnly={readOnly} environment={env}
                 actions={[
@@ -1491,6 +1510,9 @@ export default function App() {
       {prefsOpen && <PreferencesDialog startPage={prefsPage} initial={prefs} theme={theme.pref} onTheme={theme.setPref} onChange={(p) => { setPrefs(p); setLivePrefs(p); }} onLive={setLivePrefs} onClose={() => { setLivePrefs(prefs); setPrefsOpen(false); setPrefsPage(undefined); }} />}
       {schedulesOpen && activeId !== null && (
         <SchedulesDialog connectionId={activeId} connectionName={active?.name ?? `#${activeId}`} databases={databases} onClose={() => setSchedulesOpen(false)} />
+      )}
+      {usages && activeId !== null && (
+        <UsagesDialog connectionId={activeId} db={usages.db} table={usages.table} columns={index.filter((n) => n.kind === "column" && n.database === usages.db && n.parent === usages.table).map((n) => n.name)} onClose={() => setUsages(null)} />
       )}
       {typeConfirm && <TypeConfirmDialog {...typeConfirm} />}
       {scriptPreview && activeId !== null && (

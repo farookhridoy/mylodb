@@ -55,6 +55,7 @@ Several connections can be open at once; each is a tab above the workspace. Clos
 
 Choose **Database type → SQLite file** in the connection dialog, pick the file with **Browse…** and press **Test connection**. A SQLite connection:
 
+* has a **table designer** (New table…, Design table…) with SQLite's types: columns and indexes are added, renamed and dropped in place; other changes rebuild the table and copy the rows, in one transaction that is undone if it fails. **Cancel** stops a running query. **Transfer** offers Export (table or query, all formats); a scheduled backup of a file is a consistent copy (`VACUUM INTO`).
 * has **upkeep** in the database's right-click menu: check integrity, check foreign keys, compact (VACUUM), update statistics (ANALYZE), rebuild indexes. The result is a flash message; checks also work on a read-only file.
 * opens the file **writable**, unless you tick **Open read-only** (then it is opened by the read-only flag with `query_only`, and nothing can change it). Opening a file never creates one; foreign keys are enforced on a writable connection;
 * edits rows in the data grid (staged, previewed as SQLite SQL, applied in one transaction, a failed change rolls the batch back) and runs `INSERT`, `UPDATE`, `DELETE` and DDL in the editor. A table needs a primary key to be edited in the grid; views are read-only;
@@ -92,6 +93,7 @@ Updates are signed by the project's key and refused if the signature does not ma
 * **⌘T** opens a script. **⌘↵** runs the selection, or the whole script if nothing is selected. `DELIMITER` is supported.
 * **Preview** shows the statements and a risk review before anything runs. **Cancel** stops the running statement. **FK checks** can be switched off for a run.
 * Autocomplete knows tables, columns, aliases, functions and keywords, and the columns of a `WITH` list or `(SELECT …) alias`, and works from the in-memory object index. After `JOIN` it lists the tables linked by a foreign key first; after `ON` it offers the ready join condition from the foreign key (`o.customer_id = c.id`). Foreign keys are read once per database the first time they are needed.
+* **Where is it used?** Right-click a table → *Where is it used…*: the views, routines, triggers, events and foreign keys that mention it (narrow it to a column). Renaming does not change them; the rename dialog says how many there are.
 * **Explain as a diagram**: Explain and Analyze open a Diagram first, a tree of steps with rows and a cost or time bar, the slowest step marked, full scans flagged. Running the same statement again says how much faster or slower it was.
 * **Snippets with tab stops**: ⌘K → Snippet selects the first name to replace; a repeated name changes everywhere; Tab goes to the next.
 * **Toolbar**: Run keeps its name, the others are icons with the name on hover; it wraps in a narrow window.
@@ -202,7 +204,7 @@ File → **Backup / Restore…** and **Import Data… / Export Data…**.
 
 * **Backup** writes one consistent snapshot as SQL (structure, data, views, routines, triggers, events), as one file or a file per table, optionally zipped. A cancelled backup removes its partial output.
 * **Restore** runs a `.sql` file, a zip or a folder, streamed from disk, and lists errors with line numbers. **Preview script** shows the counts and the first statements first.
-* **Scheduled backups** (File → Scheduled Backups…): a job backs up chosen databases every day, every week or every few hours into a folder, keeps the last N and deletes older backups of that job only (never other files). *Run now* tests it; each job has a log. Jobs run while MyLoDB is open; a missed run happens when you open it again; a failure shows as a flash message.
+* **Scheduled backups and exports** (File → Scheduled Backups and Exports…): a job backs up chosen databases, or exports the result of a SELECT (CSV, JSON, Excel…), every day, every week or every few hours into a folder, keeps the last N and deletes older backups of that job only (never other files). *Run now* tests it; each job has a log. Jobs run while MyLoDB is open; a missed run happens when you open it again; a failure shows as a flash message.
 * **Share connections and snippets** (File → Export / Import Connections and Snippets…): one file for a colleague. Passwords are never written. Importing skips what you already have and renames name clashes.
 * **CSV import** detects the delimiter, previews rows, handles encodings, maps columns, and can insert, skip, update or replace; all-or-nothing or continue on error. It can also create a table from the file.
 

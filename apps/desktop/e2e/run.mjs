@@ -162,7 +162,7 @@ await fInput("note").fill("zzz");
 await settle();
 assert.equal(await page.locator(".dialog:has-text('Discard 1 pending')").count(), 1);
 assert.equal((await calls("table_page")).length, before, "no reload while the prompt is open");
-await page.click("button:text-is('Cancel')");
+await page.click(".dialog button:text-is('Cancel')");
 assert.match(await page.locator("button.primary:has-text('Submit')").innerText(), /Submit \(1\)/);
 ok("changing filters with pending edits asks before discarding");
 await page.click("button[title='Revert pending changes']");

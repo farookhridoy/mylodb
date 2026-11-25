@@ -1,6 +1,7 @@
 //! Thin Tauri bridge. All logic lives in the `myq-*` crates; this only exposes it as commands.
 
 mod ai;
+mod schedule;
 mod engine;
 use engine::Engine;
 use myq_data::{Assign, Change, CellData, ColumnFilter, ExportOptions, LookupItem, Page, PageSpec, TableMeta, ApplyOutcome};
@@ -118,6 +119,10 @@ struct AppState {
     jobs: Mutex<HashMap<String, std::sync::Arc<std::sync::atomic::AtomicBool>>>,
     /// run_id -> (connection id, server-side connection id) of queries currently executing.
     running: Mutex<HashMap<String, (i64, u32)>>,
+    /// Scheduled backups (kept in `schedules.json`), and the ones running right now.
+    schedules: Mutex<Vec<schedule::Schedule>>,
+    schedule_file: std::path::PathBuf,
+    schedule_running: Mutex<std::collections::HashSet<String>>,
 }
 
 fn err(e: impl std::fmt::Display) -> String {
@@ -1267,6 +1272,135 @@ async fn backup_job(
     result.map_err(err)
 }
 
+// ---- scheduled backups ----
+
+#[derive(serde::Serialize, Clone)]
+struct ScheduleView {
+    #[serde(flatten)]
+    job: schedule::Schedule,
+    /// Local time of the next run, `YYYY-MM-DD HH:MM:SS`.
+    next_run: Option<String>,
+    running: bool,
+}
+
+fn now_local() -> chrono::NaiveDateTime {
+    chrono::Local::now().naive_local()
+}
+
+fn schedule_views(state: &AppState) -> Vec<ScheduleView> {
+    let now = now_local();
+    let running = state.schedule_running.lock().unwrap().clone();
+    state.schedules.lock().unwrap().iter().map(|s| ScheduleView { next_run: schedule::next_run(s, now).map(schedule::format_time), running: running.contains(&s.id), job: s.clone() }).collect()
+}
+
+#[tauri::command]
+fn schedules_list(state: tauri::State<'_, AppState>) -> Vec<ScheduleView> {
+    schedule_views(&state)
+}
+
+/// Create (empty `id`) or change a scheduled backup. A change keeps its log and last run.
+#[tauri::command]
+fn schedule_save(state: tauri::State<'_, AppState>, mut job: schedule::Schedule) -> Result<Vec<ScheduleView>, String> {
+    schedule::valid(&job)?;
+    {
+        let mut list = state.schedules.lock().unwrap();
+        match list.iter_mut().find(|s| !job.id.is_empty() && s.id == job.id) {
+            Some(old) => {
+                job.created = old.created.clone();
+                job.last_run = old.last_run.clone();
+                job.log = old.log.clone();
+                *old = job;
+            }
+            None => {
+                job.id = format!("{:x}", chrono::Local::now().timestamp_micros());
+                job.created = schedule::format_time(now_local());
+                job.last_run = None;
+                job.log.clear();
+                list.push(job);
+            }
+        }
+        schedule::save(&state.schedule_file, &list).map_err(err)?;
+    }
+    Ok(schedule_views(&state))
+}
+
+#[tauri::command]
+fn schedule_delete(state: tauri::State<'_, AppState>, id: String) -> Result<Vec<ScheduleView>, String> {
+    {
+        let mut list = state.schedules.lock().unwrap();
+        list.retain(|s| s.id != id);
+        schedule::save(&state.schedule_file, &list).map_err(err)?;
+    }
+    Ok(schedule_views(&state))
+}
+
+/// Run one scheduled backup now (also what the scheduler calls). Opens the connection if it is not open. Returns the log line.
+async fn run_schedule(app: tauri::AppHandle, id: String) -> Result<String, String> {
+    let state = app.state::<AppState>();
+    if !state.schedule_running.lock().unwrap().insert(id.clone()) {
+        return Err("This job is already running.".into());
+    }
+    let job = state.schedules.lock().unwrap().iter().find(|s| s.id == id).cloned();
+    let result: Result<String, String> = async {
+        let job = job.ok_or("The job no longer exists.")?;
+        if !state.sessions.lock().unwrap().contains_key(&job.connection_id) {
+            connect(app.state::<AppState>(), job.connection_id, None, None).await.map_err(|e| match e {
+                ConnectError::Failed { message } => format!("could not connect: {message}"),
+                ConnectError::UnknownHost { host, .. } | ConnectError::HostKeyChanged { host, .. } => format!("could not connect: the SSH host key of {host} is not confirmed. Connect once by hand and trust it"),
+            })?;
+        }
+        std::fs::create_dir_all(&job.dir).map_err(|e| format!("cannot use the folder {}: {e}", job.dir))?;
+        let mut c = conn_for(&state, job.connection_id).await?;
+        let options: myq_transfer::BackupOptions = serde_json::from_value(serde_json::json!({
+            "databases": job.databases.iter().map(|d| serde_json::json!({ "name": d })).collect::<Vec<_>>(),
+            "data": job.data, "compress": job.compress,
+        })).map_err(err)?;
+        let target = myq_transfer::BackupTarget { dir: job.dir.clone().into(), name: job.name.clone() };
+        let cancel = std::sync::atomic::AtomicBool::new(false);
+        let done = myq_transfer::backup(&mut c, &options, &target, &mut |_p: myq_transfer::Progress| {}, &cancel).await.map_err(err)?;
+        let removed = myq_transfer::prune_backups(std::path::Path::new(&job.dir), &job.name, job.keep as usize).unwrap_or_default().len();
+        let name = done.path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        Ok(format!("{name}: {} table(s), {} rows, {:.1} MB in {:.1} s{}", done.tables, done.rows, done.bytes as f64 / 1_048_576.0, done.elapsed_ms as f64 / 1000.0, if removed > 0 { format!("; removed {removed} old backup(s)") } else { String::new() }))
+    }.await;
+    {
+        let now = now_local();
+        let mut list = state.schedules.lock().unwrap();
+        if let Some(s) = list.iter_mut().find(|s| s.id == id) {
+            s.last_run = Some(schedule::format_time(now));
+            schedule::push_log(s, now, result.is_ok(), match &result { Ok(m) => m.clone(), Err(e) => e.clone() });
+        }
+        let _ = schedule::save(&state.schedule_file, &list);
+    }
+    state.schedule_running.lock().unwrap().remove(&id);
+    let name = state.schedules.lock().unwrap().iter().find(|s| s.id == id).map(|s| s.name.clone()).unwrap_or_default();
+    let _ = app.emit("schedule-done", serde_json::json!({ "name": name, "ok": result.is_ok(), "message": match &result { Ok(m) => m.clone(), Err(e) => e.clone() } }));
+    result
+}
+
+#[tauri::command]
+async fn schedule_run_now(app: tauri::AppHandle, id: String) -> Result<String, String> {
+    run_schedule(app, id).await
+}
+
+/// Look for due jobs every 30 seconds while the app is open.
+fn start_scheduler(app: tauri::AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+            let due: Vec<String> = {
+                let state = app.state::<AppState>();
+                let running = state.schedule_running.lock().unwrap().clone();
+                let now = now_local();
+                let ids: Vec<String> = state.schedules.lock().unwrap().iter().filter(|s| schedule::is_due(s, now) && !running.contains(&s.id)).map(|s| s.id.clone()).collect();
+                ids
+            };
+            for id in due {
+                let _ = run_schedule(app.clone(), id).await; // the outcome is in the job's log
+            }
+        }
+    });
+}
+
 // ---- server tools ----
 
 #[tauri::command]
@@ -1335,6 +1469,58 @@ async fn error_log(state: tauri::State<'_, AppState>, id: i64, limit: u32, level
 async fn slow_log(state: tauri::State<'_, AppState>, id: i64, limit: u32, search: String) -> Result<Vec<myq_admin::SlowQuery>, String> {
     let mut c = conn_for(&state, id).await?;
     myq_admin::slow_log(&mut c, limit, &search).await.map_err(err)
+}
+
+#[tauri::command]
+async fn top_statements(state: tauri::State<'_, AppState>, id: i64, sort: String, limit: u32, search: String) -> Result<Vec<myq_admin::TopStatement>, String> {
+    let mut c = conn_for(&state, id).await?;
+    myq_admin::top_statements(&mut c, &sort, limit, &search).await.map_err(err)
+}
+
+/// Upkeep of a SQLite file: integrity and foreign key checks (read only), VACUUM, ANALYZE, REINDEX and PRAGMA optimize (these change the file).
+#[tauri::command]
+async fn sqlite_maintain(state: tauri::State<'_, AppState>, id: i64, op: String) -> Result<String, String> {
+    let engine = state.sessions.lock().unwrap().get(&id).ok_or("not connected")?.engine.clone();
+    if engine.sqlite_path().is_none() {
+        return Err("This is only for SQLite files.".into());
+    }
+    let (sql, writes, label) = match op.as_str() {
+        "integrity" => ("PRAGMA integrity_check", false, "Integrity check"),
+        "quick" => ("PRAGMA quick_check", false, "Quick check"),
+        "foreign_keys" => ("PRAGMA foreign_key_check", false, "Foreign key check"),
+        "vacuum" => ("VACUUM", true, "VACUUM"),
+        "analyze" => ("ANALYZE", true, "ANALYZE"),
+        "reindex" => ("REINDEX", true, "REINDEX"),
+        "optimize" => ("PRAGMA optimize", true, "PRAGMA optimize"),
+        _ => return Err(format!("unknown action {op}")),
+    };
+    if writes && !engine.sqlite_writable() {
+        return Err(format!("{label} changes the file, and this connection is read-only."));
+    }
+    let size = |e: Engine| async move {
+        let one = |r: Vec<myq_core::StatementResult>| r.first().and_then(|s| s.sets.first()).and_then(|s| s.rows.first()).and_then(|r| r.first().cloned().flatten()).and_then(|v| v.parse::<u64>().ok());
+        let pages = one(e.run(None, "PRAGMA page_count").await.ok()?)?;
+        let page = one(e.run(None, "PRAGMA page_size").await.ok()?)?;
+        Some(pages * page)
+    };
+    let before = if op == "vacuum" { size(engine.clone()).await } else { None };
+    let res = engine.run(None, sql).await.map_err(err)?;
+    if let Some(e) = res.iter().find_map(|r| r.error.clone()) {
+        return Err(format!("{label}: {e}"));
+    }
+    let rows: Vec<String> = res.iter().flat_map(|r| r.sets.iter()).flat_map(|s| s.rows.iter()).map(|r| r.iter().map(|c| c.clone().unwrap_or_default()).collect::<Vec<_>>().join(" | ")).collect();
+    let mb = |b: u64| format!("{:.2} MB", b as f64 / 1_048_576.0);
+    Ok(match op.as_str() {
+        "integrity" | "quick" if rows.len() == 1 && rows[0] == "ok" => format!("{label}: ok. The file is sound."),
+        "integrity" | "quick" => format!("{label} found {} problem(s): {}", rows.len(), rows.iter().take(5).cloned().collect::<Vec<_>>().join("; ")),
+        "foreign_keys" if rows.is_empty() => format!("{label}: no violations."),
+        "foreign_keys" => format!("{label}: {} row(s) point at a missing parent (table | rowid | parent | key): {}", rows.len(), rows.iter().take(5).cloned().collect::<Vec<_>>().join("; ")),
+        "vacuum" => match (before, size(engine.clone()).await) {
+            (Some(a), Some(b)) => format!("VACUUM done: {} → {}{}", mb(a), mb(b), if b < a { format!(" ({} freed)", mb(a - b)) } else { String::new() }),
+            _ => "VACUUM done.".into(),
+        },
+        _ => format!("{label} done."),
+    })
 }
 
 #[tauri::command]
@@ -1789,6 +1975,10 @@ fn build_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::
         .item(&with_icon("import", "Import Data…", icon!("import"))?)
         .item(&with_icon("export", "Export Data…", icon!("export"))?)
         .item(&with_icon("backup", "Backup / Restore…", icon!("transfer"))?)
+        .item(&item("schedules", "Scheduled Backups…", None)?)
+        .separator()
+        .item(&item("export_share", "Export Connections and Snippets…", None)?)
+        .item(&item("import_share", "Import Connections and Snippets…", None)?)
         .separator()
         .item(&with_icon("run_file", "Run SQL File…", icon!("play"))?)
         .build()?;
@@ -1879,7 +2069,8 @@ pub fn run() {
             std::fs::create_dir_all(&dir)?;
             let secrets = std::sync::Arc::new(SecretRouter::open(&dir, Box::new(Keychain::default()), Vault::new(&dir.join("secrets.json"))));
             let store = Store::open(&dir.join("mylodb.sqlite"), Box::new(secrets.clone()))?;
-            app.manage(AppState { store: Mutex::new(store), secrets, sessions: Mutex::new(HashMap::new()), running: Mutex::new(HashMap::new()), jobs: Mutex::new(HashMap::new()) });
+            app.manage(AppState { store: Mutex::new(store), secrets, sessions: Mutex::new(HashMap::new()), running: Mutex::new(HashMap::new()), jobs: Mutex::new(HashMap::new()), schedules: Mutex::new(schedule::load(&dir.join("schedules.json"))), schedule_file: dir.join("schedules.json"), schedule_running: Mutex::new(Default::default()) });
+            start_scheduler(app.handle().clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -1976,6 +2167,12 @@ pub fn run() {
             log_settings,
             error_log,
             slow_log,
+            top_statements,
+            sqlite_maintain,
+            schedules_list,
+            schedule_save,
+            schedule_delete,
+            schedule_run_now,
             binary_logs,
             binlog_events,
             export_query,

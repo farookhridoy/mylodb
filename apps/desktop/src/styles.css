@@ -669,3 +669,54 @@ table.kv th { text-align: left; font-weight: 500; color: var(--dim); width: 170p
 .ai-connect { display: grid; gap: 8px; } .ai-status { display: flex; align-items: center; gap: 8px; } .dot.ok { width: 8px; height: 8px; border-radius: 50%; background: var(--good, #3fb950); }
 .ai-body > .actions { display: flex; justify-content: flex-end; }
 header.topbar button.on { background: color-mix(in srgb, var(--accent) 22%, transparent); }
+
+/* ---- the editor toolbar: icons with the name on hover; it shrinks instead of spilling over the neighbouring panel ---- */
+.toolbar { min-width: 0; flex-wrap: wrap; row-gap: 4px; } /* in a narrow window the toolbar goes onto a second line instead of spilling over the next panel */
+.toolbar > * { flex: none; }
+.toolbar > button:not(.primary), .toolbar .popup-host > button { font-size: 0; } /* icon only: the name stays in the button (read aloud, found by tests) and shows as the hover text */
+.toolbar > button:not(.primary) svg, .toolbar .popup-host > button svg { font-size: 14px; }
+.toolbar > button:not(.primary), .toolbar .popup-host > button { padding-inline: 8px; }
+.toolbar .dbsel { flex: 0 1 220px; min-width: 0; } .toolbar .dbsel > :last-child { min-width: 0; flex: 1; }
+.toolbar > .ss { max-width: 150px; min-width: 0; flex: 0 1 150px; }
+.toolbar .grow { flex: 1 1 0; min-width: 0; }
+.toolbar .sep { display: inline-block; }
+
+/* ---- Ask AI panel: nothing may be wider than the panel ---- */
+.ai-panel-wrap { overflow: hidden; } .ai-panel > * { min-width: 0; }
+.ai-composer { min-width: 0; grid-template-columns: minmax(0, 1fr); overflow: hidden; }
+.ai-composer textarea { box-sizing: border-box; min-width: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+.ai-composer-foot { min-width: 0; } .ai-composer-foot .ai-model-pick { flex: 1 1 0; min-width: 0; max-width: none; }
+.ai-composer-foot button { flex: none; }
+.ai-consent { min-width: 0; overflow-wrap: anywhere; }
+.ai-text { line-height: 1.55; } .ai-text p { margin: 0 0 8px; } .ai-text ul, .ai-text ol { margin: 0 0 8px; padding-left: 20px; } .ai-text li { margin: 2px 0; }
+.ai-text code { font: 0.92em var(--font-editor, ui-monospace, Menlo, monospace); background: var(--inset, color-mix(in srgb, var(--text) 10%, transparent)); border-radius: 4px; padding: 0 4px; overflow-wrap: anywhere; }
+.ai-text pre { margin: 0 0 8px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--inset, var(--bg)); overflow: auto; max-height: 220px; white-space: pre; font: 12px/1.5 var(--font-editor, ui-monospace, Menlo, monospace); }
+.ai-code-actions button { flex: none; }
+
+/* ---- query plan diagram ---- */
+.plan-diagram { padding: 8px 4px 16px; display: grid; gap: 2px; } .plan-legend { padding: 0 8px 6px; }
+.plan-row { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto minmax(120px, 28%); gap: 8px; align-items: center; padding-block: 5px; padding-right: 10px; border-radius: 6px; border: 1px solid transparent; }
+.plan-row:hover { background: color-mix(in srgb, var(--text) 5%, transparent); }
+.plan-row.hot { border-color: var(--bad, #d93a47); background: color-mix(in srgb, var(--bad, #d93a47) 9%, transparent); }
+.plan-fold { border: 0; background: transparent; color: var(--dim); cursor: pointer; padding: 0; width: 18px; } .plan-fold:disabled { cursor: default; }
+.plan-title { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; } .plan-detail { overflow-wrap: anywhere; }
+.plan-badge { font-size: 11px; padding: 1px 6px; border-radius: 8px; background: var(--bad, #d93a47); color: #fff; }
+.plan-warn { font-size: 11px; padding: 1px 6px; border-radius: 8px; border: 1px solid var(--warn, #e0a63a); color: var(--warn, #e0a63a); }
+.plan-num { display: flex; gap: 8px; color: var(--dim); font-size: 12px; white-space: nowrap; }
+.plan-bar { position: relative; height: 18px; border-radius: 4px; background: color-mix(in srgb, var(--text) 8%, transparent); overflow: hidden; }
+.plan-bar > div { height: 100%; background: color-mix(in srgb, var(--accent) 55%, transparent); } .plan-row.hot .plan-bar > div { background: var(--bad, #d93a47); }
+.plan-bar > span { position: absolute; inset: 0 6px 0 auto; display: flex; align-items: center; font-size: 11px; }
+.plan-versus { display: flex; gap: 6px; align-items: center; margin: 6px 8px; padding: 6px 10px; border-radius: 6px; background: var(--inset, var(--panel)); }
+.plan-versus.good { border-left: 3px solid var(--good, #3fb950); } .plan-versus.bad { border-left: 3px solid var(--bad, #d93a47); }
+
+/* ---- scheduled backups ---- */
+.schedules-dialog { width: min(720px, calc(100vw - 48px)); max-height: calc(100vh - 80px); overflow: auto; display: grid; gap: 10px; }
+.sched-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; } .sched-list > li { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; } .sched-list > li.off { opacity: .65; }
+.sched-row { display: flex; gap: 12px; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; } .sched-main { min-width: 0; flex: 1 1 280px; } .sched-dir { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sched-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.sched-log { list-style: none; margin: 8px 0 0; padding: 8px; border-radius: 6px; background: var(--inset, var(--panel)); display: grid; gap: 4px; font-size: 12px; max-height: 200px; overflow: auto; } .sched-log li.bad { color: var(--bad-text, #ff6188); } .sched-log li { overflow-wrap: anywhere; }
+.sched-form { display: grid; gap: 10px; } .sched-form label { display: grid; gap: 4px; } .sched-form label.check { display: flex; gap: 8px; align-items: center; }
+.sched-form input:not([type=checkbox]), .sched-form select { padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--control, var(--bg)); color: var(--text); font: inherit; }
+.sched-form fieldset { border: 1px solid var(--line); border-radius: 6px; } .sched-dbs { display: flex; flex-wrap: wrap; gap: 6px 16px; max-height: 120px; overflow: auto; }
+.sched-dirpick { display: flex; gap: 6px; } .sched-dirpick input { flex: 1; min-width: 0; }
+.schedules-dialog .actions { display: flex; gap: 8px; justify-content: flex-end; }

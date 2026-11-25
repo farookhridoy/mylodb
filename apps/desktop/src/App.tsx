@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Select from "./Select";
 import { open as pickPath, save as savePath } from "@tauri-apps/plugin-dialog";
-import { capabilitiesApi, type Capabilities, fileApi, onMenuAction, api, describeError, isVaultLocked, secretsApi, editorApi, planApi, queryApi, schemaApi, serverApi, type PlanOp, type ConnectError, type Favorite, type FormatOptions, type Kind, type Environment, type Maintenance, type Review, type Node, type SavedConnection, type TableOp } from "./api";
+import { capabilitiesApi, type Capabilities, fileApi, onMenuAction, api, describeError, isVaultLocked, secretsApi, editorApi, sqliteApi, onScheduleDone, planApi, queryApi, schemaApi, serverApi, type PlanOp, type ConnectError, type Favorite, type FormatOptions, type Kind, type Environment, type Maintenance, type Review, type Node, type SavedConnection, type TableOp } from "./api";
 import AnalysisPane, { type Analysis } from "./AnalysisPane";
 import ConnectionDialog from "./ConnectionDialog";
 import ContextMenu, { type MenuItem } from "./ContextMenu";
@@ -27,7 +27,7 @@ import PreferencesDialog from "./PreferencesDialog";
 import UnlockDialog from "./UnlockDialog";
 import TasksPanel from "./TasksPanel";
 import CommandPalette, { type Command } from "./CommandPalette";
-import { SNIPPETS } from "./snippets";
+import { SNIPPETS, withTabStops } from "./snippets";
 import { loadMySnippets, saveMySnippet, deleteMySnippet, type MySnippet } from "./mySnippets";
 import { loadPrefs, type Prefs } from "./prefs";
 import TableDesigner from "./TableDesigner";
@@ -50,6 +50,8 @@ import type { Pick } from "./ObjectTree";
 import type { IconName } from "./Icon";
 import { ToastHost, useToasts } from "./Toasts";
 import AiPanel from "./AiPanel";
+import SchedulesDialog from "./SchedulesDialog";
+import { buildShare, parseShare, planImport } from "./shareFile";
 import ResultsPane, { type RunState } from "./ResultsPane";
 import { ConfirmDialog, FavoritesPanel, HistoryPanel, SaveFavoriteDialog } from "./SidePanels";
 
@@ -162,6 +164,7 @@ export default function App() {
   const [prefsOpen, setPrefsOpen] = useState(false);
   const [prefsPage, setPrefsPage] = useState<"ai" | undefined>(undefined);
   // the Ask AI panel on the right: open or closed is remembered, and so is its width
+  const [schedulesOpen, setSchedulesOpen] = useState(false);
   const [aiOpen, setAiOpenState] = useState(() => localStorage.getItem("mylodb.aiOpen") === "1");
   const setAiOpen = (open: boolean) => { localStorage.setItem("mylodb.aiOpen", open ? "1" : "0"); setAiOpenState(open); };
   const aiSize = useSize("mylodb.aiWidth", 400, 300, () => Math.min(760, window.innerWidth - 520));
@@ -511,6 +514,9 @@ export default function App() {
     const gate = (cap: "server_tools" | "users" | "dump_restore", f: () => void) => { const c = caps?.[cap]; if (c && !c.available) setStatus(c.reason ?? "Not available for this connection"); else f(); };
     switch (id) {
       case "preferences": return setPrefsOpen(true);
+      case "export_share": return void exportShare();
+      case "import_share": return void importShare();
+      case "schedules": return need(() => setSchedulesOpen(true));
       case "ask_ai": return need(() => setAiOpen(!aiOpen));
       case "ai_settings": return (setPrefsPage("ai"), setPrefsOpen(true));
       case "new_query": return need(() => addTab("", tab?.database ?? null));
@@ -561,6 +567,37 @@ export default function App() {
     onMenuAction((id) => menuHandler.current(id)).then((f) => { if (gone) f(); else un = f; });
     return () => { gone = true; un?.(); };
   }, []);
+  // ---- share connections and snippets as a file ----
+  const exportShare = async () => {
+    try {
+      const path = await savePath({ defaultPath: "mylodb-share.json", filters: [{ name: "MyLoDB share file", extensions: ["json"] }] });
+      if (!path) return;
+      const conns = await api.listConnections();
+      await fileApi.write(path, buildShare(conns, mySnippets));
+      setStatus(`Exported ${conns.length} connection(s) and ${mySnippets.length} snippet(s) to ${path}. Passwords are not included.`);
+    } catch (e) { setStatus(`Error: ${describeError(e)}`); }
+  };
+  const importShare = async () => {
+    try {
+      const path = await pickPath({ multiple: false, filters: [{ name: "MyLoDB share file", extensions: ["json"] }] });
+      if (typeof path !== "string") return;
+      const file = parseShare(await fileApi.read(path));
+      const plan = planImport(file, await api.listConnections(), mySnippets);
+      for (const c of plan.addConnections) await api.saveConnection(c);
+      let list = mySnippets;
+      for (const s of plan.addSnippets) list = saveMySnippet(list, s.name, s.sql);
+      setMySnippets(list);
+      await refresh();
+      const skipped = plan.skippedConnections + plan.skippedSnippets;
+      setStatus(`Imported ${plan.addConnections.length} connection(s) and ${plan.addSnippets.length} snippet(s)${skipped ? `; ${skipped} already here were skipped` : ""}. Passwords are not in the file: you type each one the first time you connect.`);
+    } catch (e) { setStatus(`Error: ${describeError(e)}`); }
+  };
+  // a scheduled backup finished (in the background): say so
+  useEffect(() => {
+    let un: (() => void) | undefined; let gone = false;
+    onScheduleDone((e) => setStatus(e.ok ? `Backup "${e.name}": ${e.message}` : `Error: backup "${e.name}" failed: ${e.message}`)).then((f) => { if (gone) f(); else un = f; });
+    return () => { gone = true; un?.(); };
+  }, [setStatus]);
 
   // ---- run / cancel ----
   const runSql = useCallback(async (tabId: string, sql: string, database: string | null) => {
@@ -650,6 +687,13 @@ export default function App() {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ---- schema tools ----
+  /** SQLite upkeep: the result is announced as a flash message. */
+  const sqliteMaintain = async (op: Parameters<typeof sqliteApi.maintain>[1], label: string) => {
+    if (activeId === null) return;
+    setStatus(`${label}…`);
+    try { setStatus(await sqliteApi.maintain(activeId, op)); } catch (e) { setStatus(`Error: ${describeError(e)}`); }
+  };
+  const isSqlite = !!caps && !caps.server_tools.available;
   const reloadIndex = async () => { if (activeId !== null) { meta.reset(); setIndex(await schemaApi.refreshIndex(activeId)); } };
 
   const openNewTable = (database: string, name: string, columns: number) => {
@@ -965,6 +1009,15 @@ export default function App() {
     if (d) items.push({ label: "ER diagram…", icon: "diagram", onClick: () => openEr(d) });
     if (d) items.push({ label: "Query builder…", icon: "sql", onClick: () => openBuilder(d) });
     if (d) items.push({ label: "Compare schemas…", icon: "transfer", disabled: readOnly, onClick: () => openCompare(d) });
+    if (isSqlite) {
+      items.push({ separator: true });
+      items.push({ label: "Check integrity", icon: "check", onClick: () => sqliteMaintain("integrity", "Checking integrity") });
+      items.push({ label: "Check foreign keys", icon: "link", onClick: () => sqliteMaintain("foreign_keys", "Checking foreign keys") });
+      items.push({ label: "Compact the file (VACUUM)", icon: "eraser", disabled: readOnly, onClick: () => sqliteMaintain("vacuum", "Compacting") });
+      items.push({ label: "Update statistics (ANALYZE)", icon: "pulse", disabled: readOnly, onClick: () => sqliteMaintain("analyze", "Analysing") });
+      items.push({ label: "Rebuild indexes (REINDEX)", icon: "refresh", disabled: readOnly, onClick: () => sqliteMaintain("reindex", "Reindexing") });
+      items.push({ separator: true });
+    }
     items.push({ label: "Databases (list, bulk drop)", icon: "database", onClick: openDatabases });
     items.push({ label: "Create database…", icon: "database", disabled: readOnly, onClick: () => setPrompt({ title: "Create database", label: "Database name", confirmLabel: "Create",
       onCancel: () => setPrompt(null), onSubmit: async (name) => { setPrompt(null); try { await schemaApi.databaseOp(activeId!, { op: "create", name, charset: "utf8mb4", collation: null }); await reloadIndex(); } catch (err) { setStatus(`Error: ${err}`); } } }) });
@@ -991,7 +1044,10 @@ export default function App() {
     const tabId = editorTab.id;
     const database = editorTab.database;
     const sql = await editor.current.analysisTarget();
-    const start = { kind, sql, running: true, error: null, data: null } as Analysis;
+    // the run before this one of the same statement is kept, so the result can say whether it got faster
+    const before = analyses[tabId];
+    const prev = before && before.kind === kind && before.sql === sql && before.data ? before.data : before?.prev ?? null;
+    const start = { kind, sql, running: true, error: null, data: null, prev: before && before.kind === kind && before.sql === sql ? prev : null } as Analysis;
     setAnalyses((a) => ({ ...a, [tabId]: start }));
     try {
       const data = kind === "profile" ? await editorApi.profile(activeId, database, sql) : await editorApi.explain(activeId, database, sql, kind === "analyze");
@@ -1049,7 +1105,7 @@ export default function App() {
         <button title={capTitle("dump_restore", "Backup, restore, import and export")} disabled={activeId === null || capOff("dump_restore")} onClick={() => openTransfer()}><Icon name="transfer" /> Transfer</button>
         <button title={capTitle("users", "Users and privileges")} disabled={activeId === null || capOff("users")} onClick={openUsers}><Icon name="user" /> Users</button>
         <button title={capTitle("server_tools", "Server: processes, variables, status, maintenance, logs")} disabled={activeId === null || capOff("server_tools")} onClick={openServer}><Icon name="pulse" /> Server</button>
-        <button className={aiOpen ? "on" : ""} aria-pressed={aiOpen} title="Ask AI: describe a query in plain words and let a model write it" onClick={() => setAiOpen(!aiOpen)}><Icon name="sparkle" /> Ask AI</button>
+        <button className={`ask-ai-btn${aiOpen ? " on" : ""}`} aria-pressed={aiOpen} title="Ask AI: describe a query in plain words and let a model write it" onClick={() => setAiOpen(!aiOpen)}><Icon name="sparkle" /> Ask AI</button>
         <span className="grow" />
         <button className="theme-toggle" title={`Theme: ${themeById(theme.pref)?.label ?? theme.pref} (click to change; more themes in Settings)`}
           onClick={() => { const order: ThemePref[] = ["system", "light", "dark"]; theme.setPref(order[(order.indexOf(theme.pref) + 1) % 3]); }}>
@@ -1193,9 +1249,9 @@ export default function App() {
             {editorTab && (
               <div className="sql-pane" style={{ display: isSql(tab) && (!isTable(tab) || (tab.view ?? "data") === "data") ? "flex" : "none" }}>
                 <div className="toolbar">
-                  <button className="primary" disabled={running} onClick={run} title="Run selection or all (⌘↵)">▶ Run</button>
-                  <button disabled={running} onClick={previewRun} title="Show exactly what will run, choose foreign key checks, then run"><Icon name="preview" /> Preview</button>
-                  <button disabled={!running} onClick={cancel} title="Cancel running query">■ Cancel</button>
+                  <button className="primary" disabled={running} onClick={run} title="Run selection or all (⌘↵)" aria-label="Run"><Icon name="play" /> Run</button>
+                  <button disabled={running} onClick={previewRun} title="Show exactly what will run, choose foreign key checks, then run"><Icon name="preview" />Preview</button>
+                  <button disabled={!running} onClick={cancel} title="Cancel running query"><Icon name="stop" />Cancel</button>
                   <Select aria-label="Foreign key checks" title="Foreign key checks while this tab runs" value={fkByTab[tab.id] === undefined || fkByTab[tab.id] === null ? "default" : fkByTab[tab.id] ? "on" : "off"}
                           onChange={(e) => setFkByTab({ ...fkByTab, [tab.id]: e.target.value === "default" ? null : e.target.value === "on" })}>
                     <option value="default">FK checks: server default</option>
@@ -1204,7 +1260,7 @@ export default function App() {
                   </Select>
                   <button onClick={openFavDialog} title="Save to favorites"><Icon name="star" /></button>
                   <span className="sep" />
-                  <button onClick={formatSql} title="Format the selection or the whole script (⇧⌘F)">Format</button>
+                  <button onClick={formatSql} title="Format the selection or the whole script (⇧⌘F)"><Icon name="sql" />Format</button>
                   <div className="popup-host">
                     <button className="mini" title="Formatting options" onClick={() => setFormatOpen(!formatOpen)}><Icon name="index" size={12} /></button>
                     {formatOpen && (
@@ -1226,12 +1282,12 @@ export default function App() {
                     )}
                   </div>
                   <span className="sep" />
-                  <button onClick={() => analyse("explain")} title="Explain the selected statement, or the one at the cursor">Explain</button>
-                  <button onClick={() => analyse("analyze")} disabled={caps?.explain_analyze.available === false} title={caps?.explain_analyze.available === false ? (caps.explain_analyze.reason ?? "Not available on this server") : "EXPLAIN ANALYZE: runs the SELECT and shows real timings"}>Analyze</button>
-                  <button onClick={() => analyse("profile")} title="Run the SELECT and show stage timings and the work it caused">Profile</button>
+                  <button onClick={() => analyse("explain")} title="Explain the selected statement, or the one at the cursor"><Icon name="diagram" />Explain</button>
+                  <button onClick={() => analyse("analyze")} disabled={caps?.explain_analyze.available === false} title={caps?.explain_analyze.available === false ? (caps.explain_analyze.reason ?? "Not available on this server") : "EXPLAIN ANALYZE: runs the SELECT and shows real timings"}><Icon name="pulse" />Analyze</button>
+                  <button onClick={() => analyse("profile")} title="Run the SELECT and show stage timings and the work it caused"><Icon name="clock" />Profile</button>
                   {formatError && <span className="error small">{formatError}</span>}
                   <span className="grow" />
-                  <label className="dbsel">Database
+                  <label className="dbsel" title="The database this script runs in"><span className="lbl-db">Database</span>
                     <Select value={editorTab.database ?? ""} onChange={(e) => patchTab(editorTab.id, { database: e.target.value || null })}>
                       <option value="">(none)</option>
                       {databases.map((d) => <option key={d} value={d}>{d}</option>)}
@@ -1419,17 +1475,23 @@ export default function App() {
             } },
             { id: `msd:${sn.name}`, label: `Delete my snippet: ${sn.name}`, hint: "removes it from the library", run: () => { setMySnippets((l) => deleteMySnippet(l, sn.name)); setStatus(`Snippet deleted: ${sn.name}`); } },
           ]),
+          { id: "export-share", label: "Export connections and snippets to a file…", hint: "share with a colleague; passwords are not included", run: exportShare },
+          { id: "import-share", label: "Import connections and snippets from a file…", hint: "from a MyLoDB share file", run: importShare },
+          { id: "schedules", label: "Scheduled backups…", hint: "backups that run by themselves, with a log and a keep-the-last-N limit", run: () => { if (activeId === null) return setStatus("Connect first"); setSchedulesOpen(true); } },
           { id: "ask-ai", label: "Ask AI to write a query…", hint: "describe it in plain words", run: () => { if (activeId === null) return setStatus("Connect first"); setAiOpen(true); } },
           ...SNIPPETS.map((sn): Command => ({ id: `s:${sn.label}`, label: `Snippet: ${sn.label}`, hint: "insert into the editor", run: () => {
             if (activeId === null) return setStatus("Connect first");
             const t = editorTab; if (!t) return;
-            setActiveTab(t.id); setTimeout(() => editor.current?.insert(sn.sql), 0);
+            setActiveTab(t.id); setTimeout(() => editor.current?.insertSnippet(withTabStops(sn.sql)), 0);
           } })),
           ...index.filter((n) => n.kind === "table" || n.kind === "view").slice(0, 5000)
             .map((n): Command => ({ id: `t:${n.database}.${n.name}`, label: n.name, hint: `${n.kind} in ${n.database}`, run: () => openTable(n.database, n.name) })),
         ]} />
       )}
       {prefsOpen && <PreferencesDialog startPage={prefsPage} initial={prefs} theme={theme.pref} onTheme={theme.setPref} onChange={(p) => { setPrefs(p); setLivePrefs(p); }} onLive={setLivePrefs} onClose={() => { setLivePrefs(prefs); setPrefsOpen(false); setPrefsPage(undefined); }} />}
+      {schedulesOpen && activeId !== null && (
+        <SchedulesDialog connectionId={activeId} connectionName={active?.name ?? `#${activeId}`} databases={databases} onClose={() => setSchedulesOpen(false)} />
+      )}
       {typeConfirm && <TypeConfirmDialog {...typeConfirm} />}
       {scriptPreview && activeId !== null && (
         <PreviewDialog title="Preview SQL" summary={scriptPreview.database ? `Runs in database ${scriptPreview.database}.` : undefined} statements={[scriptPreview.sql]} environment={env} confirmLabel="Run"

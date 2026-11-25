@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::File;
 use std::io::{BufWriter, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 use std::time::Instant;
 
@@ -271,6 +271,33 @@ pub fn strip_definer(sql: &str) -> String {
 }
 
 /// Names that are safe as a file name on every platform.
+/// Delete the oldest backups of `name` in `dir`, keeping the newest `keep`. Only entries this module could have written are touched:
+/// `<name>-YYYYMMDD-HHMMSS.sql`, `.zip`, or a folder of that name. Returns what was removed.
+pub fn prune_backups(dir: &Path, name: &str, keep: usize) -> std::io::Result<Vec<PathBuf>> {
+    let prefix = format!("{}-", file_safe(name));
+    let stamp = |rest: &str| -> bool {
+        let base = rest.strip_suffix(".sql").or_else(|| rest.strip_suffix(".zip")).unwrap_or(rest);
+        let b = base.as_bytes();
+        b.len() == 15 && b[8] == b'-' && b.iter().enumerate().all(|(i, c)| i == 8 || c.is_ascii_digit())
+    };
+    let mut found: Vec<(String, PathBuf)> = std::fs::read_dir(dir)?
+        .filter_map(|e| e.ok())
+        .filter_map(|e| {
+            let file = e.file_name().to_string_lossy().into_owned();
+            let rest = file.strip_prefix(&prefix)?;
+            let ok = stamp(rest) && (e.path().is_dir() || rest.ends_with(".sql") || rest.ends_with(".zip"));
+            ok.then(|| (rest.to_string(), e.path()))
+        })
+        .collect();
+    found.sort_by(|a, b| b.0.cmp(&a.0)); // the stamp sorts oldest to newest, so reversed: newest first
+    let mut removed = Vec::new();
+    for (_, path) in found.into_iter().skip(keep) {
+        if path.is_dir() { std::fs::remove_dir_all(&path)?; } else { std::fs::remove_file(&path)?; }
+        removed.push(path);
+    }
+    Ok(removed)
+}
+
 fn file_safe(name: &str) -> String {
     let s: String = name.chars().map(|c| if c.is_alphanumeric() || matches!(c, '_' | '-' | '.' | ' ') { c } else { '_' }).collect();
     let s = s.trim().trim_matches('.').to_string();
@@ -751,6 +778,26 @@ pub async fn backup(conn: &mut Conn, opts: &BackupOptions, target: &BackupTarget
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pruning_keeps_the_newest_and_touches_only_this_jobs_backups() {
+        let dir = std::env::temp_dir().join(format!("mylodb_prune_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("shop-20260103-030000")).unwrap(); // a folder backup
+        for f in ["shop-20260101-030000.sql", "shop-20260102-030000.zip", "shop-20260104-030000.sql", "shop-20260105-030000.sql", "shop-notes.sql", "shop-20260101-030000.txt", "other-20260101-030000.sql", "shop.sql", "readme.md"] {
+            std::fs::write(dir.join(f), "x").unwrap();
+        }
+        let removed = prune_backups(&dir, "shop", 2).unwrap();
+        let mut gone: Vec<String> = removed.iter().map(|p| p.file_name().unwrap().to_string_lossy().into_owned()).collect();
+        gone.sort();
+        assert_eq!(gone, vec!["shop-20260101-030000.sql", "shop-20260102-030000.zip", "shop-20260103-030000"], "the three oldest go");
+        // the two newest stay, and everything that is not one of this job's backups is left alone
+        for keep in ["shop-20260104-030000.sql", "shop-20260105-030000.sql", "shop-notes.sql", "shop-20260101-030000.txt", "other-20260101-030000.sql", "shop.sql", "readme.md"] {
+            assert!(dir.join(keep).exists(), "{keep} must stay");
+        }
+        assert!(prune_backups(&dir, "shop", 5).unwrap().is_empty(), "nothing to remove when there are fewer than the limit");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn strings_are_quoted_so_they_survive_a_restore() {

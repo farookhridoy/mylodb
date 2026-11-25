@@ -5,7 +5,7 @@ mod tables;
 mod users;
 
 pub use server::{
-    binary_logs, binlog_events, error_log, kill, log_settings, maintain, processlist, server_info, set_variable, slow_log, status, variables, BinaryLog, BinlogEvent,
+    binary_logs, binlog_events, error_log, kill, log_settings, maintain, processlist, server_info, set_variable, slow_log, status, top_statements, variables, BinaryLog, BinlogEvent, TopStatement,
     CheckOption, KillKind, LogLine, LogSettings, Maintenance, MaintenanceRow, Process, ProcessList, Scope as VarScope, ServerInfo, SlowQuery, Variable,
 };
 pub use tables::{read_table_def, run_statements, ApplyError};

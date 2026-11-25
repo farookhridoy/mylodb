@@ -347,6 +347,106 @@ fn table_refs(toks: &[Tok]) -> Vec<TableRef> {
     refs
 }
 
+// ---------- WITH lists and derived tables: tables the statement makes up ----------
+
+/// Index of the `)` that closes the `(` at `open`.
+fn matching_paren(toks: &[Tok], open: usize) -> Option<usize> {
+    let mut depth = 0i32;
+    for (i, t) in toks.iter().enumerate().skip(open) {
+        if is_punct(t, "(") { depth += 1; }
+        if is_punct(t, ")") { depth -= 1; if depth == 0 { return Some(i); } }
+    }
+    None
+}
+
+/// The output column names of a `SELECT …` (its tokens): `AS name`, an implicit alias, or the column name of `t.col`; `*` and `t.*`
+/// take the columns of the tables it reads (real tables, or ones made up earlier in the statement).
+fn select_columns(inner: &[Tok], cat: &Catalog, current_db: Option<&str>, made: &[(String, Vec<String>)]) -> Vec<String> {
+    let mut i = 0;
+    while i < inner.len() && !is_kw(&inner[i], "SELECT") { i += 1; }
+    i += 1;
+    if inner.get(i).is_some_and(|t| is_kw(t, "DISTINCT") || is_kw(t, "ALL")) { i += 1; }
+    // the select list ends at the first FROM outside brackets
+    let (mut depth, mut end) = (0i32, inner.len());
+    for (k, t) in inner.iter().enumerate().skip(i) {
+        if is_punct(t, "(") { depth += 1; }
+        if is_punct(t, ")") { depth -= 1; }
+        if depth == 0 && is_kw(t, "FROM") { end = k; break; }
+    }
+    let refs = table_refs(inner);
+    let columns_of = |r: &TableRef| -> Vec<String> {
+        let key = if r.derived { r.alias.as_deref() } else if r.db.is_none() { Some(r.table.as_str()) } else { None };
+        if let Some(k) = key { if let Some((_, cols)) = made.iter().find(|(n, _)| n.eq_ignore_ascii_case(k)) { return cols.clone(); } }
+        cat.find_table(r.db.as_deref(), &r.table, current_db).map(|(_, t)| t.columns.clone()).unwrap_or_default()
+    };
+    let mut items: Vec<&[Tok]> = Vec::new();
+    let (mut start, mut depth) = (i, 0i32);
+    for k in i..end {
+        if is_punct(&inner[k], "(") { depth += 1; }
+        if is_punct(&inner[k], ")") { depth -= 1; }
+        if depth == 0 && is_punct(&inner[k], ",") { items.push(&inner[start..k]); start = k + 1; }
+    }
+    if start < end { items.push(&inner[start..end]); }
+    let mut out = Vec::new();
+    for it in items {
+        let Some(last) = it.last() else { continue };
+        if is_punct(last, "*") {
+            // `t.*` or `*`
+            if it.len() >= 3 && is_punct(&it[it.len() - 2], ".") {
+                let q = &it[it.len() - 3].text;
+                for r in refs.iter().filter(|r| r.alias.as_deref().is_some_and(|a| a.eq_ignore_ascii_case(q)) || (r.alias.is_none() && r.table.eq_ignore_ascii_case(q))) { out.extend(columns_of(r)); }
+            } else {
+                for r in &refs { out.extend(columns_of(r)); }
+            }
+        } else if it.len() >= 2 && is_kw(&it[it.len() - 2], "AS") && is_ident(last) {
+            out.push(last.text.clone());
+        } else if is_ident(last) && it.len() >= 2 && !is_punct(&it[it.len() - 2], ".") && !is_punct(&it[it.len() - 2], "(") && it[it.len() - 2].kind != T::Punct || (is_ident(last) && it.len() >= 2 && is_punct(&it[it.len() - 2], ")")) {
+            out.push(last.text.clone()); // an alias without AS: `SUM(x) total`, `a b`
+        } else if is_ident(last) {
+            out.push(last.text.clone()); // `col` or `t.col`
+        }
+    }
+    let mut seen = std::collections::HashSet::new();
+    out.retain(|c| seen.insert(c.to_lowercase()));
+    out
+}
+
+/// The tables a statement makes up: `WITH name [(columns)] AS (SELECT …)` and `FROM (SELECT …) alias`, with their columns.
+fn virtual_tables(toks: &[Tok], cat: &Catalog, current_db: Option<&str>) -> Vec<(String, Vec<String>)> {
+    let mut made: Vec<(String, Vec<String>)> = Vec::new();
+    for i in 0..toks.len() {
+        if !is_punct(&toks[i], "(") { continue; }
+        let Some(close) = matching_paren(toks, i) else { continue };
+        let inner = &toks[i + 1..close];
+        if !inner.first().is_some_and(|t| is_kw(t, "SELECT")) { continue; }
+        let mut name: Option<String> = None;
+        let mut declared: Option<Vec<String>> = None;
+        // WITH name [(a, b)] AS ( … )
+        if i >= 2 && is_kw(&toks[i - 1], "AS") {
+            if is_ident(&toks[i - 2]) {
+                name = Some(toks[i - 2].text.clone());
+            } else if is_punct(&toks[i - 2], ")") {
+                if let Some(open) = (0..i - 2).rev().find(|&k| is_punct(&toks[k], "(") && matching_paren(toks, k) == Some(i - 2)) {
+                    if open >= 1 && is_ident(&toks[open - 1]) {
+                        name = Some(toks[open - 1].text.clone());
+                        declared = Some(toks[open + 1..i - 2].iter().filter(|t| is_ident(t)).map(|t| t.text.clone()).collect());
+                    }
+                }
+            }
+        }
+        // FROM ( … ) [AS] alias
+        if name.is_none() {
+            let mut j = close + 1;
+            if toks.get(j).is_some_and(|t| is_kw(t, "AS")) { j += 1; }
+            if let Some(t) = toks.get(j).filter(|t| is_ident(t) && !(t.kind == T::Word && ends_table_ref(&t.text))) { name = Some(t.text.clone()); }
+        }
+        let Some(name) = name else { continue };
+        let cols = declared.unwrap_or_else(|| select_columns(inner, cat, current_db, &made));
+        made.push((name, cols));
+    }
+    made
+}
+
 // ---------- diagnostics: problems found without running the statement ----------
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -749,7 +849,15 @@ pub fn complete(sql: &str, cursor_utf16: usize, cat: &Catalog, current_db: Optio
     }
     let toks: Vec<Tok> = before;
     let refs = table_refs(&in_stmt);
-    let resolve = |r: &TableRef| cat.find_table(r.db.as_deref(), &r.table, current_db);
+    // tables the statement makes up (WITH lists, derived tables) resolve to their own columns
+    let virt: Vec<(String, TableInfo)> = virtual_tables(&in_stmt, cat, current_db).into_iter().map(|(n, columns)| (n.clone(), TableInfo { name: n, is_view: false, columns })).collect();
+    let resolve = |r: &TableRef| -> Option<(&str, &TableInfo)> {
+        let key = if r.derived { r.alias.as_deref() } else if r.db.is_none() { Some(r.table.as_str()) } else { None };
+        if let Some(k) = key {
+            if let Some((_, t)) = virt.iter().find(|(n, _)| n.eq_ignore_ascii_case(k)) { return Some(("", t)); }
+        }
+        cat.find_table(r.db.as_deref(), &r.table, current_db)
+    };
 
     // ---- member access: qualifier.<here> ----
     if toks.last().is_some_and(|t| is_punct(t, ".")) && toks.len() >= 2 && is_ident(&toks[toks.len() - 2]) {
@@ -966,6 +1074,22 @@ mod tests {
     }
 
     #[test]
+    fn with_lists_and_derived_tables_offer_their_columns() {
+        let l = labels("WITH big AS (SELECT customer_id, SUM(total) AS spent FROM orders GROUP BY customer_id) SELECT big.| FROM big");
+        assert_eq!(l, vec!["customer_id", "spent"], "{l:?}"); // alphabetical, like every list
+        let l = labels("WITH big AS (SELECT customer_id, SUM(total) spent FROM orders GROUP BY customer_id) SELECT | FROM big");
+        assert!(has(&l, "spent") && has(&l, "customer_id"), "implicit alias: {l:?}");
+        let l = labels("WITH c (a, b) AS (SELECT id, name FROM customers) SELECT c.| FROM c");
+        assert_eq!(l, vec!["a", "b"], "a declared column list wins: {l:?}");
+        let l = labels("SELECT d.| FROM (SELECT id, name AS who FROM customers) d");
+        assert_eq!(l, vec!["id", "who"], "{l:?}");
+        let l = labels("WITH x AS (SELECT * FROM customers) SELECT x.| FROM x");
+        assert_eq!(l, vec!["email", "id", "name"], "* takes the table's columns: {l:?}");
+        let l = labels("WITH x AS (SELECT c.* FROM customers c), y AS (SELECT id AS xid FROM x) SELECT y.| FROM y");
+        assert_eq!(l, vec!["xid"], "a later entry reads an earlier one: {l:?}");
+    }
+
+    #[test]
     fn join_on_suggests_the_foreign_key_condition() {
         let l = fk_labels("SELECT * FROM orders o JOIN customers c ON |");
         assert_eq!(l[0], "c.id = o.customer_id", "{l:?}");
@@ -1148,7 +1272,9 @@ mod tests {
     #[test]
     fn derived_tables_offer_their_alias_and_views_are_tables() {
         let l = labels("SELECT d.| FROM (SELECT 1 AS x) d");
-        assert!(l.is_empty(), "columns of a derived table are unknown: {l:?}");
+        assert_eq!(l, vec!["x"], "the columns of a derived table are the ones its SELECT makes: {l:?}");
+        let l = labels("SELECT d.| FROM (SELECT * FROM unknown_table) d");
+        assert!(l.is_empty(), "nothing is offered when the columns cannot be told: {l:?}");
         let l = labels("SELECT * FROM v_|");
         assert_eq!(l[0], "v_orders");
         let (_, c) = at("SELECT * FROM v_|");

@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.10.0 (2026-11-25)
+
+Phases 20 to 23 and a slice of 25 of the roadmap, plus fixes to the Ask AI panel.
+
+**Added**
+* **Explain as a diagram.** *Explain* and *Analyze* open a **Diagram**: the plan as a tree, each step with its rows and a bar for its cost (or, after Analyze, its measured time). The slowest step is marked, a full table scan is flagged, branches fold, and a line tells you how much faster or slower the run was than the one before.
+* **Top statements** (Server Tools → Logs): the statements that cost the server most, from the Performance Schema, sortable by total time, average time, times run or rows examined, with runs that used no index flagged.
+* **Scheduled backups** (File → Scheduled Backups…): a job backs up chosen databases every day, every week or every few hours into a folder, keeps the last N and deletes older backups of that job only. *Run now* tests a job; each job has a log. Jobs run while MyLoDB is open, and a run missed while it was closed happens when you open it again. A failed background backup is announced as a flash message.
+* **Share connections and snippets** (File → Export / Import Connections and Snippets…): one file for a colleague. Passwords are never written. Importing skips what you already have and renames name clashes.
+* **SQLite upkeep**: right-click the database for *Check integrity*, *Check foreign keys*, *Compact the file (VACUUM)*, *Update statistics* and *Rebuild indexes*. The result is a flash message.
+* **Snippets with tab stops**: a snippet selects its first name to replace, a name used twice changes everywhere, and Tab goes to the next.
+* **Autocomplete knows `WITH` lists and derived tables**: the columns a `WITH x AS (SELECT …)` or `(SELECT …) alias` makes are offered for `x.` and `alias.`.
+* The Quick Tour has a step for Ask AI.
+
+**Fixed**
+* **Ask AI panel layout.**
+* **Ask AI panel layout.** The message box no longer runs past the panel's edge, the Send button is always visible, and a long model name or a long word wraps instead of widening the panel.
+* **Answers are formatted.** Bold text, `code`, bullet and numbered lists now show properly instead of raw `**` and backticks.
+* **The query editor toolbar is compact.** Run keeps its name; Preview, Cancel, Format, Explain, Analyze and Profile are icons with the name on hover. In a narrow window the toolbar goes onto a second line instead of its Database list spilling over the neighbouring panel.
+
+**Not done yet**
+* Scheduled exports and imports, and running jobs with the app closed; a table designer for SQLite; rename-everywhere; PostgreSQL; data compare and sync.
+
 ## 0.9.0 (2026-11-25)
 
 **Changed**

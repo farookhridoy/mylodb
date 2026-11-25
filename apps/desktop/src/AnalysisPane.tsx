@@ -1,11 +1,12 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactElement } from "react";
 import Icon from "./Icon";
 import type { ExplainResult, ProfileResult } from "./api";
 import { Grid } from "./ResultsPane";
+import { flatten, fromJson, fromTimedTree, slowest, summary, type PlanNode } from "./planTree";
 
 export type Analysis =
-  | { kind: "explain" | "analyze"; sql: string; running: boolean; error: string | null; data: ExplainResult | null }
-  | { kind: "profile"; sql: string; running: boolean; error: string | null; data: ProfileResult | null };
+  | { kind: "explain" | "analyze"; sql: string; running: boolean; error: string | null; data: ExplainResult | null; prev?: ExplainResult | null }
+  | { kind: "profile"; sql: string; running: boolean; error: string | null; data: ProfileResult | null; prev?: ProfileResult | null };
 
 const ICON = { warning: <Icon name="warn" size={13} />, info: <Icon name="info" size={13} />, good: <Icon name="check" size={13} /> } as const;
 
@@ -26,9 +27,51 @@ function JsonTree({ value, name, depth = 0 }: { value: unknown; name?: string; d
   );
 }
 
+const fmtN = (n: number) => (n >= 100 ? Math.round(n).toLocaleString() : n >= 1 ? n.toFixed(1) : n.toFixed(3));
+const planOf = (d: ExplainResult): PlanNode[] => { if (d.tree) return fromTimedTree(d.tree); try { return d.json ? fromJson(JSON.parse(d.json)) : []; } catch { return []; } };
+
+/** The plan drawn as a tree: each step with its rows, its cost or measured time as a bar, and the slowest step marked. */
+function PlanDiagram({ roots }: { roots: PlanNode[] }) {
+  const [shut, setShut] = useState<Set<number>>(new Set());
+  const all = flatten(roots);
+  const measured = all.some((n) => n.self !== null);
+  const value = (n: PlanNode) => (measured ? n.self : n.cost) ?? 0;
+  const max = Math.max(...all.map(value), 0.0001);
+  const hot = slowest(roots);
+  const row = (n: PlanNode, depth: number): ReactElement[] => [
+    <div key={n.id} className={`plan-row${hot?.id === n.id ? " hot" : ""}${n.warn ? " warn" : ""}`} style={{ paddingLeft: 8 + depth * 18 }}>
+      <button className="plan-fold" disabled={n.children.length === 0} aria-label={shut.has(n.id) ? "Expand" : "Collapse"} onClick={() => setShut((s) => { const c = new Set(s); if (c.has(n.id)) c.delete(n.id); else c.add(n.id); return c; })}>{n.children.length ? (shut.has(n.id) ? "▸" : "▾") : "·"}</button>
+      <div className="plan-main">
+        <div className="plan-title"><b>{n.label}</b>{hot?.id === n.id && <span className="plan-badge">{measured ? "slowest step" : "most costly step"}</span>}{n.warn && <span className="plan-warn">{n.warn}</span>}</div>
+        {n.detail && <div className="plan-detail dim small">{n.detail}</div>}
+      </div>
+      <div className="plan-num">{n.rows !== null && <span title="rows">{n.rows.toLocaleString()} rows</span>}{n.loops && n.loops > 1 ? <span title="times repeated">×{n.loops.toLocaleString()}</span> : null}</div>
+      <div className="plan-bar" title={measured ? "time spent in this step alone" : "estimated cost"}><div style={{ width: `${Math.max(1, (value(n) / max) * 100)}%` }} /><span>{value(n) > 0 ? `${fmtN(value(n))}${measured ? " ms" : ""}` : ""}</span></div>
+    </div>,
+    ...(shut.has(n.id) ? [] : n.children.flatMap((c) => row(c, depth + 1))),
+  ];
+  return (
+    <div className="plan-diagram" role="tree" aria-label="Query plan">
+      <div className="plan-legend dim small">{measured ? "Bars show the time each step took on its own." : "Bars show the server's cost estimate. Use Analyze to measure real time."}</div>
+      {roots.flatMap((r) => row(r, 0))}
+    </div>
+  );
+}
+
+/** "Faster than the run before": one line comparing this run with the previous run of the same statement. */
+function Versus({ now, before }: { now: PlanNode[]; before: PlanNode[] }) {
+  const a = summary(now), b = summary(before);
+  if (!a || !b || a.unit !== b.unit || b.value === 0) return null;
+  const change = ((a.value - b.value) / b.value) * 100;
+  const word = Math.abs(change) < 1 ? "about the same as" : change < 0 ? `${Math.abs(change).toFixed(0)}% ${a.unit === "ms" ? "faster" : "cheaper"} than` : `${change.toFixed(0)}% ${a.unit === "ms" ? "slower" : "costlier"} than`;
+  return <div className={`plan-versus ${change < -1 ? "good" : change > 1 ? "bad" : ""}`}><Icon name={change < -1 ? "check" : "warn"} size={13} /> {fmtN(a.value)} {a.unit === "ms" ? "ms" : "(cost)"}: {word} the previous run ({fmtN(b.value)} {a.unit === "ms" ? "ms" : "cost"}).</div>;
+}
+
 function ExplainView({ a }: { a: Extract<Analysis, { kind: "explain" | "analyze" }> }) {
   const d = a.data!;
-  const [tab, setTab] = useState<"plan" | "tree" | "json">(d.tree ? "tree" : "plan");
+  const roots = useMemo(() => planOf(d), [d]);
+  const before = useMemo(() => (a.prev ? planOf(a.prev) : []), [a.prev]);
+  const [tab, setTab] = useState<"diagram" | "plan" | "tree" | "json">(roots.length ? "diagram" : "plan");
   const doc = useMemo(() => { try { return d.json ? JSON.parse(d.json) : null; } catch { return null; } }, [d.json]);
   const warnings = d.hints.filter((h) => h.severity === "warning").length;
   return (
@@ -38,11 +81,13 @@ function ExplainView({ a }: { a: Extract<Analysis, { kind: "explain" | "analyze"
         {d.hints.map((h, i) => <div key={i} className={`hint ${h.severity}`}><span>{ICON[h.severity]}</span> {h.message}</div>)}
       </div>
       <div className="result-tabs sub">
+        {roots.length > 0 && <button className={tab === "diagram" ? "active" : ""} onClick={() => setTab("diagram")}>Diagram</button>}
         <button className={tab === "plan" ? "active" : ""} onClick={() => setTab("plan")}>Plan{warnings ? ` (${warnings})` : ""}</button>
         {d.tree && <button className={tab === "tree" ? "active" : ""} onClick={() => setTab("tree")}>Timed tree</button>}
         {doc && <button className={tab === "json" ? "active" : ""} onClick={() => setTab("json")}>JSON</button>}
       </div>
       <div className="analysis-body">
+        {tab === "diagram" && <>{before.length > 0 && <Versus now={roots} before={before} />}<PlanDiagram roots={roots} /></>}
         {tab === "plan" && <Grid set={d.plan} />}
         {tab === "tree" && d.tree && <pre className="tree-text">{d.tree}</pre>}
         {tab === "json" && doc && <JsonTree value={doc} />}
@@ -58,6 +103,10 @@ function ProfileView({ a }: { a: Extract<Analysis, { kind: "profile" }> }) {
   const fmt = (n: number) => (n >= 1 ? n.toFixed(2) : n.toFixed(3));
   return (
     <div className="analysis profile">
+      {a.prev && a.prev.elapsed_ms > 0 && (() => {
+        const ch = ((d.elapsed_ms - a.prev.elapsed_ms) / a.prev.elapsed_ms) * 100;
+        return <div className={`plan-versus ${ch < -1 ? "good" : ch > 1 ? "bad" : ""}`}><Icon name={ch < -1 ? "check" : "warn"} size={13} /> {d.elapsed_ms} ms: {Math.abs(ch) < 1 ? "about the same as" : `${Math.abs(ch).toFixed(0)}% ${ch < 0 ? "faster" : "slower"} than`} the previous run ({a.prev.elapsed_ms} ms).</div>;
+      })()}
       <div className="summary">
         <span><b>{d.elapsed_ms}</b> ms</span>
         <span><b>{d.rows_returned.toLocaleString()}</b> row(s) returned</span>

@@ -1,10 +1,12 @@
 # Changelog
 
-## Unreleased
+## 0.11.0 (2026-11-26)
 
 Finishes phases 20 to 23 and 25 of the roadmap.
 
 **Added**
+* **Scheduled imports** (MySQL and MariaDB). A job can load a CSV, TSV, JSON or JSON Lines file into a table, with columns matched by name, or run a `.sql` script or zip. A bad row in a data file stops the import and nothing changes; *Replace the table's rows* works in one transaction and is refused where foreign keys point at the table. An unchanged file is not imported again unless you say so.
+* **Jobs run while MyLoDB is closed** (File → Scheduled Jobs…, off until you switch it on; macOS and Windows). The system's scheduler checks every 5 minutes while you are logged in. If passwords are in the encrypted file, jobs that need one wait until you unlock it in the app.
 * **Where is it used?** Right-click a table → *Where is it used…*: the views, routines, triggers, events and foreign keys that mention it, grouped by kind, optionally narrowed to a column (MySQL, MariaDB and SQLite). The rename dialog now says how many other objects still use the old name, because a rename does not change them.
 * **Scheduled exports.** A scheduled job can now export the result of a SELECT (CSV, JSON, JSON Lines, SQL INSERT, XML, HTML or Excel) into a folder and keep the last N files, besides making backups. Jobs also work on SQLite files: a backup is a consistent copy of the file.
 * **SQLite table designer.** *New table…* and *Design table…* work for a file. Columns and indexes are added, renamed and dropped in place; any other change rebuilds the table and copies its rows, all in one transaction that is undone if it fails. The SQL tab shows exactly what will run.
@@ -24,7 +26,8 @@ Finishes phases 20 to 23 and 25 of the roadmap.
 * Menu entries that only make sense for MySQL and MariaDB (restore, CSV import) now say so instead of opening a tab that cannot work for a file.
 
 **Known limits**
-* Scheduled imports, and jobs that run while MyLoDB is closed, are not available.
+* Jobs with MyLoDB closed need the computer on and you logged in. A failure then shows only in the job's log. Switch the option off before removing MyLoDB.
+* A scheduled SQL script is not one transaction: what ran before an error stays.
 * Data compare reads both tables into memory (up to a million rows each) and works for MySQL and MariaDB only. Copying a database goes through a dump, so a view that names another database keeps pointing at it.
 * After a rename, routines, triggers and events that use the old name are listed but not rewritten.
 

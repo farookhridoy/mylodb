@@ -1,17 +1,19 @@
 import { useCallback, useEffect, useState } from "react";
 import { open as pickPath } from "@tauri-apps/plugin-dialog";
-import { plainError, scheduleApi, type Schedule, type ScheduleRule } from "./api";
+import { plainError, scheduleApi, type BackgroundStatus, type ImportMode, type Schedule, type ScheduleRule } from "./api";
 import Icon from "./Icon";
 
 const FORMATS: [string, string][] = [["csv", "CSV"], ["json", "JSON"], ["json_lines", "JSON Lines"], ["xlsx", "Excel (XLSX)"], ["sql_insert", "SQL INSERT"], ["xml", "XML"], ["html", "HTML table"]];
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+const MODES: [ImportMode, string][] = [["insert", "Stop: nothing is imported"], ["ignore", "Skip those rows"], ["update", "Update them"], ["replace", "Replace them"]];
+const isScript = (path: string) => /\.(sql|zip)$/i.test(path.trim());
 const two = (n: number) => String(n).padStart(2, "0");
 
 const describe = (r: ScheduleRule) =>
   r.kind === "hours" ? `every ${r.hours} hour${r.hours === 1 ? "" : "s"}` : r.kind === "daily" ? `every day at ${two(r.hour)}:${two(r.minute)}` : `every ${DAYS[r.weekday]} at ${two(r.hour)}:${two(r.minute)}`;
 
 function blank(connectionId: number, databases: string[]): Schedule {
-  return { id: "", name: "", connection_id: connectionId, databases: databases.slice(0, 1), kind: "backup", sql: "", format: "csv", dir: "", rule: { kind: "daily", hour: 3, minute: 0 }, keep: 7, compress: true, data: true, enabled: true, created: "", last_run: null, log: [] };
+  return { id: "", name: "", connection_id: connectionId, databases: databases.slice(0, 1), kind: "backup", sql: "", format: "csv", source: "", table: "", mode: "insert", replace_all: false, only_if_changed: true, dir: "", rule: { kind: "daily", hour: 3, minute: 0 }, keep: 7, compress: true, data: true, enabled: true, created: "", last_run: null, log: [] };
 }
 
 /** The "when" part of the form: how often, on which day, at what time. */
@@ -30,13 +32,29 @@ function RuleFields({ rule, onChange }: { rule: ScheduleRule; onChange(r: Schedu
   );
 }
 
-/** Scheduled backups: a list of jobs, each with when it runs, where the file goes, how many to keep, and its log. They run while MyLoDB is open. */
+/** What a job does, in a line of the list. */
+function summary(j: Schedule) {
+  if (j.kind === "import") return `import of ${j.source.split(/[\\/]/).pop()} into ${j.databases[0] ?? "?"}${isScript(j.source) ? "" : `.${j.table}`}`;
+  if (j.kind === "export") return `export of a query in ${j.databases[0] ?? "?"} as ${FORMATS.find((f) => f[0] === j.format)?.[1] ?? j.format}`;
+  return `backup of ${j.databases.join(", ")}`;
+}
+
+/** Scheduled jobs: a list, each with when it runs, what it reads or writes, and its log. */
 export default function SchedulesDialog(props: { connectionId: number; connectionName: string; databases: string[]; onClose(): void }) {
   const [jobs, setJobs] = useState<Schedule[]>([]);
   const [edit, setEdit] = useState<Schedule | null>(null);
   const [open, setOpen] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [background, setBackground] = useState<BackgroundStatus | null>(null);
+  const [switching, setSwitching] = useState(false);
+  useEffect(() => { scheduleApi.background().then(setBackground).catch(() => {}); }, []);
+  const switchBackground = async (on: boolean) => {
+    setSwitching(true); setError(null);
+    try { setBackground(await scheduleApi.setBackground(on)); } catch (e) { setError(plainError(e)); }
+    setSwitching(false);
+  };
+  const chooseFile = async () => { const p = await pickPath({ multiple: false, filters: [{ name: "Data or SQL", extensions: ["csv", "tsv", "txt", "json", "jsonl", "ndjson", "sql", "zip"] }] }); if (typeof p === "string" && edit) setEdit({ ...edit, source: p }); };
   const refresh = useCallback(() => scheduleApi.list().then(setJobs).catch((e) => setError(plainError(e))), []);
   useEffect(() => { refresh(); const t = setInterval(refresh, 5000); return () => clearInterval(t); }, [refresh]);
   useEffect(() => {
@@ -61,28 +79,28 @@ export default function SchedulesDialog(props: { connectionId: number; connectio
 
   return (
     <div className="overlay" onMouseDown={props.onClose}>
-      <div className="dialog schedules-dialog" role="dialog" aria-label="Scheduled backups" onMouseDown={(e) => e.stopPropagation()}>
-        <h3>Scheduled backups and exports</h3>
-        <p className="dim small">Jobs run while MyLoDB is open: a SQL dump, or the result of a SELECT as a file, each time, in the folder you choose. Older backups of a job beyond the limit are deleted. If the app was closed at the time, the missed run happens when you open it again.</p>
+      <div className="dialog schedules-dialog" role="dialog" aria-label="Scheduled jobs" onMouseDown={(e) => e.stopPropagation()}>
+        <h3>Scheduled jobs</h3>
+        <p className="dim small">Back up databases, export the result of a query, or import a file, on a timetable. Older backups and exports of a job beyond its limit are deleted. A run that was missed happens at the next chance.</p>
         {error && <div className="banner bad" role="alert">{error}</div>}
         {!edit ? (
           <>
-            {jobs.length === 0 && <div className="empty">No scheduled backups yet.</div>}
+            {jobs.length === 0 && <div className="empty">No scheduled jobs yet.</div>}
             <ul className="sched-list">
               {jobs.map((j) => (
                 <li key={j.id} className={j.enabled ? "" : "off"}>
                   <div className="sched-row">
                     <div className="sched-main">
-                      <b>{j.name}</b> <span className="dim small">{j.kind === "export" ? `export of a query in ${j.databases[0] ?? "?"} as ${FORMATS.find((f) => f[0] === j.format)?.[1] ?? j.format}` : `backup of ${j.databases.join(", ")}`} · {describe(j.rule)} · keep {j.keep}</span>
+                      <b>{j.name}</b> <span className="dim small">{summary(j)} · {describe(j.rule)}{j.kind === "import" ? "" : ` · keep ${j.keep}`}</span>
                       <div className="dim small">{j.running ? "Running now…" : j.enabled ? (j.next_run ? `Next: ${j.next_run}` : "") : "Paused"}{j.last_run ? ` · Last: ${j.last_run}` : ""}</div>
-                      <div className="dim small sched-dir" title={j.dir}>{j.dir}</div>
+                      <div className="dim small sched-dir" title={j.kind === "import" ? j.source : j.dir}>{j.kind === "import" ? j.source : j.dir}</div>
                     </div>
                     <div className="sched-actions">
                       <button onClick={() => run(j)} disabled={busy === j.id || j.running} title="Run it now">{busy === j.id || j.running ? "Running…" : "Run now"}</button>
                       <button onClick={() => setEdit({ ...j })}>Edit</button>
                       <button onClick={() => toggle(j)}>{j.enabled ? "Pause" : "Resume"}</button>
                       <button onClick={() => setOpen(open === j.id ? null : j.id)} aria-expanded={open === j.id}>Log ({j.log.length})</button>
-                      <button className="danger" onClick={() => remove(j)} title="Delete the job (the backup files stay)"><Icon name="trash" size={13} /></button>
+                      <button className="danger" onClick={() => remove(j)} title="Delete the job (its files stay)"><Icon name="trash" size={13} /></button>
                     </div>
                   </div>
                   {open === j.id && (
@@ -92,6 +110,14 @@ export default function SchedulesDialog(props: { connectionId: number; connectio
                 </li>
               ))}
             </ul>
+            {background?.supported && (
+              <div className="sched-bg">
+                <label className="check"><input type="checkbox" checked={background.enabled} disabled={switching} onChange={(e) => switchBackground(e.target.checked)} /> Run jobs while MyLoDB is closed</label>
+                <p className="dim small">{background.enabled
+                  ? `Your computer checks every ${background.every_minutes} minutes while you are logged in. If your passwords are in the encrypted file, jobs that need one wait until you open MyLoDB and unlock it.`
+                  : "Off: jobs run only while MyLoDB is open."}</p>
+              </div>
+            )}
             <div className="actions">
               <button onClick={props.onClose}>Close</button>
               <button className="primary" onClick={() => setEdit(blank(props.connectionId, props.databases))}>New scheduled job…</button>
@@ -103,13 +129,33 @@ export default function SchedulesDialog(props: { connectionId: number; connectio
             <p className="dim small">Connection: <b>{edit.connection_id === props.connectionId ? props.connectionName : `#${edit.connection_id}`}</b></p>
             <label>What it does
               <select value={edit.kind} aria-label="What it does" onChange={(e) => setEdit({ ...edit, kind: e.target.value as Schedule["kind"], databases: edit.databases.slice(0, 1) })}>
-                <option value="backup">Back up databases (SQL dump)</option><option value="export">Export the result of a query to a file</option></select></label>
+                <option value="backup">Back up databases (SQL dump)</option><option value="export">Export the result of a query to a file</option><option value="import">Import a file</option></select></label>
             {edit.kind === "backup" ? (
               <fieldset><legend>Databases</legend>
                 <div className="sched-dbs">{props.databases.map((d) => (
                   <label key={d} className="check"><input type="checkbox" checked={edit.databases.includes(d)} onChange={(e) => setEdit({ ...edit, databases: e.target.checked ? [...edit.databases, d] : edit.databases.filter((x) => x !== d) })} /> {d}</label>
                 ))}</div>
               </fieldset>
+            ) : edit.kind === "import" ? (
+              <>
+                <label>File to import
+                  <span className="sched-dirpick"><input value={edit.source} aria-label="File to import" onChange={(e) => setEdit({ ...edit, source: e.target.value })} placeholder="/Users/you/Incoming/orders.csv" spellCheck={false} /><button type="button" onClick={chooseFile}>Choose…</button></span></label>
+                <label>Into database
+                  <select value={edit.databases[0] ?? ""} aria-label="Into database" onChange={(e) => setEdit({ ...edit, databases: e.target.value ? [e.target.value] : [] })}>
+                    <option value="">(choose)</option>{props.databases.map((d) => <option key={d} value={d}>{d}</option>)}</select></label>
+                {isScript(edit.source) ? (
+                  <p className="banner warn">The statements of this script run as they are, every time, and stop at the first error. What ran before the error is not undone.</p>
+                ) : (
+                  <>
+                    <label>Table<input value={edit.table} aria-label="Table" onChange={(e) => setEdit({ ...edit, table: e.target.value })} placeholder="orders" spellCheck={false} /></label>
+                    <p className="dim small">The file's first row (or the JSON keys) names the columns. A bad row stops the import and nothing is changed.</p>
+                    <label>When a row's key already exists
+                      <select value={edit.mode} aria-label="Existing rows" onChange={(e) => setEdit({ ...edit, mode: e.target.value as ImportMode })}>{MODES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
+                    <label className="check"><input type="checkbox" checked={edit.replace_all} onChange={(e) => setEdit({ ...edit, replace_all: e.target.checked })} /> Replace the table's rows with the file's (deletes the rows that are there)</label>
+                  </>
+                )}
+                <label className="check"><input type="checkbox" checked={edit.only_if_changed} onChange={(e) => setEdit({ ...edit, only_if_changed: e.target.checked })} /> Only when the file has changed</label>
+              </>
             ) : (
               <>
                 <label>Run in database
@@ -122,9 +168,11 @@ export default function SchedulesDialog(props: { connectionId: number; connectio
               </>
             )}
             <RuleFields rule={edit.rule} onChange={setRule} />
+            {edit.kind !== "import" && (<>
             <label>Folder
               <span className="sched-dirpick"><input value={edit.dir} onChange={(e) => setEdit({ ...edit, dir: e.target.value })} placeholder="/Users/you/Backups" spellCheck={false} /><button type="button" onClick={chooseDir}>Choose…</button></span></label>
             <label>Keep the last <input type="number" min={1} max={999} value={edit.keep} onChange={(e) => setEdit({ ...edit, keep: Number(e.target.value) })} /> {edit.kind === "export" ? "files" : "backups"}</label>
+            </>)}
             {edit.kind === "backup" && <label className="check"><input type="checkbox" checked={edit.compress} onChange={(e) => setEdit({ ...edit, compress: e.target.checked })} /> Compress into a .zip</label>}
             {edit.kind === "backup" && <label className="check"><input type="checkbox" checked={edit.data} onChange={(e) => setEdit({ ...edit, data: e.target.checked })} /> Include the rows (not only the structure)</label>}
             <div className="actions"><button type="button" onClick={() => setEdit(null)}>Cancel</button><button className="primary" type="submit">Save</button></div>

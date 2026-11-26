@@ -368,21 +368,24 @@ export const sqliteApi = {
   maintain: (id: number, op: "integrity" | "quick" | "foreign_keys" | "vacuum" | "analyze" | "reindex" | "optimize") => invoke<string>("sqlite_maintain", { id, op }),
 };
 
-/** Scheduled backups: jobs that run while MyLoDB is open, with a log and a "keep the last N" limit. */
+/** Scheduled jobs (backups, exports, imports) with a log; they run while MyLoDB is open, and when it is closed if that is switched on. */
 export type ScheduleRule = { kind: "hours"; hours: number } | { kind: "daily"; hour: number; minute: number } | { kind: "weekly"; weekday: number; hour: number; minute: number };
 export interface ScheduleLog { time: string; ok: boolean; message: string }
 export interface Schedule {
-  id: string; name: string; connection_id: number; databases: string[]; kind: "backup" | "export"; sql: string; format: string; dir: string; rule: ScheduleRule; keep: number; compress: boolean; data: boolean; enabled: boolean;
+  id: string; name: string; connection_id: number; databases: string[]; kind: "backup" | "export" | "import"; source: string; table: string; mode: ImportMode; replace_all: boolean; only_if_changed: boolean; last_source?: string | null; sql: string; format: string; dir: string; rule: ScheduleRule; keep: number; compress: boolean; data: boolean; enabled: boolean;
   created: string; last_run: string | null; log: ScheduleLog[]; next_run?: string | null; running?: boolean;
 }
+export interface BackgroundStatus { supported: boolean; enabled: boolean; every_minutes: number }
 export const scheduleApi = {
+  background: () => invoke<BackgroundStatus>("background_jobs_status"),
+  setBackground: (enabled: boolean) => invoke<BackgroundStatus>("background_jobs_set", { enabled }),
   list: () => invoke<Schedule[]>("schedules_list"),
   save: (job: Schedule) => invoke<Schedule[]>("schedule_save", { job }),
   remove: (id: string) => invoke<Schedule[]>("schedule_delete", { id }),
   runNow: (id: string) => invoke<string>("schedule_run_now", { id }),
 };
-export async function onScheduleDone(cb: (e: { name: string; ok: boolean; message: string }) => void): Promise<() => void> {
-  const un = await listen<{ name: string; ok: boolean; message: string }>("schedule-done", (e) => cb(e.payload));
+export async function onScheduleDone(cb: (e: { name: string; kind?: string; ok: boolean; message: string }) => void): Promise<() => void> {
+  const un = await listen<{ name: string; kind?: string; ok: boolean; message: string }>("schedule-done", (e) => cb(e.payload));
   return () => { un(); };
 }
 

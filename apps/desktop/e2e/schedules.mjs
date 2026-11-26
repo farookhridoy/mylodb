@@ -17,7 +17,7 @@ await page.waitForSelector(".cm-content");
 
 await page.evaluate(() => window.__emit("menu-action", "schedules"));
 await page.waitForSelector(".schedules-dialog");
-assert.match(await page.locator(".schedules-dialog").innerText(), /No scheduled backups yet/);
+assert.match(await page.locator(".schedules-dialog").innerText(), /No scheduled jobs yet/);
 ok("File → Scheduled Backups opens the list, empty at first");
 
 // a job without a name or database is refused with a plain message
@@ -58,7 +58,7 @@ await page.click(".sched-list button:has-text('Pause')");
 await page.waitForSelector(".sched-list li.off");
 assert.match(await page.locator(".sched-list > li").innerText(), /Paused/);
 await page.click(".sched-list button[title^='Delete the job']");
-await page.waitForFunction(() => /No scheduled backups yet/.test(document.querySelector(".schedules-dialog").innerText));
+await page.waitForFunction(() => /No scheduled jobs yet/.test(document.querySelector(".schedules-dialog").innerText));
 ok("a job can be paused and deleted");
 
 // a scheduled export: the SELECT, its database and the file format are saved, and it is listed as an export
@@ -77,6 +77,36 @@ assert.deepEqual([exp.kind, exp.format, exp.databases], ["export", "xlsx", ["sho
 assert.match(await page.locator(".sched-list > li").innerText(), /export of a query in shop as Excel \(XLSX\)/);
 await page.click(".sched-list button[title^='Delete the job']");
 ok("a scheduled export saves its SELECT, database and format, and is listed as an export");
+
+// a scheduled import: file, database, table and what to do with existing rows
+await page.click(".schedules-dialog button:has-text('New scheduled job')");
+await page.selectOption(".sched-form select[aria-label='What it does']", "import");
+assert.equal(await page.locator(".sched-form label:has-text('Folder')").count(), 0, "an import has no output folder");
+await page.fill(".sched-form input[placeholder='Nightly shop backup']", "Load prices");
+await page.fill(".sched-form input[aria-label='File to import']", "/Users/me/In/load.sql");
+assert.match(await page.locator(".sched-form .banner.warn").innerText(), /not undone/);
+assert.equal(await page.locator(".sched-form input[aria-label=Table]").count(), 0, "a script names its own tables");
+await page.fill(".sched-form input[aria-label='File to import']", "/Users/me/In/prices.csv");
+await page.selectOption(".sched-form select[aria-label='Into database']", "shop");
+await page.fill(".sched-form input[aria-label=Table]", "prices");
+await page.selectOption(".sched-form select[aria-label='Existing rows']", "update");
+await page.click(".sched-form button:has-text('Save')");
+await page.waitForSelector(".sched-list > li");
+const imp = (await calls("schedule_save")).at(-1).job;
+assert.deepEqual([imp.kind, imp.source, imp.table, imp.mode, imp.replace_all, imp.only_if_changed], ["import", "/Users/me/In/prices.csv", "prices", "update", false, true]);
+assert.match(await page.locator(".sched-list > li").innerText(), /import of prices\.csv into shop\.prices/);
+await page.click(".sched-list button[title^='Delete the job']");
+ok("a scheduled import saves its file, table and mode, and warns for a SQL script");
+
+// running while the app is closed is a switch, off at first
+const bg = page.locator(".sched-bg input");
+assert.equal(await bg.isChecked(), false);
+await bg.click();
+await page.waitForFunction(() => /every 5 minutes/.test(document.querySelector(".sched-bg").innerText));
+assert.equal((await calls("background_jobs_set")).at(-1).enabled, true);
+await bg.click();
+await page.waitForFunction(() => /Off: jobs run only/.test(document.querySelector(".sched-bg").innerText));
+ok("jobs can be set to run while MyLoDB is closed, and switched off again");
 
 // a background run is announced
 await page.keyboard.press("Escape");

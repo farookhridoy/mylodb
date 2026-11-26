@@ -442,6 +442,7 @@ async fn a_large_script_is_streamed_with_progress_and_can_be_cancelled() {
 
 fn plan(db: &str, table: &str, mapping: &[Option<&str>], mode: ImportMode) -> ImportPlan {
     ImportPlan {
+        delete_first: false,
         database: db.into(),
         table: table.into(),
         mapping: mapping.iter().map(|m| m.map(String::from)).collect(),
@@ -592,6 +593,63 @@ async fn csv_import_can_switch_foreign_key_checks_off_and_restores_them() {
         assert!(!off.aborted && off.affected_rows == 1, "{off:?}");
         let flag: Option<u8> = c.query_first("SELECT @@foreign_key_checks").await.unwrap();
         assert_eq!(flag, Some(1), "the switch must not leak into the pooled connection");
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn an_unattended_import_matches_columns_by_name_and_replaces_rows_safely() {
+    with_env("auto", &["db"], |pool, dbs, dir| async move {
+        let db = &dbs[0];
+        let mut c = pool.get_conn().await.unwrap();
+        for s in [
+            format!("CREATE DATABASE `{db}`"),
+            format!("CREATE TABLE `{db}`.t (id INT PRIMARY KEY, name VARCHAR(20), twice INT AS (id * 2) STORED)"),
+            format!("CREATE TABLE `{db}`.parent (id INT PRIMARY KEY)"),
+            format!("CREATE TABLE `{db}`.child (p INT, FOREIGN KEY (p) REFERENCES `{db}`.parent(id) ON DELETE CASCADE)"),
+            format!("INSERT INTO `{db}`.t (id, name) VALUES (9, 'old')"),
+            format!("INSERT INTO `{db}`.parent VALUES (1)"),
+            format!("INSERT INTO `{db}`.child VALUES (1)"),
+        ] {
+            c.query_drop(s).await.unwrap();
+        }
+        let file = |name: &str, text: &str| {
+            let p = dir.join(name);
+            std::fs::write(&p, text).unwrap();
+            p
+        };
+        let rows = format!("SELECT id, name FROM `{db}`.t ORDER BY id");
+        let cancel = AtomicBool::new(false);
+
+        // replace all: columns found by name, an unknown one reported, the old row gone
+        let p = file("a.csv", "Name;ID;note\nAnn;1;x\nBob;2;y\n");
+        let r = import_file(&mut c, &p, db, "t", ImportMode::Insert, true, &mut noop(), &cancel).await.unwrap();
+        assert_eq!((r.result.rows_read, r.result.aborted, r.skipped.clone()), (2, false, vec!["note".to_string()]));
+        assert_eq!(c.query::<(i64, String), _>(&rows).await.unwrap(), vec![(1, "Ann".into()), (2, "Bob".into())]);
+
+        // a bad row, and an empty file, leave the rows as they were
+        for (name, text) in [("bad.csv", "id,name\n3,Cy\n3,Dup\n"), ("empty.csv", "id,name\n")] {
+            let p = file(name, text);
+            let r = import_file(&mut c, &p, db, "t", ImportMode::Insert, true, &mut noop(), &cancel).await.unwrap();
+            assert!(r.result.aborted && r.result.rolled_back, "{name}");
+            assert_eq!(c.query::<(i64, String), _>(&rows).await.unwrap().len(), 2, "{name}");
+        }
+
+        // JSON Lines with update of existing keys
+        let p = file("b.jsonl", "{\"id\": 2, \"name\": \"Bea\"}\n{\"id\": 3, \"name\": null}\n");
+        import_file(&mut c, &p, db, "t", ImportMode::Update, false, &mut noop(), &cancel).await.unwrap();
+        let got: Vec<(i64, Option<String>)> = c.query(&rows).await.unwrap();
+        assert_eq!(got, vec![(1, Some("Ann".into())), (2, Some("Bea".into())), (3, None)]);
+
+        // rows that foreign keys point at are never deleted
+        let p = file("p.csv", "id\n5\n");
+        let e = import_file(&mut c, &p, db, "parent", ImportMode::Insert, true, &mut noop(), &cancel).await.err().expect("refused");
+        assert!(e.to_string().contains("foreign keys"), "{e}");
+        assert_eq!(c.query_first::<i64, _>(format!("SELECT COUNT(*) FROM `{db}`.child")).await.unwrap(), Some(1));
+
+        let p = file("n.csv", "x,y\n1,2\n");
+        assert!(import_file(&mut c, &p, db, "t", ImportMode::Insert, false, &mut noop(), &cancel).await.is_err(), "no matching column");
+        assert!(import_file(&mut c, &p, db, "missing", ImportMode::Insert, false, &mut noop(), &cancel).await.is_err());
     })
     .await;
 }

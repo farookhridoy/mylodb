@@ -1,5 +1,9 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    mylodb_desktop_lib::run()
+    if mylodb_desktop_lib::is_background_run() {
+        mylodb_desktop_lib::run_due_jobs()
+    } else {
+        mylodb_desktop_lib::run()
+    }
 }

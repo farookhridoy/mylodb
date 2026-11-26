@@ -248,6 +248,8 @@ Object.assign(handlers, {
   process_list: () => { window.__plCalls = (window.__plCalls || 0) + 1; return { processes: JSON.parse(JSON.stringify(procs)), self_id: 99 }; },
   sqlite_maintain: (a) => ({ integrity: "Integrity check: ok. The file is sound.", foreign_keys: "Foreign key check: no violations.", vacuum: "VACUUM done: 4.00 MB → 3.10 MB (0.90 MB freed)" }[a.op] ?? `${a.op} done.`),
   schedules_list: () => (window.__sched ?? []).map((s) => ({ ...s, next_run: s.enabled ? "2026-11-26 03:00:00" : null, running: false })),
+  background_jobs_status: () => ({ supported: true, enabled: !!window.__bg, every_minutes: 5 }),
+  background_jobs_set: (a) => { window.__bg = a.enabled; return { supported: true, enabled: a.enabled, every_minutes: 5 }; },
   schedule_save: (a) => {
     const j = { ...a.job };
     if (!j.name.trim()) throw "Give the job a name.";

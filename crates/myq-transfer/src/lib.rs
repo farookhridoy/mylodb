@@ -2,12 +2,14 @@
 //!
 //! Long operations report `Progress` and stop promptly when the `cancel` flag is set.
 
+mod auto_import;
 mod backup;
 mod csv_import;
 mod datasync;
 mod json_import;
 mod sql_run;
 
+pub use auto_import::{import_file, map_by_header, AutoImport};
 pub use backup::{backup, prune_backups, prune_files, strip_definer, BackupOptions, BackupResult, BackupTarget, DbSelection};
 pub use csv_import::{import_csv, infer_schema, preview_csv, sniff_delimiter, CsvFormat, CsvPreview, ImportMode, ImportPlan, ImportResult, InferredColumn, RowError};
 pub use datasync::{apply as apply_sync, create_database_like, diff as diff_tables, primary_key, read_table, sync_statements, CellDiff, Cells, Changed, Col, Diff, SyncOptions, Table as SyncTable};

@@ -1,5 +1,7 @@
-//! Scheduled backups: a list of jobs kept in `schedules.json` in the app's data folder, a check every 30 seconds for jobs that are
-//! due, and the log of what happened. Jobs only run while MyLoDB is open (there is no background service).
+//! Scheduled jobs (backups, exports, imports): a list kept in `schedules.json` in the app's data folder, a check for jobs that are
+//! due, and the log of what happened. The open app checks every 30 seconds; with "run when MyLoDB is closed" the system's scheduler
+//! also starts `MyLoDB --run-due-jobs` (see `background.rs`). Because two processes can be at work, the file is the only copy of the
+//! list: every change reads and writes it under a lock, and a job holds its own lock while it runs.
 
 use chrono::{Datelike, Duration, NaiveDateTime, NaiveTime};
 use serde::{Deserialize, Serialize};
@@ -29,7 +31,8 @@ pub struct Schedule {
     pub name: String,
     pub connection_id: i64,
     pub databases: Vec<String>,
-    /// `backup` (a SQL dump of the databases) or `export` (the result of one SELECT, run in the first database).
+    /// `backup` (a SQL dump of the databases), `export` (the result of one SELECT, run in the first database) or `import` (a file
+    /// into the first database).
     #[serde(default = "backup_kind")]
     pub kind: String,
     #[serde(default)]
@@ -37,8 +40,27 @@ pub struct Schedule {
     /// For an export: `csv`, `json`, `json_lines`, `sql_insert`, `xml`, `html` or `xlsx`.
     #[serde(default = "csv_format")]
     pub format: String,
-    /// Folder the backups are written to.
+    /// Folder the backups are written to (not used by an import).
+    #[serde(default)]
     pub dir: String,
+    /// Import: the file to read (`.csv`, `.tsv`, `.txt`, `.json`, `.jsonl`, `.ndjson`, or a `.sql` script or `.zip` of scripts).
+    #[serde(default)]
+    pub source: String,
+    /// Import of a data file: the table it goes into.
+    #[serde(default)]
+    pub table: String,
+    /// Import of a data file: `insert`, `ignore`, `update` or `replace` for rows whose key exists.
+    #[serde(default = "insert_mode")]
+    pub mode: String,
+    /// Import of a data file: replace the table's rows with the file's.
+    #[serde(default)]
+    pub replace_all: bool,
+    /// Import: do nothing when the file has not changed since the last successful import.
+    #[serde(default = "yes")]
+    pub only_if_changed: bool,
+    /// Size and modification time of the file the last successful import read.
+    #[serde(default)]
+    pub last_source: Option<String>,
     pub rule: Rule,
     /// How many backups to keep (older ones of this job are deleted).
     pub keep: u32,
@@ -59,6 +81,21 @@ pub struct Schedule {
 fn yes() -> bool { true }
 fn backup_kind() -> String { "backup".into() }
 fn csv_format() -> String { "csv".into() }
+fn insert_mode() -> String { "insert".into() }
+
+/// Whether an import source is a SQL script (run statement by statement) and not a data file.
+pub fn is_script(source: &str) -> bool {
+    let s = source.trim().to_ascii_lowercase();
+    s.ends_with(".sql") || s.ends_with(".zip")
+}
+
+/// What identifies the contents of a file between two runs: its size and modification time.
+pub fn source_signature(path: &std::path::Path) -> Result<String, String> {
+    let m = std::fs::metadata(path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
+    if !m.is_file() { return Err(format!("{} is not a file", path.display())); }
+    let modified = m.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_nanos()).unwrap_or(0);
+    Ok(format!("{}:{modified}", m.len()))
+}
 
 pub const EXPORT_FORMATS: [(&str, &str); 7] = [("csv", "csv"), ("json", "json"), ("json_lines", "jsonl"), ("sql_insert", "sql"), ("xml", "xml"), ("html", "html"), ("xlsx", "xlsx")];
 
@@ -92,7 +129,8 @@ fn latest_slot(rule: &Rule, now: NaiveDateTime) -> Option<NaiveDateTime> {
 
 /// Is the job due at `now`? A time-of-day job runs once per slot, and not for a slot that passed before the job was made.
 pub fn is_due(s: &Schedule, now: NaiveDateTime) -> bool {
-    if !s.enabled || s.databases.is_empty() || s.dir.trim().is_empty() {
+    let target = if s.kind == "import" { &s.source } else { &s.dir };
+    if !s.enabled || s.databases.is_empty() || target.trim().is_empty() {
         return false;
     }
     let created = parse_time(&s.created).unwrap_or(now);
@@ -129,15 +167,24 @@ pub fn next_run(s: &Schedule, now: NaiveDateTime) -> Option<NaiveDateTime> {
 pub fn valid(s: &Schedule) -> Result<(), String> {
     if s.name.trim().is_empty() { return Err("Give the job a name.".into()); }
     if s.databases.is_empty() { return Err("Choose at least one database.".into()); }
-    if s.dir.trim().is_empty() { return Err("Choose the folder the backups go to.".into()); }
-    if s.keep == 0 { return Err("Keep at least one copy.".into()); }
+    if s.kind != "import" {
+        if s.dir.trim().is_empty() { return Err("Choose the folder the backups go to.".into()); }
+        if s.keep == 0 { return Err("Keep at least one copy.".into()); }
+    }
     match s.kind.as_str() {
         "backup" => {}
         "export" => {
             if s.sql.trim().is_empty() { return Err("Write the SELECT to export.".into()); }
             if export_extension(&s.format).is_none() { return Err("Choose a file format.".into()); }
         }
-        _ => return Err("Choose what the job does: a backup or an export.".into()),
+        "import" => {
+            if s.source.trim().is_empty() { return Err("Choose the file to import.".into()); }
+            if !is_script(&s.source) {
+                if s.table.trim().is_empty() { return Err("Choose the table the rows go into.".into()); }
+                if !["insert", "ignore", "update", "replace"].contains(&s.mode.as_str()) { return Err("Choose what happens to rows that already exist.".into()); }
+            }
+        }
+        _ => return Err("Choose what the job does: a backup, an export or an import.".into()),
     }
     match s.rule {
         Rule::Hours { hours } if !(1..=24 * 30).contains(&hours) => Err("Hours must be between 1 and 720.".into()),
@@ -152,9 +199,37 @@ pub fn load(path: &std::path::Path) -> Vec<Schedule> {
 }
 
 pub fn save(path: &std::path::Path, list: &[Schedule]) -> std::io::Result<()> {
-    let tmp = path.with_extension("json.tmp");
+    let tmp = path.with_extension(format!("json.{}.tmp", std::process::id()));
     std::fs::write(&tmp, serde_json::to_vec_pretty(list)?)?;
     std::fs::rename(tmp, path)
+}
+
+fn lock_file(path: &std::path::Path) -> std::io::Result<std::fs::File> {
+    if let Some(dir) = path.parent() { std::fs::create_dir_all(dir)?; }
+    std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(path)
+}
+
+/// Read the list, change it and write it back while no other thread or process can do the same.
+pub fn update<R>(path: &std::path::Path, change: impl FnOnce(&mut Vec<Schedule>) -> Result<R, String>) -> Result<R, String> {
+    let lock = lock_file(&path.with_extension("lock")).map_err(|e| e.to_string())?;
+    lock.lock().map_err(|e| e.to_string())?;
+    let mut list = match std::fs::read_to_string(path) {
+        // never write over a file that cannot be understood: that would throw away every job
+        Ok(text) => serde_json::from_str(&text).map_err(|e| format!("{} is unreadable: {e}", path.display()))?,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+        Err(e) => return Err(e.to_string()),
+    };
+    let out = change(&mut list)?;
+    save(path, &list).map_err(|e| e.to_string())?;
+    Ok(out)
+}
+
+/// Claim a job for running. `None` while this or another process is running it. The claim ends when the file is dropped, also when the
+/// process dies.
+pub fn claim(path: &std::path::Path, id: &str) -> Option<std::fs::File> {
+    let safe: String = id.chars().filter(char::is_ascii_alphanumeric).collect();
+    let file = lock_file(&path.with_file_name("schedule-locks").join(format!("{safe}.lock"))).ok()?;
+    file.try_lock().ok().map(|_| file)
 }
 
 pub fn push_log(s: &mut Schedule, now: NaiveDateTime, ok: bool, message: String) {
@@ -168,7 +243,7 @@ mod tests {
 
     fn at(s: &str) -> NaiveDateTime { parse_time(s).unwrap() }
     fn job(rule: Rule, created: &str, last: Option<&str>) -> Schedule {
-        Schedule { id: "j".into(), name: "n".into(), connection_id: 1, databases: vec!["shop".into()], dir: "/b".into(), rule, keep: 5, compress: false, data: true, enabled: true, created: created.into(), last_run: last.map(String::from), log: vec![], kind: "backup".into(), sql: String::new(), format: "csv".into() }
+        Schedule { id: "j".into(), name: "n".into(), connection_id: 1, databases: vec!["shop".into()], dir: "/b".into(), rule, keep: 5, compress: false, data: true, enabled: true, created: created.into(), last_run: last.map(String::from), log: vec![], kind: "backup".into(), sql: String::new(), format: "csv".into(), source: String::new(), table: String::new(), mode: "insert".into(), replace_all: false, only_if_changed: true, last_source: None }
     }
 
     #[test]
@@ -247,6 +322,39 @@ mod tests {
         let old = r#"{"id":"a","name":"n","connection_id":1,"databases":["shop"],"dir":"/b","rule":{"kind":"hours","hours":6},"keep":3,"created":"2026-11-01 00:00:00"}"#;
         let s: Schedule = serde_json::from_str(old).unwrap();
         assert_eq!((s.kind.as_str(), s.format.as_str(), s.data, s.enabled), ("backup", "csv", true, true));
+    }
+
+    #[test]
+    fn an_import_needs_a_file_and_a_table_unless_it_is_a_script() {
+        let mut j = job(Rule::Hours { hours: 1 }, "2026-11-01 00:00:00", None);
+        j.kind = "import".into(); j.dir.clear(); j.keep = 0;
+        assert!(valid(&j).unwrap_err().contains("file"));
+        j.source = "/in/orders.csv".into();
+        assert!(valid(&j).unwrap_err().contains("table"));
+        j.table = "orders".into();
+        assert!(valid(&j).is_ok() && is_due(&j, at("2026-11-02 00:00:00")), "an import needs no folder");
+        j.mode = "drop".into();
+        assert!(valid(&j).is_err());
+        j.source = "/in/Load.SQL".into(); j.table.clear();
+        assert!(valid(&j).is_ok(), "a script names its own tables");
+    }
+
+    #[test]
+    fn a_running_job_cannot_be_claimed_twice_and_changes_go_through_the_file() {
+        let dir = std::env::temp_dir().join(format!("mylodb_claim_{}", std::process::id()));
+        let p = dir.join("schedules.json");
+        let first = claim(&p, "a1").expect("free");
+        assert!(claim(&p, "a1").is_none() && claim(&p, "b2").is_some());
+        drop(first);
+        assert!(claim(&p, "a1").is_some(), "released when dropped");
+        update(&p, |l| { l.push(job(Rule::Hours { hours: 1 }, "2026-11-01 00:00:00", None)); Ok(()) }).unwrap();
+        assert_eq!(load(&p).len(), 1);
+        assert!(update(&p, |l| { l.clear(); Err::<(), _>("no".into()) }).is_err());
+        assert_eq!(load(&p).len(), 1, "a refused change writes nothing");
+        std::fs::write(&p, "not json").unwrap();
+        assert!(update(&p, |_| Ok(())).is_err());
+        assert_eq!(std::fs::read_to_string(&p).unwrap(), "not json", "an unreadable file is left alone");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

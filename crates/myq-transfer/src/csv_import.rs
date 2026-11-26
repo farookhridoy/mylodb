@@ -275,6 +275,10 @@ pub struct ImportPlan {
     /// Load with `foreign_key_checks = 0` (rows that point at parents loaded later, or not at all). Restored to 1 afterwards.
     #[serde(default)]
     pub disable_fk_checks: bool,
+    /// Replace the table's rows: delete them inside the import's transaction, so a failed or empty import leaves them as they were.
+    /// Refused for a table without transactions, or one that foreign keys point at (deleting could cascade into other tables).
+    #[serde(default)]
+    pub delete_first: bool,
 }
 
 fn default_batch() -> usize {
@@ -443,10 +447,25 @@ async fn import_rows(conn: &mut Conn, path: &Path, fmt: &CsvFormat, plan: &Impor
     if !engine.eq_ignore_ascii_case("InnoDB") {
         res.warnings.push(format!("the table uses the {engine} engine, which has no transactions: a failed import cannot be undone"));
     }
+    if plan.delete_first {
+        if !engine.eq_ignore_ascii_case("InnoDB") {
+            return Err(Error::Invalid(format!("the rows of `{}` cannot be replaced safely: the {engine} engine has no transactions", plan.table)));
+        }
+        let children: Option<u64> = conn.exec_first("SELECT COUNT(*) FROM information_schema.KEY_COLUMN_USAGE WHERE REFERENCED_TABLE_SCHEMA=? AND REFERENCED_TABLE_NAME=?", (&plan.database, &plan.table)).await?;
+        if children.unwrap_or(0) > 0 {
+            return Err(Error::Invalid(format!("the rows of `{}` cannot be replaced: foreign keys point at this table, so deleting them could change other tables", plan.table)));
+        }
+    }
     if plan.truncate_first {
         conn.query_drop(format!("TRUNCATE TABLE {}.{}", q(&plan.database), q(&plan.table))).await?;
     }
     conn.query_drop("START TRANSACTION").await?;
+    if plan.delete_first {
+        if let Err(e) = conn.query_drop(format!("DELETE FROM {}.{}", q(&plan.database), q(&plan.table))).await {
+            let _ = conn.query_drop("ROLLBACK").await;
+            return Err(e.into());
+        }
+    }
 
     let mut rdr = open(path, fmt)?;
     let mut batch = Batch { values: Vec::new(), lines: Vec::new() };
@@ -481,6 +500,9 @@ async fn import_rows(conn: &mut Conn, path: &Path, fmt: &CsvFormat, plan: &Impor
         }
         if let Err(msg) = flush(conn, plan, &cols, &mut batch, &mut res).await? {
             return Ok(Some(msg));
+        }
+        if plan.delete_first && res.rows_read == 0 {
+            return Ok(Some("the file has no rows, so the table was left as it was".into()));
         }
         Ok(None)
     }
@@ -599,7 +621,7 @@ mod tests {
     #[test]
     fn insert_statements_for_each_mode() {
         let cols = vec![ColInfo { name: "a".into(), text_like: false, binary: false, bit: false }, ColInfo { name: "b`x".into(), text_like: true, binary: false, bit: false }];
-        let plan = |mode| ImportPlan { database: "d".into(), table: "t".into(), mapping: vec![], mode, batch_rows: 1, stop_on_error: true, truncate_first: false, empty_as_null: true, disable_fk_checks: false };
+        let plan = |mode| ImportPlan { database: "d".into(), table: "t".into(), mapping: vec![], mode, batch_rows: 1, stop_on_error: true, truncate_first: false, empty_as_null: true, disable_fk_checks: false, delete_first: false };
         assert_eq!(insert_sql(&plan(ImportMode::Insert), &cols, 2), "INSERT INTO `d`.`t` (`a`, `b``x`) VALUES (?,?),(?,?)");
         assert!(insert_sql(&plan(ImportMode::Ignore), &cols, 1).starts_with("INSERT IGNORE INTO"));
         assert!(insert_sql(&plan(ImportMode::Replace), &cols, 1).starts_with("REPLACE INTO"));
@@ -612,7 +634,7 @@ mod tests {
         let txt = ColInfo { name: "t".into(), text_like: true, binary: false, bit: false };
         let bin = ColInfo { name: "b".into(), text_like: true, binary: true, bit: false };
         let bit = ColInfo { name: "x".into(), text_like: false, binary: false, bit: true };
-        let plan = ImportPlan { database: "d".into(), table: "t".into(), mapping: vec![], mode: ImportMode::Insert, batch_rows: 1, stop_on_error: true, truncate_first: false, empty_as_null: true, disable_fk_checks: false };
+        let plan = ImportPlan { database: "d".into(), table: "t".into(), mapping: vec![], mode: ImportMode::Insert, batch_rows: 1, stop_on_error: true, truncate_first: false, empty_as_null: true, disable_fk_checks: false, delete_first: false };
         let fmt = CsvFormat { null_text: Some("\\N".into()), trim: true, ..Default::default() };
         assert_eq!(to_value(Some(""), &num, &plan, &fmt), Value::NULL, "an empty number is NULL");
         assert_eq!(to_value(Some(""), &txt, &plan, &fmt), Value::Bytes(vec![]), "an empty string stays empty text");

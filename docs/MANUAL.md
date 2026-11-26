@@ -1,6 +1,6 @@
 # MyLoDB user manual
 
-Version 0.10.0. The same text is inside the app: **Help → User Manual**. Screenshots show the real interface running on demo data (a fake `shop` database), not a real server.
+Version 0.11.0. The same text is inside the app: **Help → User Manual**. Screenshots show the real interface running on demo data (a fake `shop` database), not a real server.
 
 ## Contents
 
@@ -205,7 +205,9 @@ File → **Backup / Restore…** and **Import Data… / Export Data…**.
 
 * **Backup** writes one consistent snapshot as SQL (structure, data, views, routines, triggers, events), as one file or a file per table, optionally zipped. A cancelled backup removes its partial output.
 * **Restore** runs a `.sql` file, a zip or a folder, streamed from disk, and lists errors with line numbers. **Preview script** shows the counts and the first statements first.
-* **Scheduled backups and exports** (File → Scheduled Backups and Exports…): a job backs up chosen databases, or exports the result of a SELECT (CSV, JSON, Excel…), every day, every week or every few hours into a folder, keeps the last N and deletes older backups of that job only (never other files). *Run now* tests it; each job has a log. Jobs run while MyLoDB is open; a missed run happens when you open it again; a failure shows as a flash message.
+* **Scheduled jobs** (File → Scheduled Jobs…): backups, exports of a SELECT (CSV, JSON, Excel…) and imports, every day, every week or every few hours, with a log and *Run now*. Backups and exports keep the last N files and delete older files of that job only.
+* **Scheduled imports** (MySQL and MariaDB): CSV, TSV or JSON into a table, columns matched by name; a bad row stops it and nothing changes. *Replace the table's rows* works in one transaction, is refused for a table that foreign keys point at, and an empty file changes nothing. A `.sql` script or `.zip` stops at the first error, and what ran before it stays. By default an unchanged file is not imported again; read-only connections refuse imports.
+* **Run jobs while MyLoDB is closed** (same window, macOS and Windows): the system's scheduler checks every 5 minutes while you are logged in. With the encrypted password file, jobs that need a password wait until you unlock it in MyLoDB.
 * **Compare data** (Database → Compare Data of Two Tables…, or right-click a table): match two tables on a key across any two open MySQL or MariaDB connections; see identical, different, source-only and target-only rows and the SQL that would make the target match; applying is one transaction, asks first (a production target asks for the table name), and deleting target-only rows is a separate tick. Up to a million rows per side; add a condition for more.
 * **Copy a database to another connection** (right-click a database): tables, views and rows are dumped and run on the target under the same or a new name; same-named tables there are replaced after you confirm.
 * **Share connections and snippets** (File → Export / Import Connections and Snippets…): one file for a colleague. Passwords are never written. Importing skips what you already have and renames name clashes.

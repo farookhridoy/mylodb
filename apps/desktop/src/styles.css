@@ -718,6 +718,7 @@ header.topbar button.on { background: color-mix(in srgb, var(--accent) 22%, tran
 .sched-form { display: grid; gap: 10px; } .sched-form label { display: grid; gap: 4px; } .sched-form label.check { display: flex; gap: 8px; align-items: center; }
 .sched-form input:not([type=checkbox]), .sched-form select { padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--control, var(--bg)); color: var(--text); font: inherit; }
 .sched-form fieldset { border: 1px solid var(--line); border-radius: 6px; } .sched-dbs { display: flex; flex-wrap: wrap; gap: 6px 16px; max-height: 120px; overflow: auto; }
+.banner.warn { border-left: 3px solid #d9a21b; margin: 0; } .sched-bg { border-top: 1px solid var(--line); margin-top: 10px; padding-top: 8px; } .sched-bg label.check { display: flex; gap: 8px; align-items: center; }
 .sched-dirpick { display: flex; gap: 6px; } .sched-dirpick input { flex: 1; min-width: 0; }
 .schedules-dialog .actions { display: flex; gap: 8px; justify-content: flex-end; }
 

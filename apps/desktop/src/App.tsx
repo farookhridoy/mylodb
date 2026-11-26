@@ -603,10 +603,10 @@ export default function App() {
       setStatus(`Imported ${plan.addConnections.length} connection(s) and ${plan.addSnippets.length} snippet(s)${skipped ? `; ${skipped} already here were skipped` : ""}. Passwords are not in the file: you type each one the first time you connect.`);
     } catch (e) { setStatus(`Error: ${describeError(e)}`); }
   };
-  // a scheduled backup finished (in the background): say so
+  // a scheduled job finished (in the background): say so
   useEffect(() => {
     let un: (() => void) | undefined; let gone = false;
-    onScheduleDone((e) => setStatus(e.ok ? `Backup "${e.name}": ${e.message}` : `Error: backup "${e.name}" failed: ${e.message}`)).then((f) => { if (gone) f(); else un = f; });
+    onScheduleDone((e) => { const what = e.kind === "import" ? "Import" : e.kind === "export" ? "Export" : "Backup"; setStatus(e.ok ? `${what} "${e.name}": ${e.message}` : `Error: ${what.toLowerCase()} "${e.name}" failed: ${e.message}`); }).then((f) => { if (gone) f(); else un = f; });
     return () => { gone = true; un?.(); };
   }, [setStatus]);
 
@@ -1526,7 +1526,7 @@ export default function App() {
           { id: "import-share", label: "Import connections and snippets from a file…", hint: "from a MyLoDB share file", run: importShare },
           { id: "data-compare", label: "Compare the data of two tables…", hint: "make one table match another, by primary key", run: () => { if (activeId === null) return setStatus("Connect first"); openDataCompare(); } },
           { id: "copy-db", label: "Copy the selected database to another connection…", hint: "tables, views and rows", run: () => { if (activeId === null) return setStatus("Connect first"); openCopyDatabase(selectedDb); } },
-          { id: "schedules", label: "Scheduled backups…", hint: "backups that run by themselves, with a log and a keep-the-last-N limit", run: () => { if (activeId === null) return setStatus("Connect first"); setSchedulesOpen(true); } },
+          { id: "schedules", label: "Scheduled jobs…", hint: "backups, exports and imports that run by themselves, with a log", run: () => { if (activeId === null) return setStatus("Connect first"); setSchedulesOpen(true); } },
           { id: "ask-ai", label: "Ask AI to write a query…", hint: "describe it in plain words", run: () => { if (activeId === null) return setStatus("Connect first"); setAiOpen(true); } },
           ...SNIPPETS.map((sn): Command => ({ id: `s:${sn.label}`, label: `Snippet: ${sn.label}`, hint: "insert into the editor", run: () => {
             if (activeId === null) return setStatus("Connect first");

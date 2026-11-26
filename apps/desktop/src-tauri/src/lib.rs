@@ -2,6 +2,7 @@
 
 mod ai;
 mod audit;
+mod background;
 mod schedule;
 mod engine;
 use engine::Engine;
@@ -122,12 +123,10 @@ struct AppState {
     running: Mutex<HashMap<String, (i64, u32)>>,
     /// SQLite runs that can be cancelled, by run id.
     sqlite_runs: Mutex<HashMap<String, std::sync::Arc<myq_sqlite::CancelToken>>>,
-    /// Scheduled backups (kept in `schedules.json`), and the ones running right now.
-    schedules: Mutex<Vec<schedule::Schedule>>,
     /// The audit log of changes (off until the user turns it on).
     audit: audit::Audit,
+    /// The scheduled jobs (`schedules.json`); see `schedule.rs` for how it is shared with a background run.
     schedule_file: std::path::PathBuf,
-    schedule_running: Mutex<std::collections::HashSet<String>>,
 }
 
 impl AppState {
@@ -1617,8 +1616,7 @@ fn now_local() -> chrono::NaiveDateTime {
 
 fn schedule_views(state: &AppState) -> Vec<ScheduleView> {
     let now = now_local();
-    let running = state.schedule_running.lock().unwrap().clone();
-    state.schedules.lock().unwrap().iter().map(|s| ScheduleView { next_run: schedule::next_run(s, now).map(schedule::format_time), running: running.contains(&s.id), job: s.clone() }).collect()
+    schedule::load(&state.schedule_file).into_iter().map(|s| ScheduleView { next_run: schedule::next_run(&s, now).map(schedule::format_time), running: schedule::claim(&state.schedule_file, &s.id).is_none(), job: s }).collect()
 }
 
 #[tauri::command]
@@ -1630,10 +1628,9 @@ fn schedules_list(state: tauri::State<'_, AppState>) -> Vec<ScheduleView> {
 #[tauri::command]
 fn schedule_save(state: tauri::State<'_, AppState>, mut job: schedule::Schedule) -> Result<Vec<ScheduleView>, String> {
     schedule::valid(&job)?;
-    {
-        let mut list = state.schedules.lock().unwrap();
+    schedule::update(&state.schedule_file, |list| {
         // two jobs with one name in one folder would delete each other's files when they trim to the last N
-        if list.iter().any(|s| s.id != job.id && s.name.trim().eq_ignore_ascii_case(job.name.trim()) && s.dir == job.dir) {
+        if job.kind != "import" && list.iter().any(|s| s.id != job.id && s.kind != "import" && s.name.trim().eq_ignore_ascii_case(job.name.trim()) && s.dir == job.dir) {
             return Err("Another job already uses this name in this folder. Give it a different name.".into());
         }
         match list.iter_mut().find(|s| !job.id.is_empty() && s.id == job.id) {
@@ -1641,45 +1638,112 @@ fn schedule_save(state: tauri::State<'_, AppState>, mut job: schedule::Schedule)
                 job.created = old.created.clone();
                 job.last_run = old.last_run.clone();
                 job.log = old.log.clone();
+                // another file or table is a new import, also when nothing changed in the file
+                job.last_source = if (&old.source, &old.table, &old.databases) == (&job.source, &job.table, &job.databases) { old.last_source.clone() } else { None };
                 *old = job;
             }
             None => {
                 job.id = format!("{:x}", chrono::Local::now().timestamp_micros());
                 job.created = schedule::format_time(now_local());
                 job.last_run = None;
+                job.last_source = None;
                 job.log.clear();
                 list.push(job);
             }
         }
-        schedule::save(&state.schedule_file, &list).map_err(err)?;
-    }
+        Ok(())
+    })?;
     Ok(schedule_views(&state))
 }
 
 #[tauri::command]
 fn schedule_delete(state: tauri::State<'_, AppState>, id: String) -> Result<Vec<ScheduleView>, String> {
-    {
-        let mut list = state.schedules.lock().unwrap();
+    schedule::update(&state.schedule_file, |list| {
         list.retain(|s| s.id != id);
-        schedule::save(&state.schedule_file, &list).map_err(err)?;
-    }
+        Ok(())
+    })?;
     Ok(schedule_views(&state))
 }
 
-/// Run one scheduled backup now (also what the scheduler calls). Opens the connection if it is not open. Returns the log line.
-async fn run_schedule(app: tauri::AppHandle, id: String) -> Result<String, String> {
-    let state = app.state::<AppState>();
-    if !state.schedule_running.lock().unwrap().insert(id.clone()) {
-        return Err("This job is already running.".into());
+#[tauri::command]
+fn background_jobs_status() -> background::Status {
+    background::status()
+}
+
+/// Turn running jobs while the app is closed on or off (asks the system's scheduler).
+#[tauri::command]
+async fn background_jobs_set(enabled: bool) -> Result<background::Status, String> {
+    tauri::async_runtime::spawn_blocking(move || background::set(enabled)).await.map_err(err)?
+}
+
+/// Read the file of an import job into its database. `Ok` carries the log line and, when something was read, the file's signature.
+async fn run_import(state: &tauri::State<'_, AppState>, job: &schedule::Schedule, forced: bool) -> Result<(String, Option<String>), String> {
+    let id = job.connection_id;
+    guard_writable(state, id, "a scheduled import")?;
+    let path = std::path::Path::new(&job.source);
+    let file = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| job.source.clone());
+    let signature = schedule::source_signature(path)?;
+    if !forced && job.only_if_changed && job.last_source.as_deref() == Some(signature.as_str()) {
+        return Ok((format!("{file}: not changed since the last import, nothing done"), None));
     }
-    let job = state.schedules.lock().unwrap().iter().find(|s| s.id == id).cloned();
+    if sqlite_file(state, id).is_some() {
+        return Err("Imports are available for MySQL and MariaDB connections.".into());
+    }
+    let database = job.databases.first().ok_or("choose a database")?.clone();
+    let mut c = conn_for(state, id).await?;
+    let cancel = std::sync::atomic::AtomicBool::new(false);
+    let started = std::time::Instant::now();
+    let message = if schedule::is_script(&job.source) {
+        let options = myq_transfer::RunOptions { stop_on_error: true, disable_fk_checks: false, database: Some(database.clone()) };
+        let run = myq_transfer::run_source(&mut c, path, &options, &mut |_p: myq_transfer::Progress| {}, &cancel).await.map_err(err);
+        let _ = state.record(id, &format!("RESTORE {}", job.source), started.elapsed().as_millis() as u64, matches!(&run, Ok(r) if r.failed == 0));
+        let _ = reindex(state, id).await;
+        let run = run?;
+        if let Some(e) = run.errors.first() {
+            return Err(format!("{file}: stopped at line {} after {} statement(s): {}", e.line, run.statements, e.message));
+        }
+        format!("{file}: {} statement(s) run in {:.1} s", run.statements, started.elapsed().as_secs_f64())
+    } else {
+        let mode: myq_transfer::ImportMode = serde_json::from_value(serde_json::json!(job.mode)).map_err(err)?;
+        let done = myq_transfer::import_file(&mut c, path, &database, &job.table, mode, job.replace_all, &mut |_p: myq_transfer::Progress| {}, &cancel).await.map_err(err);
+        let ok = matches!(&done, Ok(d) if !d.result.aborted);
+        let replaced = if job.replace_all { " (replacing its rows)" } else { "" };
+        let _ = state.record(id, &format!("LOAD DATA {} INTO {database}.{}{replaced}", job.source, job.table), started.elapsed().as_millis() as u64, ok);
+        let done = done?;
+        if done.result.aborted {
+            return Err(format!("{file}: nothing imported. {}", done.result.errors.first().map(|e| e.message.as_str()).unwrap_or("the import stopped")));
+        }
+        let skipped = if done.skipped.is_empty() { String::new() } else { format!("; columns not in the table were skipped: {}", done.skipped.join(", ")) };
+        let warnings = if done.result.warnings.is_empty() { String::new() } else { format!("; {}", done.result.warnings.join("; ")) };
+        format!("{file}: {} rows into {}{replaced} in {:.1} s{skipped}{warnings}", done.result.rows_read, job.table, started.elapsed().as_secs_f64())
+    };
+    Ok((message, Some(signature)))
+}
+
+/// Run one job now (`forced`: asked by the user) or because it is due. Opens the connection if it is not open. Returns the log line.
+async fn run_schedule(app: tauri::AppHandle, id: String, forced: bool) -> Result<String, String> {
+    let state = app.state::<AppState>();
+    let Some(_claim) = schedule::claim(&state.schedule_file, &id) else {
+        return Err("This job is already running.".into());
+    };
+    // read after claiming it: another process may just have run it
+    let job = schedule::load(&state.schedule_file).into_iter().find(|s| s.id == id).ok_or("The job no longer exists.")?;
+    if !forced && !schedule::is_due(&job, now_local()) {
+        return Ok(String::new());
+    }
+    let name = job.name.clone();
+    let mut signature = None;
     let result: Result<String, String> = async {
-        let job = job.ok_or("The job no longer exists.")?;
         if !state.sessions.lock().unwrap().contains_key(&job.connection_id) {
             connect(app.state::<AppState>(), job.connection_id, None, None).await.map_err(|e| match e {
                 ConnectError::Failed { message } => format!("could not connect: {message}"),
                 ConnectError::UnknownHost { host, .. } | ConnectError::HostKeyChanged { host, .. } => format!("could not connect: the SSH host key of {host} is not confirmed. Connect once by hand and trust it"),
             })?;
+        }
+        if job.kind == "import" {
+            let (message, read) = run_import(&state, &job, forced).await?;
+            signature = read;
+            return Ok(message);
         }
         std::fs::create_dir_all(&job.dir).map_err(|e| format!("cannot use the folder {}: {e}", job.dir))?;
         if let Some(file) = sqlite_file(&state, job.connection_id) {
@@ -1735,24 +1799,47 @@ async fn run_schedule(app: tauri::AppHandle, id: String) -> Result<String, Strin
         let name = done.path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
         Ok(format!("{name}: {} table(s), {} rows, {:.1} MB in {:.1} s{}", done.tables, done.rows, done.bytes as f64 / 1_048_576.0, done.elapsed_ms as f64 / 1000.0, if removed > 0 { format!("; removed {removed} old backup(s)") } else { String::new() }))
     }.await;
-    {
-        let now = now_local();
-        let mut list = state.schedules.lock().unwrap();
+    let message = match &result { Ok(m) => m.clone(), Err(e) => e.clone() };
+    let saved = schedule::update(&state.schedule_file, |list| {
         if let Some(s) = list.iter_mut().find(|s| s.id == id) {
+            let now = now_local();
             s.last_run = Some(schedule::format_time(now));
-            schedule::push_log(s, now, result.is_ok(), match &result { Ok(m) => m.clone(), Err(e) => e.clone() });
+            if signature.is_some() {
+                s.last_source = signature.clone();
+            }
+            schedule::push_log(s, now, result.is_ok(), message.clone());
         }
-        let _ = schedule::save(&state.schedule_file, &list);
+        Ok(())
+    });
+    if let Err(e) = saved {
+        eprintln!("could not write the job's log: {e}");
     }
-    state.schedule_running.lock().unwrap().remove(&id);
-    let name = state.schedules.lock().unwrap().iter().find(|s| s.id == id).map(|s| s.name.clone()).unwrap_or_default();
-    let _ = app.emit("schedule-done", serde_json::json!({ "name": name, "ok": result.is_ok(), "message": match &result { Ok(m) => m.clone(), Err(e) => e.clone() } }));
+    let _ = app.emit("schedule-done", serde_json::json!({ "name": name, "kind": job.kind, "ok": result.is_ok(), "message": message }));
     result
 }
 
 #[tauri::command]
 async fn schedule_run_now(app: tauri::AppHandle, id: String) -> Result<String, String> {
-    run_schedule(app, id).await
+    run_schedule(app, id, true).await
+}
+
+/// Whether a job's connection needs a saved password that only the master password (typed into the open app) can unlock.
+fn waits_for_unlock(state: &AppState, connection_id: i64) -> bool {
+    let store = state.store.lock().unwrap();
+    matches!(store.config_for(connection_id), Err(myq_store::Error::Locked)) || matches!(store.ssh_for(connection_id), Err(myq_store::Error::Locked))
+}
+
+/// Run every job that is due. With `background` (the app is closed) a job whose password is locked is left for later.
+async fn run_due(app: &tauri::AppHandle, background: bool) {
+    let state = app.state::<AppState>();
+    let now = now_local();
+    let due: Vec<(String, i64)> = schedule::load(&state.schedule_file).iter().filter(|s| schedule::is_due(s, now)).map(|s| (s.id.clone(), s.connection_id)).collect();
+    for (id, connection) in due {
+        if background && waits_for_unlock(&state, connection) {
+            continue;
+        }
+        let _ = run_schedule(app.clone(), id, false).await; // the outcome is in the job's log
+    }
 }
 
 /// Look for due jobs every 30 seconds while the app is open.
@@ -1760,16 +1847,7 @@ fn start_scheduler(app: tauri::AppHandle) {
     tauri::async_runtime::spawn(async move {
         loop {
             tokio::time::sleep(std::time::Duration::from_secs(30)).await;
-            let due: Vec<String> = {
-                let state = app.state::<AppState>();
-                let running = state.schedule_running.lock().unwrap().clone();
-                let now = now_local();
-                let ids: Vec<String> = state.schedules.lock().unwrap().iter().filter(|s| schedule::is_due(s, now) && !running.contains(&s.id)).map(|s| s.id.clone()).collect();
-                ids
-            };
-            for id in due {
-                let _ = run_schedule(app.clone(), id).await; // the outcome is in the job's log
-            }
+            run_due(&app, false).await;
         }
     });
 }
@@ -2368,7 +2446,7 @@ fn build_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::
         .item(&with_icon("import", "Import Data…", icon!("import"))?)
         .item(&with_icon("export", "Export Data…", icon!("export"))?)
         .item(&with_icon("backup", "Backup / Restore…", icon!("transfer"))?)
-        .item(&item("schedules", "Scheduled Backups…", None)?)
+        .item(&item("schedules", "Scheduled Jobs…", None)?)
         .separator()
         .item(&item("export_share", "Export Connections and Snippets…", None)?)
         .item(&item("import_share", "Import Connections and Snippets…", None)?)
@@ -2449,6 +2527,53 @@ fn build_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::
     MenuBuilder::new(app).items(&[&app_menu, &file, &edit, &search, &sql_editor, &database, &ask_ai, &view, &window, &help]).build()
 }
 
+/// The store, the saved passwords and the rest of what every command works with.
+fn open_state(app: &tauri::AppHandle) -> Result<AppState, Box<dyn std::error::Error>> {
+    // another folder can be named for trying a background run without touching the real one
+    let dir = match std::env::var_os("MYLODB_DATA_DIR") {
+        Some(d) => std::path::PathBuf::from(d),
+        None => app.path().app_data_dir()?,
+    };
+    std::fs::create_dir_all(&dir)?;
+    let secrets = std::sync::Arc::new(SecretRouter::open(&dir, Box::new(Keychain::default()), Vault::new(&dir.join("secrets.json"))));
+    let store = Store::open(&dir.join("mylodb.sqlite"), Box::new(secrets.clone()))?;
+    Ok(AppState { store: Mutex::new(store), secrets, sessions: Mutex::new(HashMap::new()), running: Mutex::new(HashMap::new()), sqlite_runs: Mutex::new(HashMap::new()), jobs: Mutex::new(HashMap::new()), schedule_file: dir.join("schedules.json"), audit: audit::Audit::open(&dir) })
+}
+
+/// `--run-due-jobs`: what the system's scheduler starts while MyLoDB may be closed. No window, no menu, no Dock icon; it runs the due
+/// jobs and quits.
+pub fn run_due_jobs() {
+    let mut context = context();
+    context.config_mut().app.windows.clear();
+    #[allow(unused_mut)]
+    let mut app = tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
+        .build(context)
+        .expect("error while starting MyLoDB in the background");
+    #[cfg(target_os = "macos")]
+    app.set_activation_policy(tauri::ActivationPolicy::Prohibited);
+    let handle = app.handle().clone();
+    match open_state(&handle) {
+        Ok(state) => {
+            handle.manage(state);
+        }
+        Err(e) => {
+            eprintln!("MyLoDB could not open its data: {e}");
+            std::process::exit(1);
+        }
+    }
+    tauri::async_runtime::block_on(run_due(&handle, true));
+}
+
+/// The app's configuration and assets (generated once: the macro defines a symbol).
+fn context() -> tauri::Context {
+    tauri::generate_context!()
+}
+
+pub fn is_background_run() -> bool {
+    std::env::args().any(|a| a == background::RUN_ARG)
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -2460,11 +2585,8 @@ pub fn run() {
             let _ = app.emit("menu-action", event.id().0.as_str());
         })
         .setup(|app| {
-            let dir = app.path().app_data_dir()?;
-            std::fs::create_dir_all(&dir)?;
-            let secrets = std::sync::Arc::new(SecretRouter::open(&dir, Box::new(Keychain::default()), Vault::new(&dir.join("secrets.json"))));
-            let store = Store::open(&dir.join("mylodb.sqlite"), Box::new(secrets.clone()))?;
-            app.manage(AppState { store: Mutex::new(store), secrets, sessions: Mutex::new(HashMap::new()), running: Mutex::new(HashMap::new()), sqlite_runs: Mutex::new(HashMap::new()), jobs: Mutex::new(HashMap::new()), schedules: Mutex::new(schedule::load(&dir.join("schedules.json"))), schedule_file: dir.join("schedules.json"), schedule_running: Mutex::new(Default::default()), audit: audit::Audit::open(&dir) });
+            app.manage(open_state(app.handle())?);
+            std::thread::spawn(background::repair);
             start_scheduler(app.handle().clone());
             Ok(())
         })
@@ -2576,6 +2698,8 @@ pub fn run() {
             schedule_save,
             schedule_delete,
             schedule_run_now,
+            background_jobs_status,
+            background_jobs_set,
             binary_logs,
             binlog_events,
             export_query,
@@ -2588,7 +2712,7 @@ pub fn run() {
             run_sql_source_job,
             backup_job
         ])
-        .run(tauri::generate_context!())
+        .run(context())
         .expect("error while running MyLoDB");
 }
 

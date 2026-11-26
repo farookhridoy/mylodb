@@ -40,7 +40,7 @@ async fn a_json_file_loads_into_a_table_with_nulls_quotes_and_nested_values() {
         assert_eq!((conv.rows, conv.columns.clone()), (3, ["id", "name", "score", "tags"].iter().map(|s| s.to_string()).collect::<Vec<_>>()));
 
         let fmt = CsvFormat { null_text: Some(NULL_TEXT.into()), ..Default::default() };
-        let plan = ImportPlan { database: db.clone(), table: "people".into(), mapping: conv.columns.iter().map(|c| Some(c.clone())).collect(), mode: ImportMode::Insert, batch_rows: 500, stop_on_error: true, truncate_first: false, empty_as_null: true, disable_fk_checks: false };
+        let plan = ImportPlan { database: db.clone(), table: "people".into(), mapping: conv.columns.iter().map(|c| Some(c.clone())).collect(), mode: ImportMode::Insert, batch_rows: 500, stop_on_error: true, truncate_first: false, empty_as_null: true, disable_fk_checks: false, delete_first: false };
         let mut log = |_: Progress| {};
         let cancel = AtomicBool::new(false);
         let r = import_csv(&mut c, &csv, &fmt, &plan, &mut log, &cancel).await.map_err(|e| e.to_string())?;

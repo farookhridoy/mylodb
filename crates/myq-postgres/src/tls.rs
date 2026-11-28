@@ -3,7 +3,7 @@
 use myq_driver::{ConnConfig, SslMode};
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
 use rustls::client::WebPkiServerVerifier;
-use rustls::crypto::{ring, verify_tls12_signature, verify_tls13_signature, CryptoProvider};
+use rustls::crypto::{aws_lc_rs, verify_tls12_signature, verify_tls13_signature, CryptoProvider};
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, ServerName, UnixTime};
 use rustls::{CertificateError, ClientConfig, DigitallySignedStruct, Error, RootCertStore, SignatureScheme};
 use std::sync::Arc;
@@ -51,7 +51,7 @@ impl ServerCertVerifier for Relaxed {
 }
 
 pub(crate) fn client_config(cfg: &ConnConfig) -> Result<ClientConfig, String> {
-    let provider = ring::default_provider();
+    let provider = aws_lc_rs::default_provider();
     let mut roots = RootCertStore { roots: webpki_roots::TLS_SERVER_ROOTS.to_vec() };
     if let Some(ca) = cfg.ssl_ca.as_deref().filter(|c| !c.is_empty()) {
         for cert in certificates(ca)? {

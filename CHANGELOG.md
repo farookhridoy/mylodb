@@ -12,10 +12,16 @@ PostgreSQL (phase 24 of the roadmap).
 * **Read-only connections** run every statement in a read-only transaction that is rolled back, so a statement cannot switch writing back on.
 * Tested in CI on PostgreSQL 13, 16 and 18.
 
+**Fixed**
+* **Encrypted MySQL and MariaDB connections could crash** instead of connecting (confirmed with the settings of 0.11.0; earlier versions are probably affected too). Connections with SSL switched on work again.
+
 **Fixed and improved (table designer)**
 * The column buttons and column titles now stay in place while the columns scroll.
 * A **Refresh** button reads the table again from the server; with unapplied changes it asks before dropping them.
 * Ticking **Auto inc** or **PK** puts an auto-increment column first in the primary key, where MySQL needs it. Before, the key could end up in an order that left *Apply changes* disabled. The error now names the key and says how to fix it, and the disabled button shows why.
+
+**Known issue (MySQL and MariaDB)**
+* SSL mode *Verify CA* also checks the host name, so it refuses a certificate that does not name the host you connect to (such as the one MySQL generates for itself). The cause is in the MySQL driver library. Use *Required* with a certificate that names the host, or *Skip verify*.
 
 **Not available for PostgreSQL yet**
 * Backup, restore and import, the table designer, users, server tools, the Structure and Databases pages, Explain and Profile views, formatting and error underlining, data search, ER diagram, query builder, schema compare, data compare and copying a database. Their buttons and menu entries are disabled, hidden or say so.

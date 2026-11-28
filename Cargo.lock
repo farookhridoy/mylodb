@@ -3063,6 +3063,7 @@ dependencies = [
  "myq-schema",
  "myq-sql",
  "mysql_async",
+ "rustls",
  "serde",
  "thiserror 2.0.21",
  "tokio",

@@ -44,6 +44,15 @@ pub struct ConnConfig {
     pub collation: Option<String>,
 }
 
+/// Other parts of the application bring a second TLS crypto library, and rustls refuses to guess between two: without a choice
+/// made here, opening an encrypted connection panics. Choosing twice does nothing.
+pub fn choose_tls_provider() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+    });
+}
+
 /// A collation name is letters, digits and underscores: anything else is never pasted into SQL.
 pub fn valid_collation(c: &str) -> bool {
     !c.is_empty() && c.chars().all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
@@ -76,6 +85,7 @@ impl ConnConfig {
             // Default charset: utf8mb4 for full Unicode.
             .setup(setup);
         if self.ssl != SslMode::Disabled {
+            choose_tls_provider();
             let mut ssl = SslOpts::default();
             if let Some(ca) = self.ssl_ca.as_deref().filter(|c| !c.is_empty()) {
                 ssl = ssl.with_root_certs(vec![path(ca).into()]);

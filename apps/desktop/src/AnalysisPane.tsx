@@ -2,7 +2,7 @@ import { useMemo, useState, type ReactElement } from "react";
 import Icon from "./Icon";
 import type { ExplainResult, ProfileResult } from "./api";
 import { Grid } from "./ResultsPane";
-import { flatten, fromJson, fromTimedTree, slowest, summary, type PlanNode } from "./planTree";
+import { flatten, fromJson, fromPostgres, fromTimedTree, slowest, summary, type PlanNode } from "./planTree";
 
 export type Analysis =
   | { kind: "explain" | "analyze"; sql: string; running: boolean; error: string | null; data: ExplainResult | null; prev?: ExplainResult | null }
@@ -28,7 +28,7 @@ function JsonTree({ value, name, depth = 0 }: { value: unknown; name?: string; d
 }
 
 const fmtN = (n: number) => (n >= 100 ? Math.round(n).toLocaleString() : n >= 1 ? n.toFixed(1) : n.toFixed(3));
-const planOf = (d: ExplainResult): PlanNode[] => { if (d.tree) return fromTimedTree(d.tree); try { return d.json ? fromJson(JSON.parse(d.json)) : []; } catch { return []; } };
+const planOf = (d: ExplainResult): PlanNode[] => { if (d.tree) return fromTimedTree(d.tree); try { if (!d.json) return []; const doc = JSON.parse(d.json); return Array.isArray(doc) ? fromPostgres(doc) : fromJson(doc); } catch { return []; } };
 
 /** The plan drawn as a tree: each step with its rows, its cost or measured time as a bar, and the slowest step marked. */
 function PlanDiagram({ roots }: { roots: PlanNode[] }) {

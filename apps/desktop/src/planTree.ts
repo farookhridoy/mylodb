@@ -89,6 +89,28 @@ export function fromJson(doc: unknown): PlanNode[] {
   return qb ? [fromBlock(qb, "Query")] : [];
 }
 
+/** PostgreSQL's `EXPLAIN (FORMAT JSON)`: one document with a `Plan` whose `Plans` are its steps. */
+export function fromPostgres(doc: unknown): PlanNode[] {
+  next = 1;
+  const read = (p: Record<string, unknown>): PlanNode => {
+    const loops = num(p["Actual Loops"]);
+    const time = num(p["Actual Total Time"]);
+    const kind = String(p["Node Type"] ?? "Step");
+    const conditions = ["Index Name", "Index Cond", "Hash Cond", "Merge Cond", "Join Filter", "Filter"].filter((k) => p[k] !== undefined).map((k) => (k === "Index Name" ? `index ${p[k]}` : `${k.toLowerCase()} ${p[k]}`));
+    const rows = num(p["Actual Rows"]) ?? num(p["Plan Rows"]);
+    const n = node(p["Relation Name"] ? `${kind} on ${p["Relation Name"]}` : kind, {
+      detail: conditions.join(" · "), rows, cost: num(p["Total Cost"]), loops,
+      total: time === null ? null : time * (loops ?? 1),
+      warn: loops === 0 ? "never executed" : kind === "Seq Scan" && (rows ?? 0) >= 1000 ? "reads every row" : p["Sort Space Type"] === "Disk" ? "sorted on disk" : null,
+    });
+    n.children = (Array.isArray(p.Plans) ? p.Plans : []).map((c) => read(c as Record<string, unknown>));
+    if (n.total !== null) n.self = Math.max(0, n.total - n.children.reduce((s, c) => s + (c.total ?? 0), 0));
+    return n;
+  };
+  const plan = Array.isArray(doc) ? (doc[0] as { Plan?: Record<string, unknown> } | undefined)?.Plan : undefined;
+  return plan ? [read(plan)] : [];
+}
+
 /** All nodes, parents first. */
 export function flatten(roots: PlanNode[]): PlanNode[] { return roots.flatMap((r) => [r, ...flatten(r.children)]); }
 

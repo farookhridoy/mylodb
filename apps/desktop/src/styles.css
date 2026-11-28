@@ -746,3 +746,4 @@ header.topbar button.on { background: color-mix(in srgb, var(--accent) 22%, tran
 .dc-sample { border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; } .dc-sample summary { cursor: pointer; font-weight: 600; } .dc-scroll { max-height: 260px; overflow: auto; margin-top: 6px; }
 .dc-result { display: grid; gap: 10px; } .datacompare .actions, .copydb-dialog .actions { display: flex; gap: 8px; justify-content: flex-end; align-items: center; }
 .copydb-dialog { width: min(560px, calc(100vw - 48px)); display: grid; gap: 10px; } .copydb-dialog label:not(.check) { display: grid; gap: 4px; }
+.pg-output { white-space: pre-wrap; }

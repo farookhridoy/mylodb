@@ -55,11 +55,15 @@ Several connections can be open at once; each is a tab above the workspace. Clos
 
 Choose **Database type → PostgreSQL**, or paste a `postgresql://` URL. A connection is to **one database** (`postgres` if you leave it empty); the browser lists its **schemas**. SSH tunnels work as for MySQL; SSL *Required* checks the certificate and the host name.
 
-* Browse tables, views and columns; run SQL (several statements, `$$` bodies included); **Cancel** and the query time limit stop a statement on the server.
+* Browse tables, views, functions, procedures, triggers and columns; run SQL (several statements, `$$` bodies included); **Cancel** and the query time limit stop a statement on the server.
 * The data grid pages, filters, sorts and counts, and edits rows (staged, previewed, applied in one transaction). A table needs a primary key or a non-null unique key; views are read-only.
 * **Transfer → Export** and scheduled exports write every format; SQL INSERT files are PostgreSQL SQL.
 * A **read-only** connection runs each statement in a read-only transaction that is rolled back.
-* Not there yet: backup, restore and import, the table designer, users, server tools, Structure and Databases pages, Explain and Profile views, formatting, error underlining, data search, diagrams, query builder, compare and copy. Functions and triggers are not listed.
+* **Definitions**: right-click a view, function, procedure or trigger to edit its script or drop it (nothing that depends on it is dropped with it).
+* **Table designer** (New table…, Design table…): changes run in one transaction. Columns cannot be moved. What it cannot show (expression and partial indexes, deferrable constraints, checks) is left unchanged.
+* **Explain** and **Analyze** draw the plan; Analyze runs SELECT only.
+* **Backup and restore** (Transfer, and scheduled backups) use `pg_dump`, `pg_restore` and `psql` from your computer, at least as new as the server: install Postgres.app, `brew install libpq`, or the postgresql.org installer. Only restore files you trust.
+* Not there yet: CSV import, users, server tools, Structure and Databases pages, Profile, formatting, error underlining, data search, diagrams, query builder, compare and copy.
 
 ### SQLite files
 

@@ -35,6 +35,17 @@ const SQLITE_TYPES: TypeInfo[] = [
   { name: "blob", group: "Binary" },
   { name: "date", group: "Date/time" }, { name: "datetime", group: "Date/time" }, { name: "timestamp", group: "Date/time" }, { name: "json", group: "Other" },
 ];
+/** PostgreSQL's names for its common types. A type that is not listed (an enum, an array, an extension's) is kept as it is. */
+const PG_TYPES: TypeInfo[] = [
+  { name: "smallint", group: "Integer", numeric: true, integer: true }, { name: "integer", group: "Integer", numeric: true, integer: true }, { name: "bigint", group: "Integer", numeric: true, integer: true },
+  { name: "numeric", group: "Number", numeric: true, params: "10,2", hint: "precision,scale" }, { name: "real", group: "Number", numeric: true }, { name: "double precision", group: "Number", numeric: true },
+  { name: "boolean", group: "Number" },
+  { name: "text", group: "Text", text: true }, { name: "character varying", group: "Text", text: true, params: "255", hint: "length" }, { name: "character", group: "Text", text: true, params: "1", hint: "length" },
+  { name: "date", group: "Date/time" }, { name: "time without time zone", group: "Date/time", hint: "fsp 0–6" }, { name: "timestamp without time zone", group: "Date/time", hint: "fsp 0–6" },
+  { name: "timestamp with time zone", group: "Date/time", hint: "fsp 0–6" }, { name: "interval", group: "Date/time" },
+  { name: "bytea", group: "Binary" }, { name: "uuid", group: "Other" }, { name: "jsonb", group: "Other" }, { name: "json", group: "Other" },
+  { name: "text[]", group: "Array" }, { name: "integer[]", group: "Array" },
+];
 const REF_ACTIONS: RefAction[] = ["restrict", "cascade", "set_null", "no_action", "set_default"];
 const KINDS: IndexKind[] = ["primary", "unique", "index", "fulltext", "spatial"];
 const SQLITE_KINDS: IndexKind[] = ["primary", "unique", "index"];
@@ -44,8 +55,8 @@ export const newColumn = (name = ""): ColumnDef => ({
   auto_increment: false, charset: null, collation: null, comment: "", on_update: null, generated: null, invisible: false,
 });
 
-export function blankTable(opts: ServerOptions | null, sqlite = false): TableDef {
-  if (sqlite) {
+export function blankTable(opts: ServerOptions | null, sqlite = false, postgres = false): TableDef {
+  if (sqlite || postgres) {
     return {
       name: "", engine: null, charset: null, collation: null, comment: "",
       columns: [{ ...newColumn("id"), data_type: "integer", params: null, nullable: false, auto_increment: true }],
@@ -81,9 +92,14 @@ export default function TableDesigner(props: {
   initial?: { name: string; columns: number };
   /** A SQLite file: its own types, no engine or character set, and changes that need a rebuild run in one transaction. */
   sqlite?: boolean;
+  /** PostgreSQL: its own types, no engine or character set; columns cannot be moved; changes apply in one transaction. */
+  postgres?: boolean;
 }) {
   const { connectionId: cid, db } = props;
-  const types = props.sqlite ? SQLITE_TYPES : TYPES;
+  const types = props.postgres ? PG_TYPES : props.sqlite ? SQLITE_TYPES : TYPES;
+  /** Neither has MySQL's unsigned, engines, character sets, prefix indexes or invisible columns. */
+  const notMysql = !!props.sqlite || !!props.postgres;
+  const fresh = (name: string): ColumnDef => (props.postgres ? { ...newColumn(name), data_type: "text", params: null } : newColumn(name));
   const groups = [...new Set(types.map((t) => t.group))];
   const typeInfo = (n: string) => types.find((t) => t.name === n);
   const [original, setOriginal] = useState<TableDef | null>(null);
@@ -105,13 +121,14 @@ export default function TableDesigner(props: {
 
   const load = useCallback(async () => {
     try {
-      const o = props.sqlite ? null : await schemaApi.serverOptions(cid);
+      const o = props.sqlite || props.postgres ? null : await schemaApi.serverOptions(cid);
       setOpts(o);
       if (props.table) {
         const r = await schemaApi.tableDef(cid, db, props.table);
         setOriginal(r.def); setDraft(structuredClone(r.def)); setWarnings(r.warnings);
       } else {
-        setOriginal(null); setDraft(withInitial(blankTable(o, props.sqlite), props.initial)); setWarnings([]);
+        const blank = withInitial(blankTable(o, props.sqlite, props.postgres), props.initial);
+        setOriginal(null); setDraft(props.postgres ? { ...blank, columns: blank.columns.map((c) => (c.data_type === "varchar" ? { ...c, data_type: "text", params: null } : c)) } : blank); setWarnings([]);
       }
       setError(null);
     } catch (e) { setError(String(e)); }
@@ -122,7 +139,7 @@ export default function TableDesigner(props: {
   useEffect(() => {
     if (!draft) return;
     let live = true;
-    const t = setTimeout(() => schemaApi.preview(db, original, draft, props.sqlite).then((p) => live && setPreview(p)).catch(() => {}), 150);
+    const t = setTimeout(() => schemaApi.preview(db, original, draft, props.sqlite, props.postgres).then((p) => live && setPreview(p)).catch(() => {}), 150);
     return () => { live = false; clearTimeout(t); };
   }, [draft, original, db]);
 
@@ -157,7 +174,7 @@ export default function TableDesigner(props: {
       indexes = indexes.map((ix) => ({ ...ix, columns: ix.columns.map((c) => (c.name === old.name ? { ...c, name: next.name } : c)) }));
       foreign_keys = foreign_keys.map((f) => ({ ...f, columns: f.columns.map((c) => (c === old.name ? next.name : c)) }));
     }
-    if (next.auto_increment && !old.auto_increment) indexes = keyFirst(indexes, next.name);
+    if (next.auto_increment && !old.auto_increment && !props.postgres) indexes = keyFirst(indexes, next.name);
     setDraft({ ...draft, columns, indexes, foreign_keys });
   };
 
@@ -174,9 +191,10 @@ export default function TableDesigner(props: {
     const n = draft.columns.length + 1;
     const at = Math.min(sel + 1, draft.columns.length);
     const columns = [...draft.columns];
-    columns.splice(at, 0, newColumn(`column${n}`));
+    // PostgreSQL adds a column at the end of the table, so that is where it is shown
+    columns.splice(props.postgres && original ? columns.length : at, 0, fresh(`column${n}`));
     set({ columns });
-    setSel(at);
+    setSel(props.postgres && original ? draft.columns.length : at);
   };
 
   const removeColumn = (i: number) => {
@@ -252,7 +270,7 @@ export default function TableDesigner(props: {
         <span className="grow" />
         {props.table && <button onClick={refresh} onBlur={() => setConfirmRefresh(false)} disabled={busy} title="Read the table again from the server"><Icon name="refresh" size={13} /> {confirmRefresh && dirty ? "Discard changes?" : "Refresh"}</button>}
         {props.table && <button onClick={() => props.onOpenData(db, props.table!)}>Open data</button>}
-        <button disabled={!dirty} onClick={() => original ? setDraft(structuredClone(original)) : setDraft(blankTable(opts, props.sqlite))}>Revert</button>
+        <button disabled={!dirty} onClick={() => original ? setDraft(structuredClone(original)) : setDraft(blankTable(opts, props.sqlite, props.postgres))}>Revert</button>
         <button className="primary" disabled={!dirty || preview.errors.length > 0 || busy || props.readOnly} onClick={apply} title={props.readOnly ? "This connection is read-only" : preview.errors.length > 0 ? `Fix first: ${preview.errors.join("; ")}` : !dirty ? "Nothing has changed" : undefined}>
           {busy ? "Applying…" : props.table ? "Apply changes" : "Create table"}
         </button>
@@ -275,12 +293,12 @@ export default function TableDesigner(props: {
             <div className="dz-actions">
               <button onClick={addColumn}>＋ Add column</button>
               <button disabled={draft.columns.length < 2} onClick={() => removeColumn(sel)}>－ Remove</button>
-              <button onClick={() => moveColumn(sel, -1)} disabled={sel === 0}>↑</button>
-              <button onClick={() => moveColumn(sel, 1)} disabled={sel >= draft.columns.length - 1}>↓</button>
+              <button onClick={() => moveColumn(sel, -1)} disabled={sel === 0 || (!!props.postgres && !!original)} title={props.postgres && original ? "PostgreSQL cannot move the columns of a table" : undefined}>↑</button>
+              <button onClick={() => moveColumn(sel, 1)} disabled={sel >= draft.columns.length - 1 || (!!props.postgres && !!original)} title={props.postgres && original ? "PostgreSQL cannot move the columns of a table" : undefined}>↓</button>
             </div>
             <div className="dz-scroll">
             <table className="grid dz-grid">
-              <thead><tr><th>PK</th><th>Name</th><th>Type</th><th>Length / values</th>{!props.sqlite && <th>Unsigned</th>}<th>NOT NULL</th><th>Auto&nbsp;inc</th><th>Default</th>{!props.sqlite && <th>Comment</th>}<th /></tr></thead>
+              <thead><tr><th>PK</th><th>Name</th><th>Type</th><th>Length / values</th>{!notMysql && <th>Unsigned</th>}<th>NOT NULL</th><th>Auto&nbsp;inc</th><th>Default</th>{!props.sqlite && <th>Comment</th>}<th /></tr></thead>
               <tbody>
                 {draft.columns.map((c, i) => {
                   const info = typeInfo(c.data_type);
@@ -297,7 +315,7 @@ export default function TableDesigner(props: {
                           </Select>
                         </td>
                         <td><input className="cell-input" disabled={!info?.params && !info?.hint} placeholder={info?.hint ?? ""} value={c.params ?? ""} onChange={(e) => updateCol(i, { params: e.target.value || null })} /></td>
-                        {!props.sqlite && <td><input type="checkbox" disabled={!info?.numeric} checked={c.unsigned} onChange={(e) => updateCol(i, { unsigned: e.target.checked })} /></td>}
+                        {!notMysql && <td><input type="checkbox" disabled={!info?.numeric} checked={c.unsigned} onChange={(e) => updateCol(i, { unsigned: e.target.checked })} /></td>}
                         <td><input type="checkbox" checked={!c.nullable} onChange={(e) => updateCol(i, { nullable: !e.target.checked })} /></td>
                         <td><input type="checkbox" disabled={!info?.integer} checked={c.auto_increment} onChange={(e) => updateCol(i, { auto_increment: e.target.checked })} /></td>
                         <td><DefaultEditor value={c.default} disabled={!!c.generated} onChange={(d) => updateCol(i, { default: d })} /></td>
@@ -307,7 +325,7 @@ export default function TableDesigner(props: {
                       {moreOpen === i && (
                         <tr className="more-row"><td colSpan={10}>
                           <div className="more">
-                            {info?.text && !props.sqlite && (
+                            {info?.text && !notMysql && (
                               <>
                                 <label>Character set
                                   <Select value={c.charset ?? ""} onChange={(e) => updateCol(i, { charset: e.target.value || null, collation: null })}>
@@ -319,14 +337,14 @@ export default function TableDesigner(props: {
                                   </Select></label>
                               </>
                             )}
-                            {!props.sqlite && (c.data_type === "datetime" || c.data_type === "timestamp") && (
+                            {!notMysql && (c.data_type === "datetime" || c.data_type === "timestamp") && (
                               <label>On update<input value={c.on_update ?? ""} placeholder="CURRENT_TIMESTAMP" onChange={(e) => updateCol(i, { on_update: e.target.value || null })} /></label>
                             )}
                             <label>Generated expression
                               <input value={c.generated?.expression ?? ""} placeholder="e.g. price * qty (leave empty for a normal column)"
-                                onChange={(e) => updateCol(i, { generated: e.target.value ? { expression: e.target.value, stored: c.generated?.stored ?? false } : null })} /></label>
-                            {c.generated && <label className="check"><input type="checkbox" checked={c.generated.stored} onChange={(e) => updateCol(i, { generated: { ...c.generated!, stored: e.target.checked } })} /> Stored</label>}
-                            {!props.sqlite && <label className="check"><input type="checkbox" checked={c.invisible} onChange={(e) => updateCol(i, { invisible: e.target.checked })} /> Invisible</label>}
+                                onChange={(e) => updateCol(i, { generated: e.target.value ? { expression: e.target.value, stored: c.generated?.stored ?? !!props.postgres } : null })} /></label>
+                            {c.generated && !props.postgres && <label className="check"><input type="checkbox" checked={c.generated.stored} onChange={(e) => updateCol(i, { generated: { ...c.generated!, stored: e.target.checked } })} /> Stored</label>}
+                            {!notMysql && <label className="check"><input type="checkbox" checked={c.invisible} onChange={(e) => updateCol(i, { invisible: e.target.checked })} /> Invisible</label>}
                           </div>
                         </td></tr>
                       )}
@@ -354,7 +372,7 @@ export default function TableDesigner(props: {
             </div>
             <div className="dz-edit">
               {draft.indexes[selIdx] ? (
-                <IndexEditor ix={draft.indexes[selIdx]} columns={draft.columns.map((c) => c.name)} kinds={props.sqlite ? SQLITE_KINDS : KINDS} prefix={!props.sqlite}
+                <IndexEditor ix={draft.indexes[selIdx]} columns={draft.columns.map((c) => c.name)} kinds={notMysql ? SQLITE_KINDS : KINDS} prefix={!notMysql}
                   onChange={(ix) => set({ indexes: draft.indexes.map((x, k) => (k === selIdx ? ix : x)) })} />
               ) : <div className="empty">No indexes</div>}
             </div>
@@ -377,7 +395,7 @@ export default function TableDesigner(props: {
             <div className="dz-edit">
               {draft.foreign_keys[selFk] ? (
                 <FkEditor fk={draft.foreign_keys[selFk]} db={db} dbs={dbs} ensureColumns={props.ensureColumns} localColumns={draft.columns.map((c) => c.name)}
-                  tablesOf={tablesOf} columnsOf={columnsOf}
+                  tablesOf={tablesOf} columnsOf={columnsOf} dbLabel={props.postgres ? "Referenced schema" : undefined}
                   onChange={(f) => set({ foreign_keys: draft.foreign_keys.map((x, k) => (k === selFk ? f : x)) })} />
               ) : <div className="empty">No foreign keys</div>}
             </div>
@@ -386,6 +404,7 @@ export default function TableDesigner(props: {
 
         {tab === "options" && (
           <div className="dz-form">
+            {props.postgres ? <label>Comment<input value={draft.comment} onChange={(e) => set({ comment: e.target.value })} /></label> : <>
             <label>Engine
               <Select value={draft.engine ?? ""} onChange={(e) => set({ engine: e.target.value || null })}>
                 <option value="">(server default)</option>{opts?.engines.map((e) => <option key={e} value={e}>{e}</option>)}
@@ -400,6 +419,7 @@ export default function TableDesigner(props: {
               </Select></label>
             <label>Comment<input value={draft.comment} onChange={(e) => set({ comment: e.target.value })} /></label>
             <p className="dim small">Changing the character set affects new columns; existing columns keep their own until altered.</p>
+            </>}
           </div>
         )}
 
@@ -411,6 +431,7 @@ export default function TableDesigner(props: {
                 <div className="actions"><button onClick={() => navigator.clipboard.writeText(preview.statements.join(";\n\n") + ";")}>Copy</button></div>
                 {preview.statements.length > 1 && (props.sqlite
                   ? <p className="dim small">SQLite runs these in one transaction with foreign keys checked at the end: if any step fails, nothing is changed. Changes SQLite cannot make in place rebuild the table and copy its rows.</p>
+                  : props.postgres ? <p className="dim small">These run in one transaction: if any step fails, nothing is changed.</p>
                   : <p className="dim small">MySQL DDL is not transactional: statements run in this order and an earlier one is not undone if a later one fails.</p>)}
               </>
             )}
@@ -472,7 +493,7 @@ function IndexEditor(props: { ix: IndexDef; columns: string[]; kinds: IndexKind[
 
 function FkEditor(props: {
   fk: ForeignKeyDef; db: string; dbs: string[]; localColumns: string[]; ensureColumns(db: string): Promise<unknown>;
-  tablesOf(schema: string): string[]; columnsOf(schema: string, table: string): string[]; onChange(f: ForeignKeyDef): void;
+  tablesOf(schema: string): string[]; columnsOf(schema: string, table: string): string[]; onChange(f: ForeignKeyDef): void; dbLabel?: string;
 }) {
   const { fk } = props;
   const schema = fk.ref_schema ?? props.db;
@@ -487,7 +508,7 @@ function FkEditor(props: {
   return (
     <div className="dz-form">
       <label>Name<input value={fk.name} onChange={(e) => props.onChange({ ...fk, name: e.target.value })} /></label>
-      <label>Referenced database
+      <label>{props.dbLabel ?? "Referenced database"}
         <Select value={schema} onChange={(e) => props.onChange({ ...fk, ref_schema: e.target.value === props.db ? null : e.target.value, ref_table: "", ref_columns: [] })}>
           {props.dbs.map((d) => <option key={d} value={d}>{d}</option>)}
         </Select></label>

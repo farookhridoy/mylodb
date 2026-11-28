@@ -116,7 +116,7 @@ pub struct PgBackend {
     schema: Option<Arc<str>>,
 }
 
-const SYSTEM: &str = "(n.nspname LIKE 'pg\\_%' OR n.nspname = 'information_schema')";
+pub(crate) const SYSTEM: &str = "(n.nspname LIKE 'pg\\_%' OR n.nspname = 'information_schema')";
 
 impl CancelToken {
     /// Point the token at the connection that is about to work, so that `cancel` reaches it.
@@ -180,7 +180,7 @@ impl PgBackend {
         }
     }
 
-    async fn query(&self, sql: &str, params: &[&(dyn ToSql + Sync)]) -> BackendResult<Vec<Row>> {
+    pub(crate) async fn query(&self, sql: &str, params: &[&(dyn ToSql + Sync)]) -> BackendResult<Vec<Row>> {
         let c = self.checkout().await?;
         let rows = c.query(sql, params).await.map_err(explain);
         self.give_back(c).await;
@@ -325,6 +325,7 @@ impl Backend for PgBackend {
             .query(&format!("SELECT n.nspname::text, c.relname::text, c.relkind IN ('v','m') FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace WHERE c.relkind IN ('r','p','f','v','m') AND ($1 OR NOT {SYSTEM}) AND pg_catalog.has_schema_privilege(n.oid, 'USAGE') ORDER BY 1, 2"), &[&include_system])
             .await?;
         out.extend(rows.iter().map(|r| Node { database: r.get(0), kind: if r.get(2) { Kind::View } else { Kind::Table }, name: r.get(1), parent: None }));
+        out.extend(crate::objects::nodes(self, include_system).await?);
         Ok(out)
     }
 

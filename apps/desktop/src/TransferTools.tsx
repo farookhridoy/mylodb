@@ -9,6 +9,7 @@ import {
 import { ConfirmDialog } from "./SidePanels";
 import { formatBytes } from "./browserMeta";
 import { newJobId, ProgressBar, useJob } from "./Jobs";
+import { PgBackup, PgRestore } from "./PgTransfer";
 
 export type TransferTab = "backup" | "restore" | "import" | "export";
 export interface TransferPreset { tab?: TransferTab; db?: string; table?: string }
@@ -16,18 +17,18 @@ export interface TransferPreset { tab?: TransferTab; db?: string; table?: string
 const fmtBytes = (n: number) => (n >= 1 << 30 ? `${(n / (1 << 30)).toFixed(2)} GB` : n >= 1 << 20 ? `${(n / (1 << 20)).toFixed(1)} MB` : n >= 1024 ? `${(n / 1024).toFixed(1)} KB` : `${n} B`);
 const fmtMs = (ms: number) => (ms >= 60000 ? `${(ms / 60000).toFixed(1)} min` : ms >= 1000 ? `${(ms / 1000).toFixed(1)} s` : `${ms} ms`);
 
-export default function TransferTools(props: { connectionId: number; nodes: Node[]; preset: TransferPreset; onSchemaChanged(): void; ensureColumns(db: string): Promise<unknown>; /** A SQLite file: only exporting is available. */ exportOnly?: boolean }) {
+export default function TransferTools(props: { connectionId: number; nodes: Node[]; preset: TransferPreset; onSchemaChanged(): void; ensureColumns(db: string): Promise<unknown>; /** A SQLite file: only exporting is available. */ exportOnly?: boolean; /** PostgreSQL: its own backup and restore, and no CSV import yet. */ postgres?: boolean; production?: boolean }) {
   const [tab, setTab] = useState<TransferTab>(props.exportOnly ? "export" : props.preset.tab ?? "backup");
   useEffect(() => { if (props.preset.tab && !props.exportOnly) setTab(props.preset.tab); }, [props.preset]); // eslint-disable-line react-hooks/exhaustive-deps
   const all: [TransferTab, string][] = [["backup", "Backup"], ["restore", "Restore / run script"], ["import", "Import CSV"], ["export", "Export query"]];
-  const names = props.exportOnly ? all.filter(([t]) => t === "export") : all;
+  const names = props.exportOnly ? all.filter(([t]) => t === "export") : props.postgres ? all.filter(([t]) => t !== "import").map(([t, l]): [TransferTab, string] => [t, t === "restore" ? "Restore" : l]) : all;
   return (
     <div className="transfer">
       <div className="dz-tabs">{names.map(([t, l]) => <button key={t} className={tab === t ? "active" : ""} onClick={() => setTab(t)}>{l}</button>)}</div>
       <div className="st-body">
-        {tab === "backup" && <Backup {...props} />}
-        {tab === "restore" && <Restore {...props} />}
-        {tab === "import" && <ImportCsv {...props} />}
+        {tab === "backup" && (props.postgres ? <PgBackup connectionId={props.connectionId} nodes={props.nodes} schema={props.preset.db} /> : <Backup {...props} />)}
+        {tab === "restore" && (props.postgres ? <PgRestore connectionId={props.connectionId} onSchemaChanged={props.onSchemaChanged} production={!!props.production} /> : <Restore {...props} />)}
+        {tab === "import" && (props.postgres ? <div className="empty">CSV import for PostgreSQL is not available yet.</div> : <ImportCsv {...props} />)}
         {tab === "export" && <ExportQuery {...props} />}
       </div>
     </div>

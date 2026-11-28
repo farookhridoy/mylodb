@@ -54,11 +54,15 @@ const SECTIONS: Section[] = [
     <>
       <p>Choose <b>Database type → PostgreSQL</b> in the connection dialog, or paste a <code>postgresql://</code> URL. A connection is to <b>one database</b> (<code>postgres</code> if you leave it empty), and the browser lists its <b>schemas</b>. SSH tunnels work as for MySQL; SSL <i>Required</i> checks the certificate and the host name.</p>
       <ul>
-        <li>Browse tables, views and columns, and run SQL: several statements, with <code>$$</code> function bodies. <b>Cancel</b> and the query time limit stop a statement on the server.</li>
+        <li>Browse tables, views, functions, procedures, triggers and columns, and run SQL: several statements, with <code>$$</code> function bodies. <b>Cancel</b> and the query time limit stop a statement on the server.</li>
         <li>The data grid pages, filters, sorts and counts, and edits rows: staged, previewed, applied in one transaction. A table needs a primary key or a non-null unique key; views are read-only.</li>
         <li><b>Transfer → Export</b> and scheduled exports write every format; SQL INSERT files are PostgreSQL SQL.</li>
         <li>A <b>read-only</b> connection runs each statement in a read-only transaction that is rolled back.</li>
-        <li>Not there yet: backup, restore and import, the table designer, users, server tools, the Structure and Databases pages, Explain and Profile views, formatting, error underlining, data search, diagrams, the query builder, compare and copy. Functions and triggers are not listed.</li>
+        <li><b>Definitions</b>: right-click a view, function, procedure or trigger to edit its script or drop it (nothing that depends on it is dropped with it).</li>
+        <li><b>Table designer</b> (<i>New table…</i>, <i>Design table…</i>): changes run in one transaction. Columns cannot be moved. What it cannot show (expression and partial indexes, deferrable constraints, checks) is left unchanged.</li>
+        <li><b>Explain</b> and <b>Analyze</b> draw the plan; Analyze runs SELECT only.</li>
+        <li><b>Backup and restore</b> (<b>Transfer</b>, and scheduled backups) use <code>pg_dump</code>, <code>pg_restore</code> and <code>psql</code> from your computer, at least as new as the server: install Postgres.app, <code>brew install libpq</code>, or the postgresql.org installer. Only restore files you trust.</li>
+        <li>Not there yet: CSV import, users, server tools, the Structure and Databases pages, Profile, formatting, error underlining, data search, diagrams, the query builder, compare and copy.</li>
       </ul>
     </>
   ) },

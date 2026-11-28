@@ -9,7 +9,7 @@ mod risk;
 mod split;
 mod text;
 
-pub use complete::{complete, diagnose, Catalog, Completions, DiagSeverity, Diagnostic, Fk, Suggestion, SuggestionKind, TableInfo};
+pub use complete::{complete, complete_postgres, diagnose, Catalog, Completions, DiagSeverity, Diagnostic, Fk, Suggestion, SuggestionKind, TableInfo};
 pub use format::{format_sql, FormatError, FormatOptions, IndentStyle, KeywordCase};
 pub use kind::{statement_kind, StatementKind};
 pub use risk::{read_only_violation, read_only_violations, review, Finding, RiskKind, Severity, StatementRisk};

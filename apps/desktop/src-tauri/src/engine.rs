@@ -3,12 +3,14 @@
 
 use myq_core::{Backend, BackendResult, Capabilities, ColumnDetail, DatabaseRow, Dialect, IndexDetail, Node, StatementResult, TableRow};
 use myq_driver::{MySqlBackend, Pool};
+use myq_postgres::PgBackend;
 use myq_sqlite::SqliteBackend;
 
 #[derive(Clone)]
 pub enum Engine {
     MySql(MySqlBackend),
     Sqlite(SqliteBackend),
+    Postgres(PgBackend),
 }
 
 impl Engine {
@@ -25,7 +27,7 @@ impl Engine {
     pub fn sqlite_path(&self) -> Option<&std::path::Path> {
         match self {
             Engine::Sqlite(b) => Some(b.path()),
-            Engine::MySql(_) => None,
+            Engine::MySql(_) | Engine::Postgres(_) => None,
         }
     }
 }
@@ -35,6 +37,7 @@ impl Backend for Engine {
         match self {
             Engine::MySql(b) => b.dialect(),
             Engine::Sqlite(b) => b.dialect(),
+            Engine::Postgres(b) => b.dialect(),
         }
     }
 
@@ -42,6 +45,7 @@ impl Backend for Engine {
         match self {
             Engine::MySql(b) => b.capabilities().await,
             Engine::Sqlite(b) => b.capabilities().await,
+            Engine::Postgres(b) => b.capabilities().await,
         }
     }
 
@@ -49,6 +53,7 @@ impl Backend for Engine {
         match self {
             Engine::MySql(b) => b.index(include_system).await,
             Engine::Sqlite(b) => b.index(include_system).await,
+            Engine::Postgres(b) => b.index(include_system).await,
         }
     }
 
@@ -56,6 +61,7 @@ impl Backend for Engine {
         match self {
             Engine::MySql(b) => b.column_nodes(database).await,
             Engine::Sqlite(b) => b.column_nodes(database).await,
+            Engine::Postgres(b) => b.column_nodes(database).await,
         }
     }
 
@@ -63,6 +69,7 @@ impl Backend for Engine {
         match self {
             Engine::MySql(b) => b.databases().await,
             Engine::Sqlite(b) => b.databases().await,
+            Engine::Postgres(b) => b.databases().await,
         }
     }
 
@@ -70,6 +77,7 @@ impl Backend for Engine {
         match self {
             Engine::MySql(b) => b.tables(database).await,
             Engine::Sqlite(b) => b.tables(database).await,
+            Engine::Postgres(b) => b.tables(database).await,
         }
     }
 
@@ -77,6 +85,7 @@ impl Backend for Engine {
         match self {
             Engine::MySql(b) => b.columns(database, table).await,
             Engine::Sqlite(b) => b.columns(database, table).await,
+            Engine::Postgres(b) => b.columns(database, table).await,
         }
     }
 
@@ -84,6 +93,7 @@ impl Backend for Engine {
         match self {
             Engine::MySql(b) => b.indexes(database, table).await,
             Engine::Sqlite(b) => b.indexes(database, table).await,
+            Engine::Postgres(b) => b.indexes(database, table).await,
         }
     }
 
@@ -91,6 +101,7 @@ impl Backend for Engine {
         match self {
             Engine::MySql(b) => b.run(database, sql).await,
             Engine::Sqlite(b) => b.run(database, sql).await,
+            Engine::Postgres(b) => b.run(database, sql).await,
         }
     }
 }

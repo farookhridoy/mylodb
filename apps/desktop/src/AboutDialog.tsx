@@ -25,7 +25,7 @@ export default function AboutDialog(props: { onClose(): void; onManual(): void; 
             <div className="dim">Version {__APP_VERSION__}</div>
           </div>
         </div>
-        <p>An open-source MySQL, MariaDB and SQLite manager for macOS, written in Rust and React. Built for people who miss SQLyog on the Mac.</p>
+        <p>An open-source MySQL, MariaDB, PostgreSQL and SQLite manager for macOS and Windows, written in Rust and React. Built for people who miss SQLyog on the Mac.</p>
         <table className="info kv">
           <tbody>
             <tr><th>Author</th><td>Omar Farook Hridoy (<ExtLink href={LINKS.author}>farookhridoy.com</ExtLink>)</td></tr>

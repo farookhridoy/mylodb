@@ -100,6 +100,9 @@ export default function TableDesigner(props: {
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  /** Refresh was pressed once while there are changes: the next press throws them away. */
+  const [confirmRefresh, setConfirmRefresh] = useState(false);
+
   const load = useCallback(async () => {
     try {
       const o = props.sqlite ? null : await schemaApi.serverOptions(cid);
@@ -154,7 +157,17 @@ export default function TableDesigner(props: {
       indexes = indexes.map((ix) => ({ ...ix, columns: ix.columns.map((c) => (c.name === old.name ? { ...c, name: next.name } : c)) }));
       foreign_keys = foreign_keys.map((f) => ({ ...f, columns: f.columns.map((c) => (c === old.name ? next.name : c)) }));
     }
+    if (next.auto_increment && !old.auto_increment) indexes = keyFirst(indexes, next.name);
     setDraft({ ...draft, columns, indexes, foreign_keys });
+  };
+
+  /** An AUTO_INCREMENT column has to lead an index: it becomes the primary key if there is none, or moves to the front of it. */
+  const keyFirst = (indexes: IndexDef[], name: string): IndexDef[] => {
+    if (indexes.some((i) => i.kind !== "fulltext" && i.columns[0]?.name === name)) return indexes;
+    const col = { name, length: null, desc: false };
+    const pk = indexes.find((i) => i.kind === "primary");
+    if (!pk) return [{ name: "PRIMARY", original_name: null, kind: "primary", columns: [col] }, ...indexes];
+    return indexes.map((i) => (i === pk && i.columns.some((c) => c.name === name) ? { ...i, columns: [i.columns.find((c) => c.name === name)!, ...i.columns.filter((c) => c.name !== name)] } : i));
   };
 
   const addColumn = () => {
@@ -194,12 +207,24 @@ export default function TableDesigner(props: {
     if (at < 0) {
       indexes.unshift({ name: "PRIMARY", original_name: null, kind: "primary", columns: [{ name, length: null, desc: false }] });
     } else {
-      const cols = adding ? [...indexes[at].columns, { name, length: null, desc: false }] : indexes[at].columns.filter((c) => c.name !== name);
+      // an AUTO_INCREMENT column goes to the front of the key, where MySQL needs it
+      const auto = draft.columns.some((c) => c.name === name && c.auto_increment);
+      const added = { name, length: null, desc: false };
+      const cols = adding ? (auto ? [added, ...indexes[at].columns] : [...indexes[at].columns, added]) : indexes[at].columns.filter((c) => c.name !== name);
       if (cols.length === 0) indexes.splice(at, 1); else indexes[at] = { ...indexes[at], columns: cols };
     }
     // a primary key column cannot be NULL
     const columns = adding ? draft.columns.map((c) => (c.name === name ? { ...c, nullable: false } : c)) : draft.columns;
     setDraft({ ...draft, indexes, columns });
+  };
+
+  /** Read the table again from the server (changes made elsewhere); unapplied changes are only dropped after a second press. */
+  const refresh = async () => {
+    if (dirty && !confirmRefresh) return setConfirmRefresh(true);
+    setConfirmRefresh(false); setNotice(null); setError(null); setMoreOpen(null); setBusy(true);
+    await load();
+    props.ensureColumns(db);
+    setBusy(false);
   };
 
   const apply = async () => {
@@ -225,9 +250,10 @@ export default function TableDesigner(props: {
         <input className="dz-name" placeholder="table_name" value={draft.name} onChange={(e) => set({ name: e.target.value })} />
         <span className="dim">{db}{props.table ? "" : " · new table"}</span>
         <span className="grow" />
+        {props.table && <button onClick={refresh} onBlur={() => setConfirmRefresh(false)} disabled={busy} title="Read the table again from the server"><Icon name="refresh" size={13} /> {confirmRefresh && dirty ? "Discard changes?" : "Refresh"}</button>}
         {props.table && <button onClick={() => props.onOpenData(db, props.table!)}>Open data</button>}
         <button disabled={!dirty} onClick={() => original ? setDraft(structuredClone(original)) : setDraft(blankTable(opts, props.sqlite))}>Revert</button>
-        <button className="primary" disabled={!dirty || preview.errors.length > 0 || busy || props.readOnly} onClick={apply} title={props.readOnly ? "This connection is read-only" : undefined}>
+        <button className="primary" disabled={!dirty || preview.errors.length > 0 || busy || props.readOnly} onClick={apply} title={props.readOnly ? "This connection is read-only" : preview.errors.length > 0 ? `Fix first: ${preview.errors.join("; ")}` : !dirty ? "Nothing has changed" : undefined}>
           {busy ? "Applying…" : props.table ? "Apply changes" : "Create table"}
         </button>
       </div>
@@ -252,6 +278,7 @@ export default function TableDesigner(props: {
               <button onClick={() => moveColumn(sel, -1)} disabled={sel === 0}>↑</button>
               <button onClick={() => moveColumn(sel, 1)} disabled={sel >= draft.columns.length - 1}>↓</button>
             </div>
+            <div className="dz-scroll">
             <table className="grid dz-grid">
               <thead><tr><th>PK</th><th>Name</th><th>Type</th><th>Length / values</th>{!props.sqlite && <th>Unsigned</th>}<th>NOT NULL</th><th>Auto&nbsp;inc</th><th>Default</th>{!props.sqlite && <th>Comment</th>}<th /></tr></thead>
               <tbody>
@@ -308,6 +335,7 @@ export default function TableDesigner(props: {
                 })}
               </tbody>
             </table>
+            </div>
           </>
         )}
 

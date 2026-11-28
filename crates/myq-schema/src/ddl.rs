@@ -381,7 +381,12 @@ pub fn validate(t: &TableDef) -> Vec<String> {
     for a in autos {
         let keyed = t.indexes.iter().any(|i| i.kind != IndexKind::Fulltext && i.columns.first().is_some_and(|c| c.name == a.name));
         if !keyed {
-            e.push(format!("AUTO_INCREMENT column `{}` must be the first column of an index", a.name));
+            // say which key is in the way, so that it can be put right
+            let hint = match t.indexes.iter().find(|i| i.kind == IndexKind::Primary && i.columns.iter().any(|c| c.name == a.name)) {
+                Some(pk) => format!(": the primary key is ({}). Put `{}` first in the Indexes tab, or untick PK on the other column(s)", pk.columns.iter().map(|c| c.name.as_str()).collect::<Vec<_>>().join(", "), a.name),
+                None => ": tick PK for it, or add an index that starts with it".to_string(),
+            };
+            e.push(format!("AUTO_INCREMENT column `{}` must be the first column of an index{hint}", a.name));
         }
     }
     let mut fk_names = std::collections::HashSet::new();

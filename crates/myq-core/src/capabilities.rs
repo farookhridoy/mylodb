@@ -7,6 +7,7 @@ pub enum Flavor {
     MySql,
     MariaDb,
     Sqlite,
+    Postgres,
 }
 
 /// One thing an engine may or may not do. When it cannot, `reason` says why in words a person can read.
@@ -77,6 +78,7 @@ impl Capabilities {
             Flavor::MariaDb if v >= (10, 1, 0) => Cap::yes(),
             Flavor::MariaDb => Cap::no("ANALYZE needs MariaDB 10.1 or later"),
             Flavor::Sqlite => Cap::no("SQLite offers EXPLAIN QUERY PLAN only"),
+            Flavor::Postgres => Cap::no("not a MySQL server"),
         };
         Capabilities {
             flavor,
@@ -113,6 +115,30 @@ impl Capabilities {
             dump_restore: Cap::no("backup, restore and CSV import are MySQL-only for now; export works"),
             data_export: Cap::yes(),
             writes: if writable { Cap::yes() } else { Cap::no("this SQLite file is open read-only") },
+        }
+    }
+}
+
+impl Capabilities {
+    /// For a PostgreSQL server: browse, SQL, the data grid and export; the reasons say what is still to come. `writable` is false
+    /// for a connection marked read-only.
+    pub fn postgres(writable: bool) -> Capabilities {
+        let later = |what: &str| Cap::no(format!("{what} for PostgreSQL is not available yet"));
+        Capabilities {
+            flavor: Flavor::Postgres,
+            schemas: Cap::yes(),
+            routines: later("browsing functions and procedures"),
+            triggers: later("browsing triggers"),
+            events: Cap::no("PostgreSQL has no scheduled events"),
+            users: later("managing roles"),
+            replication: later("replication status"),
+            explain_analyze: later("the Explain view (run EXPLAIN ANALYZE as SQL)"),
+            read_only_session: Cap::yes(),
+            row_estimates: Cap::yes(),
+            server_tools: later("server tools"),
+            dump_restore: later("backup, restore and import"),
+            data_export: Cap::yes(),
+            writes: if writable { Cap::yes() } else { Cap::no("this connection is read-only") },
         }
     }
 }

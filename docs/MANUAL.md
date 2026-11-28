@@ -1,6 +1,6 @@
 # MyLoDB user manual
 
-Version 0.11.0. The same text is inside the app: **Help → User Manual**. Screenshots show the real interface running on demo data (a fake `shop` database), not a real server.
+Version 0.12.0. The same text is inside the app: **Help → User Manual**. Screenshots show the real interface running on demo data (a fake `shop` database), not a real server.
 
 ## Contents
 
@@ -51,6 +51,16 @@ The **Safety** tab sets the **Environment** (Development, Staging, Production), 
 
 Several connections can be open at once; each is a tab above the workspace. Closing a tab disconnects only that connection. Each connection remembers its own open tabs and tree state.
 
+### PostgreSQL
+
+Choose **Database type → PostgreSQL**, or paste a `postgresql://` URL. A connection is to **one database** (`postgres` if you leave it empty); the browser lists its **schemas**. SSH tunnels work as for MySQL; SSL *Required* checks the certificate and the host name.
+
+* Browse tables, views and columns; run SQL (several statements, `$$` bodies included); **Cancel** and the query time limit stop a statement on the server.
+* The data grid pages, filters, sorts and counts, and edits rows (staged, previewed, applied in one transaction). A table needs a primary key or a non-null unique key; views are read-only.
+* **Transfer → Export** and scheduled exports write every format; SQL INSERT files are PostgreSQL SQL.
+* A **read-only** connection runs each statement in a read-only transaction that is rolled back.
+* Not there yet: backup, restore and import, the table designer, users, server tools, Structure and Databases pages, Explain and Profile views, formatting, error underlining, data search, diagrams, query builder, compare and copy. Functions and triggers are not listed.
+
 ### SQLite files
 
 Choose **Database type → SQLite file** in the connection dialog, pick the file with **Browse…** and press **Test connection**. A SQLite connection:
@@ -61,7 +71,6 @@ Choose **Database type → SQLite file** in the connection dialog, pick the file
 * edits rows in the data grid (staged, previewed as SQLite SQL, applied in one transaction, a failed change rolls the batch back) and runs `INSERT`, `UPDATE`, `DELETE` and DDL in the editor. A table needs a primary key to be edited in the grid; views are read-only;
 * browses tables, views, triggers, columns and indexes (the primary key is shown as `PRIMARY`), runs SQL with results as NULL-aware text (BLOBs as hex), and pages, filters, sorts and counts a table in the data grid (counts are exact; `REGEXP` is not available);
 * has no server home, users, server tools, events, routines or dump-based backup: those buttons are disabled and their tooltips say why;
-* does not yet offer the table designer, export from a table, or cancelling a running query.
 
 ![A SQLite connection in the connection dialog](images/sqlite-dialog.png)
 

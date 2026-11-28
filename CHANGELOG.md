@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.12.0 (2026-11-28)
+
+PostgreSQL (phase 24 of the roadmap).
+
+**Added**
+* **PostgreSQL connections**, with SSH tunnels and the same SSL modes as MySQL. A connection is to one database; the browser lists its schemas, tables, views and columns. `postgres://` and `postgresql://` URLs fill the connection form.
+* **SQL editor**: several statements, with dollar-quoted function bodies kept whole; Cancel and the query timeout stop a statement on the server; autocomplete quotes names the PostgreSQL way.
+* **Data grid**: pages, filters, sorting, counts, long values and `bytea`, foreign-key lookup, and staged edits applied in one transaction. A table needs a primary key or a non-null unique key to be edited; views are read-only.
+* **Export** a table (with its filters and sort) or a query to every format, from Transfer or as a scheduled export. SQL INSERT files are written for PostgreSQL.
+* **Read-only connections** run every statement in a read-only transaction that is rolled back, so a statement cannot switch writing back on.
+* Tested in CI on PostgreSQL 13, 16 and 18.
+
+**Fixed**
+* **Encrypted MySQL and MariaDB connections could crash** instead of connecting (confirmed with the settings of 0.11.0; earlier versions are probably affected too). Connections with SSL switched on work again.
+
+**Fixed and improved (table designer)**
+* The column buttons and column titles now stay in place while the columns scroll.
+* A **Refresh** button reads the table again from the server; with unapplied changes it asks before dropping them.
+* Ticking **Auto inc** or **PK** puts an auto-increment column first in the primary key, where MySQL needs it. Before, the key could end up in an order that left *Apply changes* disabled. The error now names the key and says how to fix it, and the disabled button shows why.
+
+**Known issue (MySQL and MariaDB)**
+* SSL mode *Verify CA* also checks the host name, so it refuses a certificate that does not name the host you connect to (such as the one MySQL generates for itself). The cause is in the MySQL driver library. Use *Required* with a certificate that names the host, or *Skip verify*.
+
+**Not available for PostgreSQL yet**
+* Backup, restore and import, the table designer, users, server tools, the Structure and Databases pages, Explain and Profile views, formatting and error underlining, data search, ER diagram, query builder, schema compare, data compare and copying a database. Their buttons and menu entries are disabled, hidden or say so.
+* Functions, procedures and triggers are not listed in the browser (run SQL against the catalog instead).
+* The editor colours SQL as MySQL does. Grid pages use `OFFSET`, so pages far into a very large table are slower.
+
 ## 0.11.0 (2026-11-26)
 
 Finishes phases 20 to 23 and 25 of the roadmap.

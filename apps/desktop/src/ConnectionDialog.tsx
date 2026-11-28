@@ -59,7 +59,7 @@ export default function ConnectionDialog(props: {
     setTesting(true); setResult(null); setError(null);
     try {
       const r = await api.testConnection(payload(), trust);
-      setResult(`Connected to ${sqlite ? "" : "MySQL "}${r.version}${r.via_ssh ? " through the SSH tunnel" : ""}${r.ssl_cipher ? ` · encrypted (${r.ssl_cipher})` : " · not encrypted"}`);
+      setResult(`Connected to ${sqlite || pg ? "" : "MySQL "}${r.version}${r.via_ssh ? " through the SSH tunnel" : ""}${r.ssl_cipher ? ` · encrypted (${r.ssl_cipher})` : " · not encrypted"}`);
     } catch (e) {
       const err = e as ConnectError;
       if (typeof err === "object" && err && err.kind === "unknown_host") setUnknownHost({ host: err.host, fingerprint: err.fingerprint, then: "test" });
@@ -73,6 +73,7 @@ export default function ConnectionDialog(props: {
   };
 
   const sqlite = c.engine === "sqlite";
+  const pg = c.engine === "postgres";
   const valid = sqlite ? !!(c.name && c.file) : c.name && c.host && c.user && (!ssh || (ssh.host && ssh.user && (ssh.auth.method === "password" || ssh.auth.path)));
 
   return (
@@ -80,8 +81,15 @@ export default function ConnectionDialog(props: {
       <div className="dialog conn-dialog">
         <h3>{c.id ? "Edit connection" : "New connection"}</h3>
         <label>Database type
-          <Select value={c.engine ?? "mysql"} onChange={(e) => { const engine = e.target.value as "mysql" | "sqlite"; setC({ ...c, engine, ...(engine === "sqlite" ? { host: "", user: "", port: 0 } : { host: c.host || "127.0.0.1", user: c.user || "root", port: c.port || 3306 }) }); setTab("general"); }}>
+          <Select value={c.engine ?? "mysql"} onChange={(e) => {
+            const engine = e.target.value as "mysql" | "sqlite" | "postgres";
+            // the usual port and account of the other engine are replaced, anything typed by hand is kept
+            const [port, user] = engine === "postgres" ? [5432, "postgres"] : [3306, "root"];
+            const server = { host: c.host || "127.0.0.1", port: !c.port || c.port === 3306 || c.port === 5432 ? port : c.port, user: !c.user || c.user === "root" || c.user === "postgres" ? user : c.user };
+            setC({ ...c, engine, ...(engine === "sqlite" ? { host: "", user: "", port: 0 } : server) }); setTab("general");
+          }}>
             <option value="mysql">MySQL / MariaDB</option>
+            <option value="postgres">PostgreSQL</option>
             <option value="sqlite">SQLite file</option>
           </Select>
         </label>
@@ -106,6 +114,7 @@ export default function ConnectionDialog(props: {
         {!sqlite && <>
         {tab === "general" && (
           <>
+            {pg && <div className="dim small">A connection is to one database; the browser lists its schemas. SSL “Required” checks the certificate and the host name.</div>}
             <label>Name<input value={c.name} onChange={(e) => set("name", e.target.value)} autoFocus /></label>
             <label>Group (folder)
               <input value={c.group ?? ""} list="connection-groups" placeholder="None" onChange={(e) => set("group", e.target.value)} />
@@ -114,19 +123,19 @@ export default function ConnectionDialog(props: {
             <div className="connect-by">
               <span>Connect by</span>
               <label className="check"><input type="radio" name="connect-by" checked={!byUrl} onChange={() => setByUrl(false)} /> Host</label>
-              <label className="check"><input type="radio" name="connect-by" checked={byUrl} onChange={() => { setByUrl(true); setUrlText(formatConnectionUrl(c.host, c.port, c.database)); }} /> URL</label>
+              <label className="check"><input type="radio" name="connect-by" checked={byUrl} onChange={() => { setByUrl(true); setUrlText(formatConnectionUrl(c.host, c.port, c.database, c.engine)); }} /> URL</label>
             </div>
             <label>URL
               {byUrl ? (
-                <input value={urlText} placeholder="jdbc:mysql://host:3306/database   or   mysql://user:password@host/database" aria-label="Connection URL"
+                <input value={urlText} placeholder={pg ? "postgresql://user:password@host:5432/database" : "jdbc:mysql://host:3306/database   or   mysql://user:password@host/database"} aria-label="Connection URL"
                        onChange={(e) => {
                          setUrlText(e.target.value);
                          const p = parseConnectionUrl(e.target.value);
-                         if (p) setC({ ...c, host: p.host, port: p.port, database: p.database, user: p.user ?? c.user, new_password: p.password ?? c.new_password, ssl: p.ssl ?? c.ssl });
+                         if (p) setC({ ...c, engine: p.engine, host: p.host, port: p.port, database: p.database, user: p.user ?? c.user, new_password: p.password ?? c.new_password, ssl: p.ssl ?? c.ssl });
                        }} />
-              ) : <input readOnly aria-label="Connection URL" value={formatConnectionUrl(c.host, c.port, c.database)} />}
+              ) : <input readOnly aria-label="Connection URL" value={formatConnectionUrl(c.host, c.port, c.database, c.engine)} />}
             </label>
-            {byUrl && urlText.trim() !== "" && !parseConnectionUrl(urlText) && <div className="error small">Not a MySQL URL. Expected jdbc:mysql://host:3306/database or mysql://user:password@host/database.</div>}
+            {byUrl && urlText.trim() !== "" && !parseConnectionUrl(urlText) && <div className="error small">Not a connection URL. Expected jdbc:mysql://host:3306/database, mysql://user:password@host/database or postgresql://user:password@host/database.</div>}
             <div className="row">
               <label>Host<input value={c.host} onChange={(e) => set("host", e.target.value)} /></label>
               <label className="narrow">Port<input type="number" value={c.port} onChange={(e) => set("port", Number(e.target.value))} /></label>
@@ -137,8 +146,8 @@ export default function ConnectionDialog(props: {
               <label>Password<input type="password" placeholder={c.id ? "(unchanged)" : ""} value={c.new_password ?? ""} onChange={(e) => set("new_password", e.target.value)} /></label>
             </div>
             <div className="row">
-              <label>Default database<input value={c.database ?? ""} onChange={(e) => set("database", e.target.value || null)} /></label>
-              <label className="check show-all" title="Off: only the default database is listed. Use it on shared hosting, where the account owns one database."><input type="checkbox" checked={c.show_all_databases !== false || !c.database} disabled={!c.database} onChange={(e) => set("show_all_databases", e.target.checked)} /> Show all databases</label>
+              <label>{pg ? "Database" : "Default database"}<input value={c.database ?? ""} placeholder={pg ? "postgres" : ""} onChange={(e) => set("database", e.target.value || null)} /></label>
+              {!pg && <label className="check show-all" title="Off: only the default database is listed. Use it on shared hosting, where the account owns one database."><input type="checkbox" checked={c.show_all_databases !== false || !c.database} disabled={!c.database} onChange={(e) => set("show_all_databases", e.target.checked)} /> Show all databases</label>}
               <label className="narrow">Tab color<input type="color" value={c.color} onChange={(e) => set("color", e.target.value)} /></label>
             </div>
           </>
@@ -167,13 +176,13 @@ export default function ConnectionDialog(props: {
                      onChange={(e) => set("query_timeout_secs", e.target.value === "" ? null : Math.max(1, Number(e.target.value)))} />
             </label>
             <div className="dim small">A run that takes longer is stopped (the same as Cancel).</div>
-            <label>Connection collation
+            {!pg && <><label>Connection collation
               <input list="common-collations" placeholder="Server default" value={c.collation ?? ""} onChange={(e) => set("collation", e.target.value.trim() === "" ? null : e.target.value.trim())} />
               <datalist id="common-collations">
                 {["utf8mb4_0900_ai_ci", "utf8mb4_unicode_ci", "utf8mb4_general_ci", "utf8mb4_bin", "utf8mb3_general_ci", "latin1_swedish_ci"].map((n) => <option key={n} value={n} />)}
               </datalist>
             </label>
-            <div className="dim small">How this connection compares and sorts text (SET NAMES … COLLATE …). Applies from the next connect.</div>
+            <div className="dim small">How this connection compares and sorts text (SET NAMES … COLLATE …). Applies from the next connect.</div></>}
           </>
         )}
 

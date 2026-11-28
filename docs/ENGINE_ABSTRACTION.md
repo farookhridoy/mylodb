@@ -117,3 +117,15 @@ store round trip, UI suite `sqlite.mjs`. Not yet: writes (grid edits, designer, 
 cancel of a running SQLite query, the structure / databases pages' write actions (they are refused by the read-only guard).
 
 Next: PostgreSQL (schemas) and SQL Server, each behind the same trait.
+
+## 10. Step 6: PostgreSQL (done)
+
+New crate `myq-postgres` (`tokio-postgres`, `rustls`). One connection is one database; **schemas** take the place of MySQL's databases in the browser.
+
+* `PgBackend` implements `Backend` and keeps a few idle connections, each reset (`ROLLBACK`, `DISCARD ALL`) before reuse.
+* Scripts are split by a PostgreSQL-aware splitter (dollar quotes, `E''` strings, nested comments). Results use the simple protocol (every value as text); preparing each statement first gives the column types.
+* Read-only: every statement runs in `BEGIN TRANSACTION READ ONLY` and is rolled back. Grid reads and exports do the same for every connection.
+* Grid values travel as text: `CAST($n::text AS type)` with the type without its length, so a long value is refused instead of cut.
+* Tests (`crates/myq-postgres/tests`) run only when `MYLODB_TEST_PG_PORT` is set; CI runs them on PostgreSQL 13, 16 and 18.
+
+Next engine: SQL Server.

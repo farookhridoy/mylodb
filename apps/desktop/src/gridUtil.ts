@@ -1,3 +1,4 @@
+import { doubleQuotes, quoteIdent } from "./quoting";
 import type { CellValue, ColumnFilter, ColumnMeta, Op } from "./api";
 
 export interface OpInfo { op: Op; label: string; arity: 0 | 1 | 2 | "many" }
@@ -65,10 +66,16 @@ export function toJson(cols: string[], rows: Cells, numeric: boolean[]) {
 }
 
 export function toSqlInsert(table: string, cols: string[], rows: Cells, numeric: boolean[], binary: boolean[]) {
-  const q = (s: string) => "`" + s.replace(/`/g, "``") + "`";
-  const lit = (v: string | null, i: number) =>
-    v === null ? "NULL" : numeric[i] ? v : binary[i] && v.startsWith("0x") ? `X'${v.slice(2)}'` : `'${v.replace(/\\/g, "\\\\").replace(/'/g, "''")}'`;
-  return rows.map((r) => `INSERT INTO ${q(table)} (${cols.map(q).join(", ")}) VALUES (${r.map(lit).join(", ")});`).join("\n");
+  const pg = doubleQuotes();
+  const text = (v: string) => `'${(pg ? v : v.replace(/\\/g, "\\\\")).replace(/'/g, "''")}'`;
+  const lit = (v: string | null, i: number) => {
+    if (v === null) return "NULL";
+    // PostgreSQL sends bytea as bare hex digits, and wants NaN and Infinity in quotes
+    if (binary[i] && pg) return `'\\x${v.replace(/^0x/i, "")}'`;
+    if (numeric[i]) return pg && !Number.isFinite(Number(v)) ? text(v) : v;
+    return binary[i] && v.startsWith("0x") ? `X'${v.slice(2)}'` : text(v);
+  };
+  return rows.map((r) => `INSERT INTO ${quoteIdent(table)} (${cols.map(quoteIdent).join(", ")}) VALUES (${r.map(lit).join(", ")});`).join("\n");
 }
 
 // ---- binary helpers ----

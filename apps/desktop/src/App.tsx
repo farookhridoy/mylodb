@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { quoteIdent, setDoubleQuotes } from "./quoting";
 import Select from "./Select";
 import { open as pickPath, save as savePath } from "@tauri-apps/plugin-dialog";
 import { capabilitiesApi, type Capabilities, fileApi, onMenuAction, api, describeError, isVaultLocked, secretsApi, editorApi, sqliteApi, usagesApi, onScheduleDone, planApi, queryApi, schemaApi, serverApi, type PlanOp, type ConnectError, type Favorite, type FormatOptions, type Kind, type Environment, type Maintenance, type Review, type Node, type SavedConnection, type TableOp } from "./api";
@@ -98,7 +99,7 @@ const isDdl = (sql: string) => /^\s*(?:\/\*[\s\S]*?\*\/\s*)*(create|alter|drop|r
 let counter = 0;
 const uid = () => `${Date.now().toString(36)}-${counter++}`;
 const newTab = (n: number, sql = "", database: string | null = null): QueryTab => ({ id: uid(), title: `Query ${n}`, sql, database });
-const quote = (s: string) => "`" + s.replace(/`/g, "``") + "`";
+const quote = quoteIdent;
 
 export default function App() {
   const [connections, setConnections] = useState<SavedConnection[]>([]);
@@ -667,6 +668,8 @@ export default function App() {
   /** Open a table's data in a grid tab; an existing unfiltered tab for the same table is reused. */
   /// Open (or reuse) a table's tab, optionally on a given view (Properties / Data / Diagram).
   const openTable = (database: string, table: string, filters?: GridView["filters"], view?: QueryTab["view"]) => {
+    // only the data view exists for PostgreSQL so far
+    if (isPg) view = "data";
     if (!filters) {
       const existing = tabs.find((t) => isTable(t) && t.table?.db === database && t.table.name === table && Object.keys(t.grid?.filters ?? {}).length === 0);
       if (existing) { if (view) patchTab(existing.id, { view }); return setActiveTab(existing.id); }
@@ -704,7 +707,11 @@ export default function App() {
     setStatus(`${label}…`);
     try { setStatus(await sqliteApi.maintain(activeId, op)); } catch (e) { setStatus(`Error: ${describeError(e)}`); }
   };
-  const isSqlite = !!caps && !caps.server_tools.available;
+  const isSqlite = caps?.flavor === "sqlite";
+  const isPg = caps?.flavor === "postgres";
+  setDoubleQuotes(isPg);
+  /** The pages that still need a MySQL, MariaDB or (for some) SQLite connection say so for PostgreSQL. */
+  const notYetForPg = (what: string) => { if (isPg) setStatus(`${what} for PostgreSQL is not available yet`); return isPg; };
   const reloadIndex = async () => { if (activeId !== null) { meta.reset(); setIndex(await schemaApi.refreshIndex(activeId)); } };
 
   const openNewTable = (database: string, name: string, columns: number) => {
@@ -713,6 +720,7 @@ export default function App() {
     setActiveTab(t.id);
   };
   const openDesigner = (database: string, table: string | null) => {
+    if (notYetForPg("The table designer")) return;
     const existing = tabs.find((t) => t.kind === "designer" && t.table?.db === database && t.table.name === table && table !== null);
     if (existing) return setActiveTab(existing.id);
     const t: QueryTab = { id: uid(), title: table ?? "New table", sql: "", database, kind: "designer", table: { db: database, name: table } };
@@ -734,6 +742,7 @@ export default function App() {
 
   const [dbRefresh, setDbRefresh] = useState(0);
   const openDatabases = () => {
+    if (notYetForPg("The Databases page")) return;
     const existing = tabs.find((t) => t.kind === "databases");
     if (existing) return setActiveTab(existing.id);
     const t: QueryTab = { id: uid(), title: "Databases", sql: "", database: null, kind: "databases" };
@@ -742,6 +751,7 @@ export default function App() {
   };
 
   const openStructure = (db: string) => {
+    if (notYetForPg("The Structure page")) return;
     const existing = tabs.find((t) => t.kind === "structure" && t.table?.db === db);
     if (existing) return setActiveTab(existing.id);
     const t: QueryTab = { id: uid(), title: `${db}: Structure`, sql: "", database: db, kind: "structure", table: { db, name: null } };
@@ -750,6 +760,7 @@ export default function App() {
   };
 
   const openSearch = (db: string | null) => {
+    if (notYetForPg("Data search")) return;
     const target = db ?? selectedDb ?? databases[0];
     if (!target) return setStatus("Connect and select a database first");
     const existing = tabs.find((t) => t.kind === "search");
@@ -770,6 +781,7 @@ export default function App() {
   };
 
   const openEr = (db: string | null) => {
+    if (notYetForPg("The ER diagram")) return;
     const target = db ?? selectedDb ?? databases[0];
     if (!target) return setStatus("Connect and select a database first");
     const existing = tabs.find((t) => t.kind === "er" && t.table?.db === target);
@@ -780,6 +792,7 @@ export default function App() {
   };
 
   const openBuilder = (db: string | null) => {
+    if (notYetForPg("The query builder")) return;
     const target = db ?? selectedDb ?? databases[0];
     if (!target) return setStatus("Connect and select a database first");
     const existing = tabs.find((t) => t.kind === "builder" && t.table?.db === target);
@@ -791,13 +804,13 @@ export default function App() {
 
   /** Compare the rows of two tables (MySQL and MariaDB, any two open connections). */
   const openDataCompare = (preset?: { db: string; table: string }) => {
-    if (isSqlite) return setStatus("Comparing data needs MySQL or MariaDB connections.");
+    if (isSqlite || isPg) return setStatus("Comparing data needs MySQL or MariaDB connections.");
     const t: QueryTab = { id: uid(), title: preset ? `Data: ${preset.table}` : "Compare data", sql: "", database: preset?.db ?? null, kind: "datacompare", dataPreset: preset };
     setTabs([...tabs, t]);
     setActiveTab(t.id);
   };
   const openCopyDatabase = (db: string | null) => {
-    if (isSqlite) return setStatus("Copying a database needs MySQL or MariaDB connections.");
+    if (isSqlite || isPg) return setStatus("Copying a database needs MySQL or MariaDB connections.");
     if (!db) return setStatus("Select a database in the tree first");
     setCopyDb({ db });
   };
@@ -935,8 +948,23 @@ export default function App() {
     ...(["view", "procedure", "function", "trigger", "event"] as const).map((k) => ({ label: `New ${k}…`, icon: k as IconName, onClick: () => addTab(TEMPLATES[k](d), d, `New ${k}`) })),
   ];
 
+  /** What works on a PostgreSQL table or view so far. */
+  const pgObjectMenu = (e: React.MouseEvent, d: string, t: string) => {
+    setTreeMenu({ x: e.clientX, y: e.clientY, items: [
+      { label: "View Data", icon: "grid", onClick: () => openTable(d, t) },
+      { label: "Export Data…", icon: "export", onClick: () => openTransfer({ tab: "export", db: d, table: t }) },
+      { label: "Read data in SQL console", icon: "terminal", onClick: () => selectInEditor(d, t) },
+      { label: lockedTable === t && selectedDb === d ? "Unlock the filter" : "Lock the filter to this table", icon: "filter", onClick: () => (lockedTable === t && selectedDb === d ? unlock() : lockTable(d, t)) },
+      { separator: true },
+      { label: "Copy name", icon: "copy", onClick: () => navigator.clipboard.writeText(t) },
+      { separator: true },
+      { label: "Refresh", icon: "refresh", shortcut: "F5", onClick: () => reloadIndex() },
+    ] });
+  };
+
   const tableMenu = (e: React.MouseEvent, d: string, t: string) => {
     e.preventDefault();
+    if (isPg) return pgObjectMenu(e, d, t);
     const locked = lockedTable === t && selectedDb === d;
     setTreeMenu({ x: e.clientX, y: e.clientY, items: [
       { label: "Create", icon: "plus", children: createItems(d) },
@@ -1004,6 +1032,7 @@ export default function App() {
   const objectMenu = (e: React.MouseEvent, d: string, kind: Kind, name: string) => {
     if (kind === "table") return tableMenu(e, d, name);
     e.preventDefault();
+    if (isPg) return pgObjectMenu(e, d, name);
     if (!KIND_WORD[kind]) return;
     const items: MenuItem[] = [];
     if (kind === "view") items.push({ label: "View Data", icon: "grid", onClick: () => openTable(d, name, undefined, "data") }, { label: "View Properties", icon: "properties", onClick: () => openTable(d, name, undefined, "properties") }, { label: "Read data in SQL console", icon: "terminal", onClick: () => selectInEditor(d, name) }, { label: "Generate SELECT", icon: "sql", onClick: () => sample("select", d, name) }, { separator: true });
@@ -1038,6 +1067,11 @@ export default function App() {
   const databaseMenu = (e: React.MouseEvent, d: string | null) => {
     e.preventDefault();
     const items: MenuItem[] = [];
+    if (isPg) {
+      if (d) items.push({ label: "New query console", icon: "terminal", onClick: () => addTab("", d) }, { separator: true });
+      items.push({ label: "Refresh", icon: "refresh", shortcut: "F5", onClick: () => reloadIndex() });
+      return setTreeMenu({ x: e.clientX, y: e.clientY, items });
+    }
     if (d) items.push(
       { label: "Create", icon: "plus", children: createItems(d) },
       { separator: true },
@@ -1076,7 +1110,7 @@ export default function App() {
 
   const formatSql = async () => {
     const ed = editor.current;
-    if (!ed) return;
+    if (!ed || notYetForPg("Formatting")) return;
     try {
       ed.replaceRunnable(await editorApi.format(ed.runnableText(), format));
       setFormatError(null);
@@ -1084,7 +1118,7 @@ export default function App() {
   };
 
   const analyse = async (kind: "explain" | "analyze" | "profile") => {
-    if (activeId === null || !editorTab || !editor.current) return;
+    if (activeId === null || !editorTab || !editor.current || notYetForPg("The Explain and Profile views")) return;
     const tabId = editorTab.id;
     const database = editorTab.database;
     const sql = await editor.current.analysisTarget();
@@ -1117,7 +1151,7 @@ export default function App() {
       if (e.key === "F5" && activeId !== null) { e.preventDefault(); reloadIndex(); return; }
       const el = document.activeElement as HTMLElement | null;
       const typing = !!el && (/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) || el.isContentEditable || !!el.closest?.(".editor"));
-      if (!typing && activeId !== null && selectedDb && selectedTable && (e.key === "F2" || e.key === "F4")) {
+      if (!typing && !isPg && activeId !== null && selectedDb && selectedTable && (e.key === "F2" || e.key === "F4")) {
         e.preventDefault();
         if (e.key === "F4") openTable(selectedDb, selectedTable, undefined, "properties"); else renameTable(selectedDb, selectedTable);
         return;
@@ -1272,7 +1306,7 @@ export default function App() {
             </div>
             {isTable(tab) && tab.table?.name && (
               <div className="subtabs" role="tablist" aria-label="Table views">
-                {([["properties", "Properties", "info"], ["data", "Data", "table"], ["diagram", "Diagram", "link"]] as const).map(([v, label, icon]) => (
+                {([["properties", "Properties", "info"], ["data", "Data", "table"], ["diagram", "Diagram", "link"]] as const).filter(([v]) => !isPg || v === "data").map(([v, label, icon]) => (
                   <button key={v} role="tab" aria-selected={(tab.view ?? "data") === v} className={(tab.view ?? "data") === v ? "active" : ""} onClick={() => patchTab(tab.id, { view: v })}>
                     <Icon name={icon} size={13} /> {label}
                   </button>
@@ -1296,12 +1330,12 @@ export default function App() {
                   <button className="primary" disabled={running} onClick={run} title="Run selection or all (⌘↵)" aria-label="Run"><Icon name="play" /> Run</button>
                   <button disabled={running} onClick={previewRun} title="Show exactly what will run, choose foreign key checks, then run"><Icon name="preview" />Preview</button>
                   <button disabled={!running} onClick={cancel} title="Cancel running query"><Icon name="stop" />Cancel</button>
-                  <Select aria-label="Foreign key checks" title="Foreign key checks while this tab runs" value={fkByTab[tab.id] === undefined || fkByTab[tab.id] === null ? "default" : fkByTab[tab.id] ? "on" : "off"}
+                  {!isPg && <Select aria-label="Foreign key checks" title="Foreign key checks while this tab runs" value={fkByTab[tab.id] === undefined || fkByTab[tab.id] === null ? "default" : fkByTab[tab.id] ? "on" : "off"}
                           onChange={(e) => setFkByTab({ ...fkByTab, [tab.id]: e.target.value === "default" ? null : e.target.value === "on" })}>
                     <option value="default">FK checks: server default</option>
                     <option value="on">FK checks: on</option>
                     <option value="off">FK checks: off</option>
-                  </Select>
+                  </Select>}
                   <button onClick={openFavDialog} title="Save to favorites"><Icon name="star" /></button>
                   <span className="sep" />
                   <button onClick={formatSql} title="Format the selection or the whole script (⇧⌘F)"><Icon name="sql" />Format</button>
@@ -1353,7 +1387,7 @@ export default function App() {
                   data={isTable(editorTab) && editorTab.id === tab.id && (tab.view ?? "data") === "data" && editorTab.table?.name ? (
                     <DataGrid key={`${activeId}:${editorTab.id}`} connectionId={activeId} db={editorTab.table.db} table={editorTab.table.name}
                       initial={editorTab.grid ?? defaultView()} onViewChange={(grid) => patchTab(editorTab.id, { grid })}
-                      readOnlyConnection={readOnly} confirmCommit={env === "production" ? "Production database:" : undefined} sqlite={caps?.flavor === "sqlite"}
+                      readOnlyConnection={readOnly} confirmCommit={env === "production" ? "Production database:" : undefined} sqlite={isSqlite || isPg}
                       onOpenTable={(d, t, f) => openTable(d, t, f)} />
                   ) : undefined}
                 />

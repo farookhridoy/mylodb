@@ -1,6 +1,7 @@
 //! Exporting rows to files. Every format is a `RowSink`; the table export and the "export this query"
 //! export both stream rows into one, so a new format is written once.
 
+use myq_core::{Dialect, Postgres};
 use crate::{meta::TableMeta, query::{select_sql, PageSpec, Select}, q, Error, Result};
 use myq_driver::mysql_async::prelude::Queryable;
 use myq_driver::{is_binary, is_numeric, row_cells, Conn};
@@ -51,6 +52,9 @@ pub struct ExportOptions {
     /// Table name used in INSERT statements and as the title of XML/HTML/XLSX output.
     #[serde(default)]
     pub name: Option<String>,
+    /// Write SQL INSERT statements for PostgreSQL (set by the application from the connection's engine).
+    #[serde(skip)]
+    pub postgres: bool,
 }
 
 /// Where an export goes. XLSX is a zip container and needs a real file.
@@ -257,7 +261,18 @@ impl RowSink for JsonLinesSink<'_> {
     }
 }
 
+/// A value as PostgreSQL writes it: only finite numbers go unquoted, bytea as `'\\x…'`.
+fn pg_literal(v: &Option<String>, numeric: bool, binary: bool) -> String {
+    match v {
+        None => "NULL".into(),
+        Some(s) if binary && s.starts_with("0x") => format!("'\\x{}'", &s[2..]),
+        Some(s) if numeric && s.parse::<f64>().is_ok_and(f64::is_finite) => s.clone(),
+        Some(s) => Postgres.quote_string(s),
+    }
+}
+
 struct SqlSink<'a> {
+    postgres: bool,
     out: Box<dyn Write + Send + 'a>,
     table: String,
     cols: Vec<ExportColumn>,
@@ -268,7 +283,9 @@ struct SqlSink<'a> {
 impl RowSink for SqlSink<'_> {
     fn start(&mut self, cols: &[ExportColumn]) -> Result<()> {
         self.cols = cols.to_vec();
-        self.head = format!("INSERT INTO {} ({}) VALUES\n", q(&self.table), cols.iter().map(|c| q(&c.name)).collect::<Vec<_>>().join(", "));
+        let pg = self.postgres;
+        let name = |n: &str| if pg { Postgres.quote_ident(n) } else { q(n) };
+        self.head = format!("INSERT INTO {} ({}) VALUES\n", name(&self.table), cols.iter().map(|c| name(&c.name)).collect::<Vec<_>>().join(", "));
         Ok(())
     }
     fn row(&mut self, cells: &[Option<String>]) -> Result<()> {
@@ -281,7 +298,8 @@ impl RowSink for SqlSink<'_> {
         } else {
             writeln!(self.out, ",")?;
         }
-        let vals: Vec<String> = cells.iter().zip(&self.cols).map(|(c, col)| sql_literal(c, col.numeric, col.binary)).collect();
+        let pg = self.postgres;
+        let vals: Vec<String> = cells.iter().zip(&self.cols).map(|(c, col)| if pg { pg_literal(c, col.numeric, col.binary) } else { sql_literal(c, col.numeric, col.binary) }).collect();
         write!(self.out, "({})", vals.join(", "))?;
         self.rows += 1;
         Ok(())
@@ -486,7 +504,7 @@ fn make_sink<'a>(opts: &ExportOptions, dest: Dest<'a>, default_name: &str) -> Re
         ExportFormat::Csv => Box::new(CsvSink { out, null_text: opts.null_text.clone(), line: String::new() }),
         ExportFormat::Json => Box::new(JsonSink { out, cols: vec![], names: vec![], line: String::new(), rows: 0 }),
         ExportFormat::JsonLines => Box::new(JsonLinesSink { out, cols: vec![], names: vec![], line: String::new() }),
-        ExportFormat::SqlInsert => Box::new(SqlSink { out, table: name, cols: vec![], head: String::new(), rows: 0 }),
+        ExportFormat::SqlInsert => Box::new(SqlSink { postgres: opts.postgres, out, table: name, cols: vec![], head: String::new(), rows: 0 }),
         ExportFormat::Xml => Box::new(XmlSink { out, name, cols: vec![], stripped: 0 }),
         ExportFormat::Html => Box::new(HtmlSink { out, name, cols: vec![] }),
         ExportFormat::Xlsx => unreachable!("handled above"),
@@ -580,6 +598,13 @@ mod tests {
         assert_eq!(csv_field("plain"), "plain");
         assert_eq!(csv_field("a,b"), "\"a,b\"");
         assert_eq!(csv_field("say \"hi\"\nnow"), "\"say \"\"hi\"\"\nnow\"");
+    }
+
+    #[test]
+    fn postgres_literals() {
+        assert_eq!(pg_literal(&Some("it's \\".into()), false, false), "'it''s \\'");
+        assert_eq!(pg_literal(&Some("0xCAFE".into()), false, true), "'\\xCAFE'");
+        assert_eq!((pg_literal(&Some("NaN".into()), true, false), pg_literal(&Some("-1.5".into()), true, false)), ("'NaN'".to_string(), "-1.5".to_string()));
     }
 
     #[test]

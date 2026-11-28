@@ -18,7 +18,7 @@ pub const MAX_ROWS: usize = 10_000;
 const IDLE: usize = 3;
 
 /// The words of a server error, with its detail and hint.
-fn explain(e: tokio_postgres::Error) -> BackendError {
+pub(crate) fn explain(e: tokio_postgres::Error) -> BackendError {
     match e.as_db_error() {
         Some(d) => {
             let mut text = d.message().to_string();
@@ -112,17 +112,54 @@ impl CancelToken {
 pub struct PgBackend {
     cfg: Arc<ConnConfig>,
     idle: Arc<Mutex<Vec<Client>>>,
+    /// Set for reads that resolve unqualified names in one schema (`with_schema`).
+    schema: Option<Arc<str>>,
 }
 
 const SYSTEM: &str = "(n.nspname LIKE 'pg\\_%' OR n.nspname = 'information_schema')";
 
-impl PgBackend {
-    /// `cfg.read_only` makes every statement run inside a read-only transaction that is rolled back.
-    pub fn new(cfg: ConnConfig) -> PgBackend {
-        PgBackend { cfg: Arc::new(cfg), idle: Default::default() }
+impl CancelToken {
+    /// Point the token at the connection that is about to work, so that `cancel` reaches it.
+    pub(crate) fn watch(&self, client: &Client, cfg: &ConnConfig) {
+        *self.handle.lock().unwrap() = Some((client.cancel_token(), cfg.clone()));
     }
 
-    async fn checkout(&self) -> BackendResult<Client> {
+    pub(crate) fn release(&self) {
+        *self.handle.lock().unwrap() = None;
+    }
+}
+
+impl PgBackend {
+    /// The same connections, reading with `schema` first in the search path.
+    pub(crate) fn with_schema(&self, schema: &str) -> PgBackend {
+        PgBackend { schema: Some(schema.into()), ..self.clone() }
+    }
+
+    pub fn read_only(&self) -> bool {
+        self.cfg.read_only
+    }
+
+    pub(crate) fn config(&self) -> &ConnConfig {
+        &self.cfg
+    }
+
+    /// A connection inside a read-only transaction; `give_back` rolls it back.
+    pub(crate) async fn reading(&self) -> BackendResult<Client> {
+        let c = self.checkout().await?;
+        c.batch_execute("BEGIN TRANSACTION READ ONLY").await.map_err(explain)?;
+        if let Some(s) = &self.schema {
+            // LOCAL: it ends with the transaction
+            c.batch_execute(&format!("SET LOCAL search_path TO {}, public", Postgres.quote_ident(s))).await.map_err(explain)?;
+        }
+        Ok(c)
+    }
+
+    /// `cfg.read_only` makes every statement run inside a read-only transaction that is rolled back.
+    pub fn new(cfg: ConnConfig) -> PgBackend {
+        PgBackend { cfg: Arc::new(cfg), idle: Default::default(), schema: None }
+    }
+
+    pub(crate) async fn checkout(&self) -> BackendResult<Client> {
         loop {
             let next = self.idle.lock().unwrap().pop();
             match next {
@@ -134,7 +171,7 @@ impl PgBackend {
     }
 
     /// Put a connection back with its session as new (search path, settings, temporary tables, an open transaction).
-    async fn give_back(&self, c: Client) {
+    pub(crate) async fn give_back(&self, c: Client) {
         if c.batch_execute("ROLLBACK").await.is_ok() && c.batch_execute("DISCARD ALL").await.is_ok() {
             let mut idle = self.idle.lock().unwrap();
             if idle.len() < IDLE {
@@ -276,7 +313,7 @@ impl Backend for PgBackend {
     }
 
     async fn capabilities(&self) -> BackendResult<Capabilities> {
-        Ok(Capabilities::postgres())
+        Ok(Capabilities::postgres(!self.cfg.read_only))
     }
 
     async fn index(&self, include_system: bool) -> BackendResult<Vec<Node>> {

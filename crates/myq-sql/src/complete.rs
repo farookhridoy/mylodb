@@ -796,6 +796,74 @@ fn related_tables(cat: &Catalog, refs: &[TableRef], current_db: Option<&str>, fo
     out
 }
 
+/// The same suggestions written for PostgreSQL: double quotes, also around any name with a capital letter (an unquoted name is read
+/// in lower case there).
+pub fn complete_postgres(sql: &str, cursor_utf16: usize, cat: &Catalog, current_db: Option<&str>, limit: usize) -> Completions {
+    let mut found = complete(sql, cursor_utf16, cat, current_db, limit);
+    for item in &mut found.items {
+        if !matches!(item.kind, SuggestionKind::Keyword | SuggestionKind::Function) {
+            item.insert = for_postgres(&item.insert);
+        }
+    }
+    found
+}
+
+fn for_postgres(insert: &str) -> String {
+    let quoted = |n: &str| format!("\"{}\"", n.replace('"', "\"\""));
+    let upper = |n: &str| n.chars().any(char::is_uppercase);
+    let mut out = String::new();
+    let mut rest = insert;
+    while let Some(c) = rest.chars().next() {
+        if c == '`' {
+            // a backtick-quoted name; a doubled backtick is one backtick
+            let mut name = String::new();
+            let mut chars = rest[1..].char_indices().peekable();
+            let mut used = rest.len();
+            while let Some((i, ch)) = chars.next() {
+                if ch != '`' {
+                    name.push(ch);
+                } else if chars.peek().is_some_and(|(_, n)| *n == '`') {
+                    name.push('`');
+                    chars.next();
+                } else {
+                    used = i + 2;
+                    break;
+                }
+            }
+            out.push_str(&quoted(&name));
+            rest = &rest[used..];
+        } else if is_word(c) {
+            let end = rest.find(|ch| !is_word(ch)).unwrap_or(rest.len());
+            let word = &rest[..end];
+            // the words a join condition is made of are not names
+            if upper(word) && word != "AND" {
+                out.push_str(&quoted(word));
+            } else {
+                out.push_str(word);
+            }
+            rest = &rest[end..];
+        } else {
+            out.push(c);
+            rest = &rest[c.len_utf8()..];
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod postgres_tests {
+    use super::for_postgres;
+
+    #[test]
+    fn names_are_quoted_the_postgres_way() {
+        assert_eq!(for_postgres("orders"), "orders");
+        assert_eq!(for_postgres("Cust"), "\"Cust\"");
+        assert_eq!(for_postgres("`order`"), "\"order\"");
+        assert_eq!(for_postgres("`Odd name`.`a``b`"), "\"Odd name\".\"a`b\"");
+        assert_eq!(for_postgres("o.CustId = c.id AND o.x = c.y"), "o.\"CustId\" = c.id AND o.x = c.y");
+    }
+}
+
 pub fn complete(sql: &str, cursor_utf16: usize, cat: &Catalog, current_db: Option<&str>, limit: usize) -> Completions {
     let cursor = utf16_to_byte(sql, cursor_utf16);
     let empty = |at: usize| Completions { from: byte_to_utf16(sql, at), to: byte_to_utf16(sql, at), items: vec![] };

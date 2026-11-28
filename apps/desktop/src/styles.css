@@ -188,7 +188,9 @@ button.danger { background: var(--danger-bg); border-color: var(--danger-line); 
 .dz-tabs button { background: transparent; border-color: transparent; border-radius: 0; color: var(--dim); }
 .dz-tabs button.active { background: var(--hover); color: var(--text); }
 .dz-body { flex: 1; overflow: auto; padding: 10px; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
-.dz-actions { display: flex; gap: 4px; margin-bottom: 6px; }
+.dz-actions { display: flex; gap: 4px; margin-bottom: 6px; flex: none; }
+.dz-scroll { flex: 1; min-height: 0; overflow: auto; }
+.dz-grid thead th { position: sticky; top: 0; z-index: 2; background: var(--panel); }
 .dz-grid td, .dz-grid th { padding: 2px 6px; white-space: nowrap; } .dz-grid .ss { max-width: 120px; }
 .cell-input { width: 100%; min-width: 60px; padding: 2px 5px; } .cell-input.narrow { width: 70px; min-width: 0; }
 .def-edit { display: flex; gap: 3px; } .def-edit .ss { width: 86px; }

@@ -775,6 +775,14 @@ fn sqlite_target(state: &tauri::State<'_, AppState>, id: i64) -> Option<(std::pa
     state.sessions.lock().unwrap().get(&id).and_then(|s| s.engine.sqlite_path().map(|p| (p.to_path_buf(), s.engine.sqlite_writable())))
 }
 
+/// The PostgreSQL side of a session, when that is its engine.
+fn pg_of(state: &tauri::State<'_, AppState>, id: i64) -> Option<myq_postgres::PgBackend> {
+    match state.sessions.lock().unwrap().get(&id).map(|s| &s.engine) {
+        Some(Engine::Postgres(b)) => Some(b.clone()),
+        _ => None,
+    }
+}
+
 /// Run blocking SQLite work off the async runtime's threads.
 async fn blocking<T: Send + 'static>(f: impl FnOnce() -> Result<T, String> + Send + 'static) -> Result<T, String> {
     tokio::task::spawn_blocking(f).await.map_err(err)?
@@ -784,6 +792,9 @@ async fn blocking<T: Send + 'static>(f: impl FnOnce() -> Result<T, String> + Sen
 async fn table_meta(state: tauri::State<'_, AppState>, id: i64, db: String, table: String) -> Result<TableMeta, String> {
     if let Some((path, writable)) = sqlite_target(&state, id) {
         return blocking(move || myq_sqlite::table_meta(&path, &table, writable)).await;
+    }
+    if let Some(pg) = pg_of(&state, id) {
+        return Ok(myq_postgres::table_meta(&pg, &db, &table).await?.meta);
     }
     let mut c = conn_for(&state, id).await?;
     myq_data::table_meta(&mut c, &db, &table).await.map_err(err)
@@ -798,6 +809,10 @@ async fn table_page(state: tauri::State<'_, AppState>, id: i64, db: String, tabl
         })
         .await;
     }
+    if let Some(pg) = pg_of(&state, id) {
+        let meta = myq_postgres::table_meta(&pg, &db, &table).await?;
+        return myq_postgres::fetch_page(&pg, &meta, &spec).await;
+    }
     let mut c = conn_for(&state, id).await?;
     let meta = myq_data::table_meta(&mut c, &db, &table).await.map_err(err)?;
     myq_data::fetch_page(&mut c, &meta, &spec).await.map_err(err)
@@ -811,6 +826,18 @@ async fn table_count(state: tauri::State<'_, AppState>, id: i64, db: String, tab
             myq_sqlite::count_rows(&path, &meta, &filters, where_sql.as_deref())
         })
         .await;
+    }
+    if let Some(pg) = pg_of(&state, id) {
+        let meta = myq_postgres::table_meta(&pg, &db, &table).await?;
+        let token = std::sync::Arc::new(myq_postgres::CancelToken::new());
+        if let Some(run) = &run_id {
+            state.pg_runs.lock().unwrap().insert(run.clone(), token.clone());
+        }
+        let n = myq_postgres::count_rows(&pg, &meta, &filters, where_sql.as_deref(), Some(token)).await;
+        if let Some(run) = &run_id {
+            state.pg_runs.lock().unwrap().remove(run);
+        }
+        return n;
     }
     let mut c = conn_for(&state, id).await?;
     let meta = myq_data::table_meta(&mut c, &db, &table).await.map_err(err)?;
@@ -831,6 +858,10 @@ async fn table_count_estimate(state: tauri::State<'_, AppState>, id: i64, db: St
     if sqlite_file(&state, id).is_some() {
         return Ok(None); // SQLite keeps no statistics; the grid counts exactly
     }
+    if let Some(pg) = pg_of(&state, id) {
+        let meta = myq_postgres::table_meta(&pg, &db, &table).await?;
+        return myq_postgres::estimate_count(&pg, &meta, &filters, where_sql.as_deref()).await;
+    }
     let mut c = conn_for(&state, id).await?;
     let meta = myq_data::table_meta(&mut c, &db, &table).await.map_err(err)?;
     myq_data::estimate_count(&mut c, &meta, &filters, where_sql.as_deref()).await.map_err(err)
@@ -840,6 +871,9 @@ async fn table_count_estimate(state: tauri::State<'_, AppState>, id: i64, db: St
 async fn preview_changes(state: tauri::State<'_, AppState>, id: i64, db: String, table: String, changes: Vec<Change>) -> Result<Vec<String>, String> {
     if let Some((path, writable)) = sqlite_target(&state, id) {
         return blocking(move || myq_sqlite::preview_changes(&myq_sqlite::table_meta(&path, &table, writable)?, &changes)).await;
+    }
+    if let Some(pg) = pg_of(&state, id) {
+        return myq_postgres::preview_changes(&myq_postgres::table_meta(&pg, &db, &table).await?, &changes);
     }
     let mut c = conn_for(&state, id).await?;
     let meta = myq_data::table_meta(&mut c, &db, &table).await.map_err(err)?;
@@ -859,6 +893,11 @@ async fn apply_changes(state: tauri::State<'_, AppState>, id: i64, db: String, t
         let _ = state.record(id, &sqls.join(";\n"), 0, true);
         return Ok(outcome);
     }
+    if let Some(pg) = pg_of(&state, id) {
+        let (outcome, sqls) = myq_postgres::apply_changes(&pg, &db, &table, &changes).await?;
+        let _ = state.record(id, &sqls.join(";\n"), 0, true);
+        return Ok(outcome);
+    }
     let mut c = conn_for(&state, id).await?;
     let meta = myq_data::table_meta(&mut c, &db, &table).await.map_err(err)?;
     let outcome = myq_data::apply_changes(&mut c, &meta, &changes).await.map_err(err)?;
@@ -871,18 +910,24 @@ async fn apply_changes(state: tauri::State<'_, AppState>, id: i64, db: String, t
 
 #[tauri::command]
 async fn fetch_cell(state: tauri::State<'_, AppState>, id: i64, db: String, table: String, key: Vec<Assign>, column: String) -> Result<CellData, String> {
-    let mut c = conn_for(&state, id).await?;
-    let meta = myq_data::table_meta(&mut c, &db, &table).await.map_err(err)?;
-    myq_data::fetch_cell(&mut c, &meta, &key, &column).await.map_err(err)
+    read_cell(&state, id, &db, &table, &key, &column).await
+}
+
+async fn read_cell(state: &tauri::State<'_, AppState>, id: i64, db: &str, table: &str, key: &[Assign], column: &str) -> Result<CellData, String> {
+    if let Some(pg) = pg_of(state, id) {
+        let meta = myq_postgres::table_meta(&pg, db, table).await?;
+        return myq_postgres::fetch_cell(&pg, &meta, key, column).await;
+    }
+    let mut c = conn_for(state, id).await?;
+    let meta = myq_data::table_meta(&mut c, db, table).await.map_err(err)?;
+    myq_data::fetch_cell(&mut c, &meta, key, column).await.map_err(err)
 }
 
 /// Write one cell's raw bytes to a file chosen by the user.
 #[tauri::command]
 async fn save_cell_to_file(state: tauri::State<'_, AppState>, id: i64, db: String, table: String, key: Vec<Assign>, column: String, path: String) -> Result<usize, String> {
     use base64::Engine;
-    let mut c = conn_for(&state, id).await?;
-    let meta = myq_data::table_meta(&mut c, &db, &table).await.map_err(err)?;
-    let cell = myq_data::fetch_cell(&mut c, &meta, &key, &column).await.map_err(err)?;
+    let cell = read_cell(&state, id, &db, &table, &key, &column).await?;
     if cell.truncated {
         return Err(format!("value is {} bytes, larger than the {} byte transfer limit", cell.len, myq_data::FETCH_CELL_MAX));
     }
@@ -893,6 +938,10 @@ async fn save_cell_to_file(state: tauri::State<'_, AppState>, id: i64, db: Strin
 
 #[tauri::command]
 async fn fk_lookup(state: tauri::State<'_, AppState>, id: i64, ref_schema: String, ref_table: String, ref_column: String, search: String) -> Result<Vec<LookupItem>, String> {
+    if let Some(pg) = pg_of(&state, id) {
+        let meta = myq_postgres::table_meta(&pg, &ref_schema, &ref_table).await?;
+        return myq_postgres::lookup(&pg, &meta, &ref_column, &search, 100).await;
+    }
     let mut c = conn_for(&state, id).await?;
     let meta = myq_data::table_meta(&mut c, &ref_schema, &ref_table).await.map_err(err)?;
     myq_data::lookup(&mut c, &meta, &ref_column, &search, 100).await.map_err(err)
@@ -904,10 +953,40 @@ struct ExportSummary {
     warnings: Vec<String>,
 }
 
+/// Progress events for an export; returns false once the job is cancelled.
+fn export_tick(app: tauri::AppHandle, job_id: String, total: Option<u64>, flag: std::sync::Arc<std::sync::atomic::AtomicBool>) -> impl FnMut(u64) -> bool + Send {
+    let mut progress = job_progress(app, job_id);
+    move |rows: u64| {
+        progress(myq_transfer::Progress { phase: "export".into(), done: rows, total, message: format!("{rows} rows written") });
+        !flag.load(std::sync::atomic::Ordering::Relaxed)
+    }
+}
+
+/// A partial file is removed on failure or cancel.
+fn export_summary(result: Result<myq_data::ExportOutcome, String>, path: &str) -> Result<ExportSummary, String> {
+    match result {
+        Ok(o) => Ok(ExportSummary { rows: o.rows, warnings: o.warnings }),
+        Err(e) => {
+            let _ = std::fs::remove_file(path);
+            Err(e)
+        }
+    }
+}
+
 /// Export every row matching `spec` to `path`, as a job: progress events while it runs, and `cancel_job` stops it.
 /// A partial file is removed on failure or cancel (the error is then "cancelled").
 #[tauri::command]
 async fn export_table(app: tauri::AppHandle, state: tauri::State<'_, AppState>, id: i64, job_id: String, db: String, table: String, spec: PageSpec, options: ExportOptions, path: String) -> Result<ExportSummary, String> {
+    if let Some(pg) = pg_of(&state, id) {
+        let meta = myq_postgres::table_meta(&pg, &db, &table).await?;
+        let options = ExportOptions { name: options.name.clone().or_else(|| Some(table.clone())), ..options };
+        let total = myq_postgres::estimate_count(&pg, &meta, &spec.filters, spec.where_sql.as_deref()).await.ok().flatten();
+        let guard = JobGuard::start(&state, &job_id);
+        let mut tick = export_tick(app, job_id, total, guard.flag.clone());
+        let dest = myq_data::Dest::File(std::path::Path::new(&path));
+        let result = myq_postgres::export_table(&pg, &meta, &spec, &options, dest, Default::default(), &mut tick).await;
+        return export_summary(result, &path);
+    }
     if let Some(file) = sqlite_file(&state, id) {
         // a SQLite file: the rows are streamed from the file into the same writers
         let meta = myq_sqlite::table_meta(&file, &table, false)?;
@@ -958,6 +1037,13 @@ async fn export_table(app: tauri::AppHandle, state: tauri::State<'_, AppState>, 
 /// Export the result of one SELECT to a file, as a job (see `export_table`).
 #[tauri::command]
 async fn export_query(app: tauri::AppHandle, state: tauri::State<'_, AppState>, id: i64, job_id: String, database: Option<String>, sql: String, options: ExportOptions, path: String) -> Result<ExportSummary, String> {
+    if let Some(pg) = pg_of(&state, id) {
+        let guard = JobGuard::start(&state, &job_id);
+        let mut tick = export_tick(app, job_id, None, guard.flag.clone());
+        let dest = myq_data::Dest::File(std::path::Path::new(&path));
+        let result = myq_postgres::export_query(&pg, database.as_deref(), &sql, &options, dest, Default::default(), &mut tick).await;
+        return export_summary(result, &path);
+    }
     if let Some(file) = sqlite_file(&state, id) {
         let guard = JobGuard::start(&state, &job_id);
         let mut progress = job_progress(app, job_id);
@@ -1806,6 +1892,22 @@ async fn run_schedule(app: tauri::AppHandle, id: String, forced: bool) -> Result
             let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
             return Ok(format!("{}: {}{:.1} MB in {:.1} s{}", path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(), rows.map(|r| format!("{r} rows, ")).unwrap_or_default(), size as f64 / 1_048_576.0, started.elapsed().as_secs_f64(), if removed > 0 { format!("; removed {removed} old file(s)") } else { String::new() }));
         }
+        if let Some(pg) = pg_of(&state, job.connection_id) {
+            if job.kind != "export" {
+                return Err("Backups are not available for PostgreSQL yet; schedule an export instead.".into());
+            }
+            let ext = schedule::export_extension(&job.format).ok_or("unknown file format")?;
+            let stamp = now_local().format("%Y%m%d-%H%M%S");
+            let safe: String = job.name.chars().map(|c| if c.is_alphanumeric() || matches!(c, '_' | '-' | '.' | ' ') { c } else { '_' }).collect();
+            let path = std::path::Path::new(&job.dir).join(format!("{}-{stamp}.{ext}", safe.trim()));
+            let options: myq_data::ExportOptions = serde_json::from_value(serde_json::json!({ "format": job.format, "name": job.name })).map_err(err)?;
+            let started = std::time::Instant::now();
+            let out = myq_postgres::export_query(&pg, job.databases.first().map(String::as_str), &job.sql, &options, myq_data::Dest::File(&path), Default::default(), &mut |_rows: u64| true).await;
+            let out = match out { Ok(o) => o, Err(e) => { let _ = std::fs::remove_file(&path); return Err(e); } };
+            let removed = myq_transfer::prune_files(std::path::Path::new(&job.dir), &job.name, job.keep as usize, &[ext], false).unwrap_or_default().len();
+            let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+            return Ok(format!("{}: {} rows, {:.1} MB in {:.1} s{}", path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(), out.rows, size as f64 / 1_048_576.0, started.elapsed().as_secs_f64(), if removed > 0 { format!("; removed {removed} old file(s)") } else { String::new() }));
+        }
         let mut c = conn_for(&state, job.connection_id).await?;
         if job.kind == "export" {
             // the result of one SELECT, written to <name>-<stamp>.<ext>; older files of this job beyond the limit are removed
@@ -2076,6 +2178,10 @@ async fn complete_sql(state: tauri::State<'_, AppState>, id: i64, sql: String, c
     load_completion_data(&state, id, &sql, database.as_deref()).await?;
     let sessions = state.sessions.lock().unwrap();
     let s = sessions.get(&id).ok_or("not connected")?;
+    if matches!(s.engine, Engine::Postgres(_)) {
+        // with no schema chosen, an unqualified name is looked up in `public`
+        return Ok(myq_sql::complete_postgres(&sql, cursor, &s.catalog, database.as_deref().or(Some("public")), 100));
+    }
     Ok(myq_sql::complete(&sql, cursor, &s.catalog, database.as_deref(), 100))
 }
 

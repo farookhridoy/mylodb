@@ -1,6 +1,6 @@
 # MyLoDB roadmap: what is done, what must be done, what would be nice
 
-Status of 2026-11-26 (version 0.11.0). This is the single page for "where are we": phases, what is done, what is left, and (sections 5 to 8) the
+Status of 2026-11-28 (version 0.12.0). This is the single page for "where are we": phases, what is done, what is left, and (sections 5 to 8) the
 coverage of the SQLyog reference and the product plan. It replaces the former `PLAN_VS_CURRENT.md`. Other docs: `ANALYSIS.md` (original
 scope, stack, architecture), `BENCHMARKS.md` (Phase 10 measurements), `PHPMYADMIN_AND_ENGINES.md` (analysis behind phases 11 to 15),
 `SERVER_COMPATIBILITY.md` (MySQL / MariaDB results).
@@ -135,7 +135,7 @@ Compared with DataGrip, DBeaver, Navicat, SQLyog and Workbench, these are the ga
 | 21 ✅ | **Explain and profile, visually** | Explain plan as a tree with costs and the slowest step marked; Performance Schema summary; compare two runs of the same query | Done in 0.10.0: **Diagram** tab (tree, cost or time bars, slowest step, full scans flagged), a comparison with the previous run, and **Top statements** (Performance Schema) in Server Tools. Slow-log summary page: the slow log list exists, no summary |
 | 22 ✅ | **Scheduled jobs** | Scheduled backups, exports and imports with a log and retention (keep the last N); run saved transfer configurations; reports saved to a folder | Done: **scheduled backups, exports and imports** (daily, weekly, every N hours; keep the last N; log; run now). Backups and exports for MySQL, MariaDB and SQLite files; imports for MySQL and MariaDB. They can run with the app closed (LaunchAgent on macOS, Task Scheduler on Windows) |
 | 23 ✅ | **SQLite completed** | Table designer, export from a table, cancel a running query, `VACUUM` and integrity check | Done: a table designer (in-place changes, or a rebuild in one transaction; generated columns included), export of a table or query in every format, cancel for a running query, integrity and foreign key checks, `VACUUM`, `ANALYZE`, `REINDEX`, and scheduled backups of a file (`VACUUM INTO`) |
-| 24 | **PostgreSQL** | Connect, browse, run SQL, grid with edits, export. The `Backend` trait and `Capabilities` already exist, so this is the first engine that reuses them | ❌ |
+| 24 ✅ | **PostgreSQL** | Connect, browse, run SQL, grid with edits, export. The `Backend` trait and `Capabilities` already exist, so this is the first engine that reuses them | Done: connections (SSH, SSL), schemas, tables, views and columns, SQL with cancel and timeout, data grid with edits, export and scheduled export, read-only connections. Open: backup / restore / import, table designer, roles, server tools, routines and triggers in the browser, Explain view, keyset paging, PostgreSQL editor colouring |
 | 25 ✅ | **Sync and teams** | Data compare and sync, copy a database between connections, export and import connections and snippets as a file (team sharing without a server), an audit log file | Done: **data compare and sync** (by key, one transaction, any two MySQL/MariaDB connections), **copy a database** between connections, **share file** of connections and snippets (no passwords), and an **audit log file** of changes (off until turned on) |
 
 Not planned for now: a stored-procedure debugger, an extension API, SSO and LDAP.

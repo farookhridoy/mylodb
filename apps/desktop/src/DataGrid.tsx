@@ -53,7 +53,7 @@ export default function DataGrid(props: {
   readOnlyConnection?: boolean;
   /** Ask before saving changes (production): the text shown in the confirmation. */
   confirmCommit?: string;
-  /** A SQLite file: its TEXT columns are often short, so they only open in the editor window when the value is long or has line breaks. */
+  /** A SQLite file or PostgreSQL: their TEXT columns are often short, so they only open in the editor window when the value is long or has line breaks. */
   sqlite?: boolean;
 }) {
   const { connectionId: cid, db, table } = props;

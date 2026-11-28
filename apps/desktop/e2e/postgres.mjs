@@ -10,7 +10,7 @@ const no = (reason) => ({ available: false, reason });
 const yes = { available: true, reason: null };
 const caps = { flavor: "postgres", schemas: yes, routines: no("not yet"), triggers: no("not yet"), events: no("PostgreSQL has no scheduled events"), users: no("managing roles for PostgreSQL is not available yet"),
   replication: no("not yet"), explain_analyze: no("the Explain view for PostgreSQL is not available yet"), read_only_session: yes, row_estimates: yes, server_tools: no("server tools for PostgreSQL is not available yet"),
-  dump_restore: no("backup, restore and import for PostgreSQL is not available yet"), data_export: no("export for PostgreSQL is not available yet"), writes: no("editing rows for PostgreSQL is not available yet") };
+  dump_restore: no("backup, restore and import for PostgreSQL is not available yet"), data_export: yes, writes: yes };
 const extra = [{ id: 8, name: "Pg shop", color: "#4f8cff", engine: "postgres", host: "127.0.0.1", port: 5432, user: "postgres", database: "shop", ssl: "disabled" }];
 await page.addInitScript({ content: `localStorage.setItem('mylodb.tourDone','1'); window.__extraConns = ${JSON.stringify(extra)}; window.__caps = ${JSON.stringify(caps)};\n` + fs.readFileSync(new URL("./mock.js", import.meta.url), "utf8") });
 await page.goto(process.env.APP_URL || "http://localhost:1420/");
@@ -39,7 +39,7 @@ ok("the dialog takes a PostgreSQL server or URL and tests it");
 await page.selectOption(".conn-bar select", "8");
 await page.waitForSelector(".tree .db");
 await page.waitForFunction(() => document.querySelector("button[title*='server tools for PostgreSQL']"));
-for (const label of ["Users", "Server", "Home", "Transfer"]) assert.equal(await page.locator(`header.topbar button:has-text('${label}')`).isDisabled(), true, label);
+for (const label of ["Users", "Server", "Home"]) assert.equal(await page.locator(`header.topbar button:has-text('${label}')`).isDisabled(), true, label);
 ok("the pages PostgreSQL does not have yet are disabled and say why");
 
 // opening a table reads it in the console, quoted the PostgreSQL way
@@ -52,6 +52,19 @@ const ran = (await calls("run_query")).at(-1);
 assert.match(ran.sql, /FROM "[^"]+"\."orders" LIMIT 1000/);
 assert.doesNotMatch(ran.sql, /`/);
 ok("a table is read with a SELECT quoted for PostgreSQL");
+
+// the grid opens, with only the Data view, and copies rows as PostgreSQL SQL
+await page.locator(".row-item.leaf:has-text('orders')").first().dblclick();
+await page.waitForSelector("table.dg tbody tr");
+assert.deepEqual((await page.locator(".subtabs button").allInnerTexts()).map((t) => t.trim()), ["Data"]);
+assert.equal(await page.locator("select[aria-label='Foreign key checks']").count(), 0);
+ok("a table opens in the data grid, without the views and switches PostgreSQL does not have");
+
+// Transfer offers the export only
+await page.click("header.topbar button:has-text('Transfer')");
+await page.waitForSelector(".transfer .dz-tabs");
+assert.deepEqual(await page.locator(".transfer .dz-tabs button").allInnerTexts(), ["Export query"]);
+ok("Transfer is available with only the Export tab");
 
 assert.deepEqual(errors, []);
 await browser.close();

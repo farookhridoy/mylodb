@@ -668,7 +668,8 @@ export default function App() {
   /** Open a table's data in a grid tab; an existing unfiltered tab for the same table is reused. */
   /// Open (or reuse) a table's tab, optionally on a given view (Properties / Data / Diagram).
   const openTable = (database: string, table: string, filters?: GridView["filters"], view?: QueryTab["view"]) => {
-    if (isPg) return selectInEditor(database, table);
+    // only the data view exists for PostgreSQL so far
+    if (isPg) view = "data";
     if (!filters) {
       const existing = tabs.find((t) => isTable(t) && t.table?.db === database && t.table.name === table && Object.keys(t.grid?.filters ?? {}).length === 0);
       if (existing) { if (view) patchTab(existing.id, { view }); return setActiveTab(existing.id); }
@@ -950,6 +951,8 @@ export default function App() {
   /** What works on a PostgreSQL table or view so far. */
   const pgObjectMenu = (e: React.MouseEvent, d: string, t: string) => {
     setTreeMenu({ x: e.clientX, y: e.clientY, items: [
+      { label: "View Data", icon: "grid", onClick: () => openTable(d, t) },
+      { label: "Export Data…", icon: "export", onClick: () => openTransfer({ tab: "export", db: d, table: t }) },
       { label: "Read data in SQL console", icon: "terminal", onClick: () => selectInEditor(d, t) },
       { label: lockedTable === t && selectedDb === d ? "Unlock the filter" : "Lock the filter to this table", icon: "filter", onClick: () => (lockedTable === t && selectedDb === d ? unlock() : lockTable(d, t)) },
       { separator: true },
@@ -1303,7 +1306,7 @@ export default function App() {
             </div>
             {isTable(tab) && tab.table?.name && (
               <div className="subtabs" role="tablist" aria-label="Table views">
-                {([["properties", "Properties", "info"], ["data", "Data", "table"], ["diagram", "Diagram", "link"]] as const).map(([v, label, icon]) => (
+                {([["properties", "Properties", "info"], ["data", "Data", "table"], ["diagram", "Diagram", "link"]] as const).filter(([v]) => !isPg || v === "data").map(([v, label, icon]) => (
                   <button key={v} role="tab" aria-selected={(tab.view ?? "data") === v} className={(tab.view ?? "data") === v ? "active" : ""} onClick={() => patchTab(tab.id, { view: v })}>
                     <Icon name={icon} size={13} /> {label}
                   </button>
@@ -1327,12 +1330,12 @@ export default function App() {
                   <button className="primary" disabled={running} onClick={run} title="Run selection or all (⌘↵)" aria-label="Run"><Icon name="play" /> Run</button>
                   <button disabled={running} onClick={previewRun} title="Show exactly what will run, choose foreign key checks, then run"><Icon name="preview" />Preview</button>
                   <button disabled={!running} onClick={cancel} title="Cancel running query"><Icon name="stop" />Cancel</button>
-                  <Select aria-label="Foreign key checks" title="Foreign key checks while this tab runs" value={fkByTab[tab.id] === undefined || fkByTab[tab.id] === null ? "default" : fkByTab[tab.id] ? "on" : "off"}
+                  {!isPg && <Select aria-label="Foreign key checks" title="Foreign key checks while this tab runs" value={fkByTab[tab.id] === undefined || fkByTab[tab.id] === null ? "default" : fkByTab[tab.id] ? "on" : "off"}
                           onChange={(e) => setFkByTab({ ...fkByTab, [tab.id]: e.target.value === "default" ? null : e.target.value === "on" })}>
                     <option value="default">FK checks: server default</option>
                     <option value="on">FK checks: on</option>
                     <option value="off">FK checks: off</option>
-                  </Select>
+                  </Select>}
                   <button onClick={openFavDialog} title="Save to favorites"><Icon name="star" /></button>
                   <span className="sep" />
                   <button onClick={formatSql} title="Format the selection or the whole script (⇧⌘F)"><Icon name="sql" />Format</button>
@@ -1384,7 +1387,7 @@ export default function App() {
                   data={isTable(editorTab) && editorTab.id === tab.id && (tab.view ?? "data") === "data" && editorTab.table?.name ? (
                     <DataGrid key={`${activeId}:${editorTab.id}`} connectionId={activeId} db={editorTab.table.db} table={editorTab.table.name}
                       initial={editorTab.grid ?? defaultView()} onViewChange={(grid) => patchTab(editorTab.id, { grid })}
-                      readOnlyConnection={readOnly} confirmCommit={env === "production" ? "Production database:" : undefined} sqlite={caps?.flavor === "sqlite"}
+                      readOnlyConnection={readOnly} confirmCommit={env === "production" ? "Production database:" : undefined} sqlite={isSqlite || isPg}
                       onOpenTable={(d, t, f) => openTable(d, t, f)} />
                   ) : undefined}
                 />

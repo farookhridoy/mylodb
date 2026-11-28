@@ -36,6 +36,47 @@ assert.equal(await page.locator(".dz-grid tbody tr:nth-child(1) input[type=check
 assert.equal(await page.locator("button:text-is('Apply changes')").isDisabled(), true, "nothing changed yet");
 ok("table opens in the designer with its columns and primary key");
 
+// the buttons and the column titles stay put while the rows scroll
+await page.setViewportSize({ width: 1600, height: 330 });
+const top = (sel) => page.locator(sel).first().evaluate((e) => Math.round(e.getBoundingClientRect().top));
+const before = [await top(".dz-actions"), await top(".dz-grid thead th")];
+const scrolled = await page.locator(".dz-scroll").evaluate((e) => { e.scrollTop = 500; return e.scrollTop; });
+assert.ok(scrolled > 0, "the rows scroll");
+assert.equal(await top(".dz-actions"), before[0]);
+assert.ok(Math.abs((await top(".dz-grid thead th")) - before[1]) <= 2, "the titles stay (to within the border)");
+await page.setViewportSize({ width: 1600, height: 950 });
+ok("the column buttons and titles stay in place while the rows scroll");
+
+// refresh reads the table again; with unapplied changes it asks first
+const reads = (await calls("table_def")).length;
+await page.click(".dz-head button:has-text('Refresh')");
+await settle();
+assert.equal((await calls("table_def")).length, reads + 1);
+await page.locator(".dz-name").fill("orders2");
+await settle();
+await page.click(".dz-head button:has-text('Refresh')");
+assert.equal((await calls("table_def")).length, reads + 1, "not yet");
+await page.click(".dz-head button:has-text('Discard changes?')");
+await settle();
+assert.equal(await page.locator(".dz-name").inputValue(), "orders");
+assert.equal((await calls("table_def")).length, reads + 2);
+ok("Refresh reads the table again, and asks before discarding changes");
+
+// an AUTO_INCREMENT column is put at the front of the primary key
+const cell = (n, k) => page.locator(`.dz-grid tbody tr:nth-child(${n}) input[type=checkbox]`).nth(k);
+await cell(1, 0).uncheck();
+await cell(1, 3).uncheck();
+await cell(2, 0).check();
+await cell(1, 0).check();
+await cell(1, 3).check();
+await settle();
+let key = (await last("ddl_preview")).desired.indexes.find((i) => i.kind === "primary").columns.map((c) => c.name);
+assert.equal(key[0], (await last("ddl_preview")).desired.columns[0].name, `the auto column leads the key: ${key}`);
+assert.equal(key.length, 2);
+await page.click(".dz-head button:has-text('Revert')");
+await settle();
+ok("ticking Auto inc puts that column first in the primary key");
+
 // rename a column, widen another
 const row = (n) => page.locator(`.dz-grid tbody tr:nth-child(${n})`);
 await row(4).locator("input.cell-input").first().fill("remark");

@@ -50,6 +50,18 @@ const SECTIONS: Section[] = [
         <li>Updates are signed and checked before they are installed. MyLoDB contacts only GitHub for this and sends nothing about you or your databases.</li>
       </ul>
     </>) },
+  { id: "postgresql", title: "PostgreSQL", body: (
+    <>
+      <p>Choose <b>Database type → PostgreSQL</b> in the connection dialog, or paste a <code>postgresql://</code> URL. A connection is to <b>one database</b> (<code>postgres</code> if you leave it empty), and the browser lists its <b>schemas</b>. SSH tunnels work as for MySQL; SSL <i>Required</i> checks the certificate and the host name.</p>
+      <ul>
+        <li>Browse tables, views and columns, and run SQL: several statements, with <code>$$</code> function bodies. <b>Cancel</b> and the query time limit stop a statement on the server.</li>
+        <li>The data grid pages, filters, sorts and counts, and edits rows: staged, previewed, applied in one transaction. A table needs a primary key or a non-null unique key; views are read-only.</li>
+        <li><b>Transfer → Export</b> and scheduled exports write every format; SQL INSERT files are PostgreSQL SQL.</li>
+        <li>A <b>read-only</b> connection runs each statement in a read-only transaction that is rolled back.</li>
+        <li>Not there yet: backup, restore and import, the table designer, users, server tools, the Structure and Databases pages, Explain and Profile views, formatting, error underlining, data search, diagrams, the query builder, compare and copy. Functions and triggers are not listed.</li>
+      </ul>
+    </>
+  ) },
   { id: "sqlite", title: "SQLite files", body: (
     <>
       <p>MyLoDB opens SQLite files too. In the connection dialog choose <b>Database type → SQLite file</b>, pick the file and press <b>Test connection</b>.</p>

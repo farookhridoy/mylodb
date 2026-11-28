@@ -120,8 +120,9 @@ impl Capabilities {
 }
 
 impl Capabilities {
-    /// For a PostgreSQL server. This first step browses and runs SQL; the reasons say what is still to come.
-    pub fn postgres() -> Capabilities {
+    /// For a PostgreSQL server: browse, SQL, the data grid and export; the reasons say what is still to come. `writable` is false
+    /// for a connection marked read-only.
+    pub fn postgres(writable: bool) -> Capabilities {
         let later = |what: &str| Cap::no(format!("{what} for PostgreSQL is not available yet"));
         Capabilities {
             flavor: Flavor::Postgres,
@@ -136,8 +137,8 @@ impl Capabilities {
             row_estimates: Cap::yes(),
             server_tools: later("server tools"),
             dump_restore: later("backup, restore and import"),
-            data_export: later("export"),
-            writes: Cap::no("editing rows and designing tables for PostgreSQL is not available yet; SQL you run can still change data"),
+            data_export: Cap::yes(),
+            writes: if writable { Cap::yes() } else { Cap::no("this connection is read-only") },
         }
     }
 }

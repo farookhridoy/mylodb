@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>MyLoDB: a MySQL, MariaDB and SQLite manager for Mac and Windows</title>
+<title>MyLoDB: a MySQL, MariaDB, PostgreSQL and SQLite manager for Mac and Windows</title>
 <meta name="description" content="MyLoDB is a free, open-source database manager for macOS, written in Rust. Quick on huge tables, and it asks before it does anything you cannot undo. Built for people who miss SQLyog on the Mac.">
 <meta name="author" content="Omar Farook Hridoy">
 <meta name="theme-color" content="#eef0f6">
@@ -12,7 +12,7 @@
 <link rel="canonical" href="https://farookhridoy.github.io/mylodb/">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="MyLoDB">
-<meta property="og:title" content="MyLoDB: a MySQL, MariaDB and SQLite manager for Mac and Windows">
+<meta property="og:title" content="MyLoDB: a MySQL, MariaDB, PostgreSQL and SQLite manager for Mac and Windows">
 <meta property="og:description" content="Quick on huge tables, and it asks before it does anything you cannot undo. Free and open source.">
 <meta property="og:url" content="https://farookhridoy.github.io/mylodb/">
 <meta property="og:image" content="https://farookhridoy.github.io/mylodb/img/og.png">
@@ -30,8 +30,8 @@
   "name": "MyLoDB",
   "applicationCategory": "DeveloperApplication",
   "operatingSystem": "macOS (Apple Silicon and Intel), Windows 10 and 11",
-  "description": "An open-source MySQL, MariaDB and SQLite manager for macOS.",
-  "softwareVersion": "0.11.0",
+  "description": "An open-source MySQL, MariaDB, PostgreSQL and SQLite manager for macOS and Windows.",
+  "softwareVersion": "0.12.0",
   "license": "https://www.apache.org/licenses/LICENSE-2.0",
   "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
   "author": { "@type": "Person", "name": "Omar Farook Hridoy", "url": "https://farookhridoy.com" },
@@ -66,13 +66,13 @@
     <div class="wrap hero-in">
       <div class="hero-copy">
         <h1>The database manager for people who miss SQLyog.</h1>
-        <p class="lede">MyLoDB opens MySQL, MariaDB and SQLite files on your Mac or Windows PC. It stays quick on tables with millions of rows, and it asks before it does anything you cannot undo.</p>
+        <p class="lede">MyLoDB works with MySQL, MariaDB, PostgreSQL and SQLite files on your Mac or Windows PC. It stays quick on tables with millions of rows, and it asks before it does anything you cannot undo.</p>
         <p class="cta">
           <a class="btn primary" id="dl-arm" href="https://github.com/farookhridoy/mylodb/releases/latest">Download for Apple Silicon</a>
           <a class="btn" id="dl-intel" href="https://github.com/farookhridoy/mylodb/releases/latest">Download for Intel</a>
           <a class="btn" id="dl-win" href="https://github.com/farookhridoy/mylodb/releases/latest">Download for Windows</a>
         </p>
-        <p class="fine" id="dl-meta">Version <span data-version>0.11.0</span>. Free and open source under Apache-2.0. It updates itself, and it sends no telemetry.</p>
+        <p class="fine" id="dl-meta">Version <span data-version>0.12.0</span>. Free and open source under Apache-2.0. It updates itself, and it sends no telemetry.</p>
       </div>
 
       <div class="stage" aria-label="A demonstration of the review dialog">
@@ -119,7 +119,7 @@
   </section>
 
   <section class="tested wrap" aria-label="Supported databases">
-    <p>Tested in CI against MySQL 8.0, 8.4 and 9, and MariaDB 10.11 and 11.4. Opens and edits SQLite files. Apple Silicon, Intel and Windows (64-bit).</p>
+    <p>Tested in CI against MySQL 8.0, 8.4 and 9, MariaDB 10.11 and 11.4, and PostgreSQL 13, 16 and 18. Opens and edits SQLite files. Apple Silicon, Intel and Windows (64-bit).</p>
   </section>
 
   <section id="features" class="features">
@@ -168,6 +168,7 @@
           <div><dt>Table designer</dt><dd>Change columns and indexes with the ALTER TABLE shown as you go.</dd></div>
           <div><dt>Users and privileges</dt><dd>Server, database, table and column scope.</dd></div>
           <div><dt>Backup, restore, import</dt><dd>SQL backups with progress, CSV and JSON import with column mapping, exports to six formats.</dd></div>
+          <div><dt>PostgreSQL</dt><dd>Browse schemas, run SQL, edit rows and export. Backup and design tools are still MySQL only.</dd></div>
           <div><dt>SQLite files</dt><dd>Browse, query and edit. Open one read-only if you would rather not risk it.</dd></div>
           <div><dt>Command palette</dt><dd>Press ⌘K to jump to any table, action or theme.</dd></div>
           <div><dt>Quiet updates</dt><dd>It tells you when a new version is out, shows what changed, and installs it when you say so.</dd></div>
@@ -258,23 +259,23 @@
   <section id="download" class="download">
     <div class="wrap dl-in">
       <div class="dl-main">
-      <h2>Download MyLoDB <span data-version>0.11.0</span></h2>
+      <h2>Download MyLoDB <span data-version>0.12.0</span></h2>
       <p class="lede">Free, and open source under Apache-2.0. Not sure which Mac you have? Open the Apple menu and choose About This Mac: <i>Chip: Apple M…</i> means Apple Silicon, <i>Processor: Intel…</i> means Intel.</p>
       <div class="dl-pair">
         <a class="dl-tile" id="dl-arm-2" href="https://github.com/farookhridoy/mylodb/releases/latest">
           <b>Apple Silicon</b>
           <span>For M1 and later</span>
-          <code data-file="aarch64">MyLoDB_0.11.0_aarch64.dmg</code>
+          <code data-file="aarch64">MyLoDB_0.12.0_aarch64.dmg</code>
         </a>
         <a class="dl-tile" id="dl-intel-2" href="https://github.com/farookhridoy/mylodb/releases/latest">
           <b>Intel</b>
           <span>For Macs with an Intel processor</span>
-          <code data-file="x64">MyLoDB_0.11.0_x64.dmg</code>
+          <code data-file="x64">MyLoDB_0.12.0_x64.dmg</code>
         </a>
         <a class="dl-tile" id="dl-win-2" href="https://github.com/farookhridoy/mylodb/releases/latest">
           <b>Windows</b>
           <span>Windows 10 and 11, 64-bit</span>
-          <code data-file="win">MyLoDB_0.11.0_x64-setup.exe</code>
+          <code data-file="win">MyLoDB_0.12.0_x64-setup.exe</code>
         </a>
       </div>
       <p class="fine" id="dl-detail">Each file has a SHA-256 checksum next to it on the <a href="https://github.com/farookhridoy/mylodb/releases/latest" id="dl-rel">release page</a>.</p>
@@ -314,6 +315,10 @@
         <p class="fine">Every version, with its known limits, is in the <a href="https://github.com/farookhridoy/mylodb/blob/main/CHANGELOG.md">changelog</a>.</p>
       </div>
       <ol class="log" tabindex="0" role="region" aria-label="Release notes, scrollable">
+        <li>
+          <h3>0.12.0 <time datetime="2026-11-28">28 Nov 2026</time></h3>
+          <p>PostgreSQL: connect (SSH and SSL too), browse schemas, run SQL, page, filter and edit rows, and export. Backup, the table designer and server tools are not there for PostgreSQL yet.</p>
+        </li>
         <li>
           <h3>0.11.0 <time datetime="2026-11-26">26 Nov 2026</time></h3>
           <p>Scheduled imports, and jobs that can run while MyLoDB is closed. Compare two tables and make the target match, copy a database to another connection, an audit log of changes. See where a table or column is used. A table designer, export and cancel for SQLite.</p>
@@ -390,7 +395,7 @@
     <div class="wrap">
       <h2>Where it stands</h2>
       <ul class="plain">
-        <li><b>Databases:</b> MySQL and MariaDB are the main event. MySQL 5.7 is not supported. SQLite works, without a table designer yet. PostgreSQL and SQL Server are designed (see the <a href="https://github.com/farookhridoy/mylodb/blob/main/docs/ENGINE_ABSTRACTION.md">engine notes</a>) but not built.</li>
+        <li><b>Databases:</b> MySQL and MariaDB are the main event. MySQL 5.7 is not supported. SQLite works. PostgreSQL covers browsing, SQL, editing rows and export. SQL Server is designed (see the <a href="https://github.com/farookhridoy/mylodb/blob/main/docs/ENGINE_ABSTRACTION.md">engine notes</a>) but not built.</li>
         <li><b>Not yet:</b> comparing the data of two tables, copying a database between connections, a notarised build, and Windows and Linux versions.</li>
         <li>The <a href="https://github.com/farookhridoy/mylodb/blob/main/docs/ROADMAP.md">roadmap</a> and the <a href="https://github.com/farookhridoy/mylodb/blob/main/docs/MANUAL.md">user manual</a> are in the repository. Bug reports and ideas are welcome as <a href="https://github.com/farookhridoy/mylodb/issues" rel="noopener">GitHub issues</a>.</li>
       </ul>

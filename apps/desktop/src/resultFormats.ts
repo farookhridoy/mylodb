@@ -1,4 +1,5 @@
 import type { ResultSet } from "./api";
+import { doubleQuotes, quoteIdent } from "./quoting";
 
 /** Ways to copy a result: each takes the rows as the server returned them (strings, `null` for NULL) and returns text. */
 export type CopyFormat = "tsv" | "csv" | "json" | "markdown" | "insert";
@@ -9,8 +10,9 @@ export const COPY_FORMATS: { id: CopyFormat; label: string }[] = [
 
 const csvCell = (v: string | null) => (v === null ? "" : /[",\r\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
 const tsvCell = (v: string | null) => (v === null ? "NULL" : v.replace(/[\t\r\n]/g, " "));
-const sqlValue = (v: string | null) => (v === null ? "NULL" : `'${v.replace(/\\/g, "\\\\").replace(/'/g, "''")}'`);
-const ident = (n: string) => "`" + n.replace(/`/g, "``") + "`";
+// PostgreSQL strings have no backslash escapes
+const sqlValue = (v: string | null) => (v === null ? "NULL" : `'${(doubleQuotes() ? v : v.replace(/\\/g, "\\\\")).replace(/'/g, "''")}'`);
+const ident = quoteIdent;
 
 export function formatResult(set: ResultSet, format: CopyFormat, tableName = "table_name"): string {
   const names = set.columns.map((c) => c.name);

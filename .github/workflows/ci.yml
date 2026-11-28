@@ -58,6 +58,28 @@ jobs:
           MYLODB_TEST_HOST: 127.0.0.1
           MYLODB_TEST_PORT: "3306"
 
+  # PostgreSQL, on its own server (the MySQL jobs skip these tests: they only run when MYLODB_TEST_PG_PORT is set)
+  postgres:
+    name: Rust · PostgreSQL ${{ matrix.version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        version: ["13", "16", "18"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Start PostgreSQL ${{ matrix.version }}
+        run: |
+          docker run -d --name pg -p 5432:5432 -e POSTGRES_HOST_AUTH_METHOD=trust postgres:${{ matrix.version }}
+          for i in $(seq 1 60); do docker exec pg pg_isready -h 127.0.0.1 -U postgres >/dev/null 2>&1 && break; sleep 2; done
+          docker exec pg psql -h 127.0.0.1 -U postgres -c "SELECT version()"
+      - name: Test the PostgreSQL crate
+        run: cargo test -p myq-postgres --no-fail-fast
+        env:
+          MYLODB_TEST_PG_PORT: "5432"
+
   # The React app: type check and every UI suite against the fake Tauri bridge in e2e/mock.js.
   ui:
     name: UI suites

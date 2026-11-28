@@ -103,6 +103,7 @@ pub enum EngineKind {
     #[default]
     MySql,
     Sqlite,
+    Postgres,
 }
 
 impl EngineKind {
@@ -110,11 +111,16 @@ impl EngineKind {
         match self {
             EngineKind::MySql => "mysql",
             EngineKind::Sqlite => "sqlite",
+            EngineKind::Postgres => "postgres",
         }
     }
 
     fn parse(s: &str) -> EngineKind {
-        if s == "sqlite" { EngineKind::Sqlite } else { EngineKind::MySql }
+        match s {
+            "sqlite" => EngineKind::Sqlite,
+            "postgres" => EngineKind::Postgres,
+            _ => EngineKind::MySql,
+        }
     }
 }
 
@@ -620,6 +626,11 @@ mod tests {
         let id = s.save(&c).unwrap();
         let got = s.connection(id).unwrap().unwrap();
         assert_eq!((got.engine, got.file.as_deref()), (EngineKind::Sqlite, Some("/tmp/shop.db")));
+        let mut pg = conn("pg");
+        pg.engine = EngineKind::Postgres;
+        let id = s.save(&pg).unwrap();
+        assert_eq!(s.connection(id).unwrap().unwrap().engine, EngineKind::Postgres);
+        assert_eq!(serde_json::to_value(EngineKind::Postgres).unwrap(), "postgres");
         assert_eq!(s.save(&conn("plain")).map(|i| s.connection(i).unwrap().unwrap().engine).unwrap(), EngineKind::MySql);
         let old: SavedConnection = serde_json::from_str(r##"{"id":null,"name":"n","color":"#fff","host":"h","port":3306,"user":"u","database":null,"ssl":"skipverify"}"##).unwrap();
         assert_eq!((old.engine, old.file), (EngineKind::MySql, None));

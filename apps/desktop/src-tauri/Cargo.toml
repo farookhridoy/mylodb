@@ -15,6 +15,7 @@ tokio = { version = "1", features = ["sync", "time", "rt"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 myq-schema = { path = "../../../crates/myq-schema" }
 myq-sqlite = { path = "../../../crates/myq-sqlite" }
+myq-postgres = { path = "../../../crates/myq-postgres" }
 myq-core = { path = "../../../crates/myq-core" }
 myq-driver = { path = "../../../crates/myq-driver" }
 myq-store = { path = "../../../crates/myq-store" }

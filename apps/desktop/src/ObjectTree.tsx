@@ -1,4 +1,5 @@
 import { memo, useEffect, useMemo, useState } from "react";
+import { quoteIdent } from "./quoting";
 import type { Kind, Node } from "./api";
 import Icon, { type IconName } from "./Icon";
 import { columnMatches, formatBytes, type ColumnsOf } from "./browserMeta";
@@ -356,7 +357,6 @@ function DbSize({ stats }: { stats: Record<string, TableStat> | undefined }) {
 }
 
 /** Backtick-quote a MySQL identifier. */
-export const quoteIdent = (n: string) => "`" + n.replace(/`/g, "``") + "`";
 
 /** Make a tree row draggable: dropping it on the editor inserts the (quoted) name where it lands. */
 const dragName = (text: string) => ({

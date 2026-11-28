@@ -137,7 +137,7 @@ const Editor = forwardRef<EditorHandle, {
       const v = view.current!;
       const sel = v.state.selection.main;
       if (!sel.empty) return v.state.sliceDoc(sel.from, sel.to);
-      const found = await editorApi.statementAt(v.state.doc.toString(), sel.head).catch(() => null);
+      const found = await editorApi.statementAt(cb.current.connectionId, v.state.doc.toString(), sel.head).catch(() => null);
       return found ?? v.state.doc.toString();
     },
     replaceRunnable(text) {

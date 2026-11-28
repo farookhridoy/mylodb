@@ -123,6 +123,8 @@ struct AppState {
     running: Mutex<HashMap<String, (i64, u32)>>,
     /// SQLite runs that can be cancelled, by run id.
     sqlite_runs: Mutex<HashMap<String, std::sync::Arc<myq_sqlite::CancelToken>>>,
+    /// PostgreSQL runs that can be cancelled, by run id.
+    pg_runs: Mutex<HashMap<String, std::sync::Arc<myq_postgres::CancelToken>>>,
     /// The audit log of changes (off until the user turns it on).
     audit: audit::Audit,
     /// The scheduled jobs (`schedules.json`); see `schedule.rs` for how it is shared with a background run.
@@ -303,6 +305,14 @@ async fn connect(state: tauri::State<'_, AppState>, id: i64, trust_fingerprint: 
         (cfg, store.ssh_for(id).map_err(err)?)
     };
     let (cfg, tunnel) = establish(&state.store, cfg, ssh, trust_fingerprint).await?;
+    if let Some(c) = saved.as_ref().filter(|c| c.engine == myq_store::EngineKind::Postgres) {
+        // one database per connection; its schemas are what the browser lists. No MySQL pool.
+        let safety = Safety { environment: c.environment, read_only: c.config.read_only, timeout_secs: c.query_timeout_secs, confirm_destructive: c.confirm_destructive };
+        let engine = Engine::Postgres(myq_postgres::PgBackend::new(cfg));
+        let index = engine.index(false).await.map_err(err)?;
+        state.sessions.lock().unwrap().insert(id, Session::new(None, engine, index.clone(), tunnel, safety, None));
+        return Ok(index);
+    }
     let p = pool(&cfg);
     let (safety, only_database) = {
         let store = state.store.lock().unwrap();
@@ -350,6 +360,10 @@ async fn test_connection(state: tauri::State<'_, AppState>, connection: SavedCon
     }
     let via_ssh = ssh.is_some();
     let (cfg, _tunnel) = establish(&state.store, cfg, ssh, trust_fingerprint).await?;
+    if connection.engine == myq_store::EngineKind::Postgres {
+        let probe = myq_postgres::probe(&cfg).await.map_err(err)?;
+        return Ok(TestResult { version: probe.version, ssl_cipher: probe.ssl_cipher, via_ssh });
+    }
     let probe = myq_driver::probe(&cfg).await.map_err(err)?;
     Ok(TestResult { version: probe.version, ssl_cipher: probe.ssl_cipher, via_ssh })
 }
@@ -559,7 +573,7 @@ fn session_engine(state: &tauri::State<'_, AppState>, id: i64) -> Result<Engine,
 fn session_pool(state: &tauri::State<'_, AppState>, id: i64) -> Result<Pool, String> {
     let sessions = state.sessions.lock().unwrap();
     let s = sessions.get(&id).ok_or("not connected")?;
-    s.pool.clone().ok_or_else(|| "this feature needs a MySQL or MariaDB connection; it is not available for a SQLite file".to_string())
+    s.pool.clone().ok_or_else(|| "this feature needs a MySQL or MariaDB connection; it is not available for this one".to_string())
 }
 
 /// Sizes and row estimates of a database's tables (one query), for the object browser.
@@ -622,7 +636,8 @@ async fn run_query(
     let (engine, safety) = state.sessions.lock().unwrap().get(&id).map(|s| (s.engine.clone(), s.safety)).ok_or("not connected")?;
     // A read-only connection is read-only on the server (the session). This check refuses the obvious writes, and attempts to switch the
     // session back to read-write, before anything is sent, with a message that says why.
-    if safety.read_only {
+    // (PostgreSQL runs each statement of a read-only connection in a read-only transaction; the MySQL rules below do not read its SQL.)
+    if safety.read_only && !matches!(engine, Engine::Postgres(_)) {
         if let Some((n, text, why)) = myq_sql::read_only_violations(&sql).into_iter().next() {
             return Err(format!("Not run: this connection is read-only, and statement {} ({}) {why}. Edit the connection to turn read-only off.", n + 1, text.lines().next().unwrap_or("").chars().take(60).collect::<String>()));
         }
@@ -634,6 +649,17 @@ async fn run_query(
         state.sqlite_runs.lock().unwrap().insert(run_id.clone(), token.clone());
         let results = backend.run_cancellable(&sql, token).await.map_err(err);
         state.sqlite_runs.lock().unwrap().remove(&run_id);
+        let results = results?;
+        let ok = results.iter().all(|r| r.error.is_none());
+        let _ = state.record(id, sql.trim(), started.elapsed().as_millis() as u64, ok);
+        return Ok(results);
+    }
+    if let Engine::Postgres(backend) = &engine {
+        let started = std::time::Instant::now();
+        let token = std::sync::Arc::new(myq_postgres::CancelToken::new());
+        state.pg_runs.lock().unwrap().insert(run_id.clone(), token.clone());
+        let results = backend.run_cancellable(database.as_deref(), &sql, token, safety.timeout_secs.map(Into::into)).await.map_err(err);
+        state.pg_runs.lock().unwrap().remove(&run_id);
         let results = results?;
         let ok = results.iter().all(|r| r.error.is_none());
         let _ = state.record(id, sql.trim(), started.elapsed().as_millis() as u64, ok);
@@ -710,10 +736,14 @@ async fn cancel_query(state: tauri::State<'_, AppState>, run_id: String) -> Resu
         token.cancel();
         return Ok(());
     }
+    let pg = state.pg_runs.lock().unwrap().get(&run_id).cloned();
+    if let Some(token) = pg {
+        return token.cancel().await.map_err(err);
+    }
     let target = state.running.lock().unwrap().get(&run_id).copied();
     let Some((id, server_conn)) = target else { return Ok(()) };
     let pool = state.sessions.lock().unwrap().get(&id).map(|s| s.pool.clone()).ok_or("not connected")?;
-    // only MySQL sessions have a pool; SQLite runs were handled above
+    // only MySQL sessions have a pool; the other engines' runs were handled above
     match pool {
         Some(pool) => kill_query(&pool, server_conn).await.map_err(err),
         None => Ok(()),
@@ -988,6 +1018,9 @@ async fn database_sizes(state: tauri::State<'_, AppState>, id: i64) -> Result<Ve
         let s = sessions.get(&id).ok_or("not connected")?;
         (s.pool.clone(), s.only_database.clone(), s.index.iter().filter(|n| n.kind == Kind::Table).count() as u64)
     };
+    if matches!(session_engine(&state, id)?, Engine::Postgres(_)) {
+        return Ok(vec![]); // sizes are per table there (Structure comes later)
+    }
     let Some(pool) = pool else {
         // a SQLite file: one database, no size statistics
         return Ok(vec![("main".to_string(), tables, 0)]);
@@ -2059,7 +2092,7 @@ async fn ai_chat(state: tauri::State<'_, AppState>, id: i64, database: Option<St
     let (schema, dialect) = {
         let sessions = state.sessions.lock().unwrap();
         let s = sessions.get(&id).ok_or("not connected")?;
-        (ai::schema_text(&s.catalog, &db), if s.pool.is_some() { "MySQL / MariaDB" } else { "SQLite" })
+        (ai::schema_text(&s.catalog, &db), match s.engine { Engine::MySql(_) => "MySQL / MariaDB", Engine::Sqlite(_) => "SQLite", Engine::Postgres(_) => "PostgreSQL" })
     };
     if schema.is_empty() {
         return Err(format!("`{db}` has no tables the assistant can see."));
@@ -2089,6 +2122,9 @@ fn ai_set_key(state: tauri::State<'_, AppState>, preset: String, key: String) ->
 /// Problems in the editor text found without running it (unclosed brackets or quotes, unknown tables and columns), for underlining.
 #[tauri::command]
 async fn diagnose_sql(state: tauri::State<'_, AppState>, id: i64, sql: String, database: Option<String>) -> Result<Vec<myq_sql::Diagnostic>, String> {
+    if matches!(session_engine(&state, id)?, Engine::Postgres(_)) {
+        return Ok(vec![]); // the checks read MySQL syntax and would underline correct PostgreSQL
+    }
     load_completion_data(&state, id, &sql, database.as_deref()).await?;
     let sessions = state.sessions.lock().unwrap();
     let s = sessions.get(&id).ok_or("not connected")?;
@@ -2102,8 +2138,12 @@ fn format_sql(sql: String, options: myq_sql::FormatOptions) -> Result<String, St
 
 /// The statement around `cursor` (a UTF-16 offset), for "explain the statement I am in".
 #[tauri::command]
-fn statement_at(sql: String, cursor: usize) -> Option<String> {
-    myq_sql::statement_at(&sql, myq_sql::utf16_to_byte(&sql, cursor)).map(|s| s.text)
+fn statement_at(state: tauri::State<AppState>, id: Option<i64>, sql: String, cursor: usize) -> Option<String> {
+    let cursor = myq_sql::utf16_to_byte(&sql, cursor);
+    if id.is_some_and(|id| matches!(state.sessions.lock().unwrap().get(&id), Some(Session { engine: Engine::Postgres(_), .. }))) {
+        return myq_postgres::statement_at(&sql, cursor).map(|s| s.text);
+    }
+    myq_sql::statement_at(&sql, cursor).map(|s| s.text)
 }
 
 #[tauri::command]
@@ -2537,7 +2577,7 @@ fn open_state(app: &tauri::AppHandle) -> Result<AppState, Box<dyn std::error::Er
     std::fs::create_dir_all(&dir)?;
     let secrets = std::sync::Arc::new(SecretRouter::open(&dir, Box::new(Keychain::default()), Vault::new(&dir.join("secrets.json"))));
     let store = Store::open(&dir.join("mylodb.sqlite"), Box::new(secrets.clone()))?;
-    Ok(AppState { store: Mutex::new(store), secrets, sessions: Mutex::new(HashMap::new()), running: Mutex::new(HashMap::new()), sqlite_runs: Mutex::new(HashMap::new()), jobs: Mutex::new(HashMap::new()), schedule_file: dir.join("schedules.json"), audit: audit::Audit::open(&dir) })
+    Ok(AppState { store: Mutex::new(store), secrets, sessions: Mutex::new(HashMap::new()), running: Mutex::new(HashMap::new()), sqlite_runs: Mutex::new(HashMap::new()), pg_runs: Mutex::new(HashMap::new()), jobs: Mutex::new(HashMap::new()), schedule_file: dir.join("schedules.json"), audit: audit::Audit::open(&dir) })
 }
 
 /// `--run-due-jobs`: what the system's scheduler starts while MyLoDB may be closed. No window, no menu, no Dock icon; it runs the due

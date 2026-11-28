@@ -57,6 +57,25 @@ impl Dialect for Sqlite {
     }
 }
 
+/// PostgreSQL: identifiers in double quotes, strings in single quotes (`standard_conforming_strings`, the default since 9.1).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Postgres;
+
+impl Dialect for Postgres {
+    fn quote_ident(&self, ident: &str) -> String {
+        format!("\"{}\"", ident.replace('"', "\"\""))
+    }
+
+    /// NUL cannot be stored in a PostgreSQL string at all, so it is dropped.
+    fn quote_string(&self, s: &str) -> String {
+        format!("'{}'", s.replace('\0', "").replace('\'', "''"))
+    }
+
+    fn limit_offset(&self, limit: u64, offset: u64) -> String {
+        format!("LIMIT {limit} OFFSET {offset}")
+    }
+}
+
 /// A quoted MySQL identifier.
 pub fn q(ident: &str) -> String {
     MySql.quote_ident(ident)
@@ -96,6 +115,12 @@ mod tests {
         assert_eq!(Sqlite.quote_ident("back`tick"), "\"back`tick\"");
         assert_eq!(Sqlite.quote_string("O'Neil"), "'O''Neil'");
         assert_eq!(Sqlite.quote_string("a\\b"), "'a\\b'", "backslash is an ordinary character in SQLite");
+    }
+
+    #[test]
+    fn postgres_quoting() {
+        assert_eq!(Postgres.quote_ident("Odd \"name\""), "\"Odd \"\"name\"\"\"");
+        assert_eq!(Postgres.quote_string("O'Neil \\ x"), "'O''Neil \\ x'");
     }
 
     #[test]

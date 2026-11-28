@@ -28,8 +28,8 @@ export interface SavedConnection {
   confirm_destructive?: boolean;
   /// Folder the connection is listed under in the picker; empty or null: ungrouped.
   group?: string | null;
-  /// MySQL / MariaDB (default) or a SQLite file.
-  engine?: "mysql" | "sqlite";
+  /// MySQL / MariaDB (default), PostgreSQL or a SQLite file.
+  engine?: "mysql" | "sqlite" | "postgres";
   /// The database file, for `engine = "sqlite"`.
   file?: string | null;
   /// false + a default database: only that database is listed.
@@ -394,7 +394,7 @@ export const editorApi = {
   complete: (id: number, sql: string, cursor: number, database: string | null) =>
     invoke<Completions>("complete_sql", { id, sql, cursor, database }),
   format: (sql: string, options: FormatOptions) => invoke<string>("format_sql", { sql, options }),
-  statementAt: (sql: string, cursor: number) => invoke<string | null>("statement_at", { sql, cursor }),
+  statementAt: (id: number | null, sql: string, cursor: number) => invoke<string | null>("statement_at", { id, sql, cursor }),
   explain: (id: number, database: string | null, sql: string, analyze: boolean) =>
     invoke<ExplainResult>("explain_query", { id, database, sql, analyze }),
   profile: (id: number, database: string | null, sql: string) => invoke<ProfileResult>("profile_query", { id, database, sql }),
@@ -479,7 +479,7 @@ export async function onJobProgress(jobId: string, cb: (p: JobProgress) => void)
 export interface Cap { available: boolean; reason: string | null }
 /** What the connected server can do; a feature it lacks comes with the reason. */
 export interface Capabilities {
-  flavor: "mysql" | "mariadb" | "sqlite";
+  flavor: "mysql" | "mariadb" | "sqlite" | "postgres";
   schemas: Cap; routines: Cap; triggers: Cap; events: Cap; users: Cap; replication: Cap; explain_analyze: Cap; read_only_session: Cap; row_estimates: Cap;
   server_tools: Cap; dump_restore: Cap; /** Export to a file; older builds of the backend do not send it. */ data_export?: Cap; writes: Cap;
 }

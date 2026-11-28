@@ -1,0 +1,19 @@
+[package]
+name = "myq-postgres"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+myq-core = { path = "../myq-core" }
+myq-driver = { path = "../myq-driver" }
+tokio = { version = "1", features = ["rt", "time"] }
+tokio-postgres = "0.7"
+futures-util = { version = "0.3", default-features = false }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+rustls-pemfile = "2"
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
+webpki-roots = "1"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }

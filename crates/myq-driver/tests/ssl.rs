@@ -53,12 +53,11 @@ async fn tls_modes_behave_as_documented() {
     let ca = datadir.map(|d| format!("{}ca.pem", d)).filter(|p| std::fs::metadata(p).is_ok());
     match ca {
         Some(ca) => {
-            match cipher(cfg(SslMode::VerifyCa, Some(ca))).await {
-                Ok(c) => assert!(c.is_some()),
-                // known: mysql_async looks for the words "NotValidForName", which newer rustls no longer prints, so a certificate
-                // that does not name the host is refused although VerifyCa should not care. It fails closed.
-                Err(e) => assert!(e.contains("not valid for name"), "verify-ca with the server's CA: {e}"),
-            }
+            // MySQL's own certificate does not name the host: VerifyCa accepts it all the same
+            let c = cipher(cfg(SslMode::VerifyCa, Some(ca.clone()))).await.expect("verify-ca with the server's CA connects");
+            assert!(c.is_some());
+            // while full verification, trusting the same CA, still insists on the name
+            assert!(cipher(cfg(SslMode::Required, Some(ca))).await.is_err_and(|e| e.contains("not valid for")), "the host name is checked");
             // a CA that did not sign the server certificate is refused
             let other = std::env::temp_dir().join(format!("mylodb_wrong_ca_{}.pem", std::process::id()));
             std::fs::write(&other, include_str!("wrong_ca.pem")).unwrap();

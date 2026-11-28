@@ -1,6 +1,11 @@
 [workspace]
 resolver = "2"
+exclude = ["vendor/mysql_async"]
 members = ["crates/myq-core", "crates/myq-sqlite", "crates/myq-postgres", "crates/myq-schema", "crates/myq-driver", "crates/myq-store", "crates/myq-data", "crates/myq-admin", "crates/myq-sql", "crates/myq-profile", "crates/myq-tunnel", "crates/myq-transfer", "apps/desktop/src-tauri"]
+
+[patch.crates-io]
+# the published 0.36.2 plus the Verify CA fix; see vendor/mysql_async/MYLODB_PATCH.md
+mysql_async = { path = "vendor/mysql_async" }
 
 [workspace.package]
 version = "0.12.0"

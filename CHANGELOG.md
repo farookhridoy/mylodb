@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+**Fixed**
+* SSL mode *Verify CA* (MySQL and MariaDB) now ignores the host name as it says, so it connects to a server whose certificate was signed by your authority but does not name the host, such as the certificate MySQL generates for itself. The authority is still checked. This closes the known issue of 0.12.0.
+
 ## 0.12.0 (2026-11-28)
 
 PostgreSQL (phase 24 of the roadmap).

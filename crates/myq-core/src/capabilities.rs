@@ -127,16 +127,17 @@ impl Capabilities {
         Capabilities {
             flavor: Flavor::Postgres,
             schemas: Cap::yes(),
-            routines: later("browsing functions and procedures"),
-            triggers: later("browsing triggers"),
+            routines: Cap::yes(),
+            triggers: Cap::yes(),
             events: Cap::no("PostgreSQL has no scheduled events"),
             users: later("managing roles"),
             replication: later("replication status"),
-            explain_analyze: later("the Explain view (run EXPLAIN ANALYZE as SQL)"),
+            explain_analyze: Cap::yes(),
             read_only_session: Cap::yes(),
             row_estimates: Cap::yes(),
             server_tools: later("server tools"),
-            dump_restore: later("backup, restore and import"),
+            // through pg_dump and pg_restore, which the user installs
+            dump_restore: Cap::yes(),
             data_export: Cap::yes(),
             writes: if writable { Cap::yes() } else { Cap::no("this connection is read-only") },
         }

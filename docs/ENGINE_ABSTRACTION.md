@@ -128,4 +128,6 @@ New crate `myq-postgres` (`tokio-postgres`, `rustls`). One connection is one dat
 * Grid values travel as text: `CAST($n::text AS type)` with the type without its length, so a long value is refused instead of cut.
 * Tests (`crates/myq-postgres/tests`) run only when `MYLODB_TEST_PG_PORT` is set; CI runs them on PostgreSQL 13, 16 and 18.
 
+Part two added the designer (`designer.rs`, its own statements; unique keys may be constraints or indexes, so both forms are dropped with `IF EXISTS`), views, routines and triggers (`objects.rs`), the plan (`explain.rs`), and backup and restore through the PostgreSQL programs found on the computer (`dump.rs`; the password travels in the environment).
+
 Next engine: SQL Server.

@@ -219,7 +219,10 @@ Object.assign(handlers, {
   },
   format_sql: (a) => a.sql.trim().replace(/\b(select|from|where)\b/gi, (m) => (a.options.keyword_case === "lower" ? m.toLowerCase() : m.toUpperCase())).replace(/\s+(FROM|WHERE|from|where)\b/g, (_, k) => "\n" + k).replace(/\n/g, a.options.indent.style === "tab" ? "\n\t" : "\n  "),
   statement_at: (a) => { const parts = a.sql.split(";"); let pos = 0; for (const p of parts) { if (a.cursor <= pos + p.length) return p.trim() || null; pos += p.length + 1; } return parts.at(-1).trim() || null; },
+  pg_backup_job: (a) => { window.__pgBackup = JSON.parse(JSON.stringify(a)); return { path: `${a.dir}/${a.name}-20261128-120000.${a.options.format === "custom" ? "dump" : "sql"}`, bytes: 2048, elapsed_ms: 900, tool: "pg_dump 18" }; },
+  pg_restore_job: (a) => { window.__pgRestore = JSON.parse(JSON.stringify(a)); return { elapsed_ms: 1200, tool: "psql 18", warnings: [] }; },
   explain_query: (a) => {
+    if (window.__pgPlan) return { plan: { columns: [{ name: "step", type_name: "", binary: false }], rows: [["Seq Scan"]], total_rows: 1, truncated: false }, json: window.__pgPlan, tree: null, hints: [] };
     if (a.sql.includes("BAD")) throw "Server error: syntax error near 'BAD'";
     return {
       plan: { columns: [{ name: "id", type_name: "x", binary: false }, { name: "table", type_name: "x", binary: false }, { name: "type", type_name: "x", binary: false }, { name: "rows", type_name: "x", binary: false }],

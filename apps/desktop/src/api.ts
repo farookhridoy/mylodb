@@ -223,8 +223,8 @@ export type DatabaseOp = { op: "create"; name: string; charset: string | null; c
 
 export const schemaApi = {
   tableDef: (id: number, db: string, table: string) => invoke<{ def: TableDef; warnings: string[] }>("table_def", { id, db, table }),
-  preview: (db: string, original: TableDef | null, desired: TableDef, sqlite?: boolean) =>
-    invoke<{ statements: string[]; errors: string[] }>("ddl_preview", { db, original, desired, sqlite: sqlite ?? false }),
+  preview: (db: string, original: TableDef | null, desired: TableDef, sqlite?: boolean, postgres?: boolean) =>
+    invoke<{ statements: string[]; errors: string[] }>("ddl_preview", { db, original, desired, sqlite: sqlite ?? false, postgres: postgres ?? false }),
   apply: (id: number, db: string, original: TableDef | null, desired: TableDef) => invoke<string[]>("ddl_apply", { id, db, original, desired }),
   refreshIndex: (id: number) => invoke<Node[]>("refresh_index", { id }),
   tableOp: (id: number, db: string, table: string, operation: TableOp) => invoke<string[]>("table_op", { id, db, table, operation }),
@@ -563,3 +563,12 @@ export interface SourcePreview {
 }
 export interface Grid { columns: string[]; rows: (string | null)[][] }
 export interface ServerCatalog { engines: Grid; charsets: Grid; replication: Grid; replication_note: string | null }
+
+// ---- PostgreSQL backup and restore (pg_dump, pg_restore, psql) ----
+export interface PgDumpOptions { schemas: string[]; format: "sql" | "custom"; content: "all" | "structure" | "data"; clean: boolean; no_owner: boolean }
+export interface PgDumpResult { path: string; bytes: number; elapsed_ms: number; tool: string }
+export interface PgRestoreResult { elapsed_ms: number; tool: string; warnings: string[] }
+export const pgTransferApi = {
+  backup: (id: number, jobId: string, options: PgDumpOptions, dir: string, name: string) => invoke<PgDumpResult>("pg_backup_job", { id, jobId, options, dir, name }),
+  restore: (id: number, jobId: string, path: string, options: { clean: boolean; single_transaction: boolean; no_owner: boolean }) => invoke<PgRestoreResult>("pg_restore_job", { id, jobId, path, options }),
+};

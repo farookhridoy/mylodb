@@ -1,10 +1,12 @@
 //! PostgreSQL through the engine contract, against a real server. Runs only when MYLODB_TEST_PG_PORT is set, so that a developer's
 //! own server is never touched by accident. Creates and drops only its own `mylodb_itest_*` schema.
 
-use myq_core::Backend;
+use myq_core::{Backend, Kind};
 use myq_data::{Assign, CellValue, Change, ColumnFilter, Dest, ExportFormat, ExportOptions, Op, PageSpec, Sort};
 use myq_driver::{ConnConfig, SslMode};
-use myq_postgres::{apply_changes, count_rows, estimate_count, export_query, export_table, fetch_cell, fetch_page, lookup, preview_changes, probe, table_meta, CancelToken, PgBackend};
+use myq_postgres::{dump, is_archive, restore, DumpFormat, DumpOptions, RestoreOptions, apply_ddl, ddl_statements, drop_object_sql, explain, object_script, read_table_def, apply_changes, count_rows, estimate_count, export_query, export_table, fetch_cell, fetch_page, lookup, preview_changes, probe, table_meta, CancelToken, PgBackend};
+use myq_schema::ddl::{ColumnDef, ColumnDefault, ForeignKeyDef, Generated, IndexColumn, IndexDef, IndexKind, RefAction, TableDef};
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -64,7 +66,7 @@ async fn browse_and_run() {
         let index = b.index(false).await.unwrap();
         assert!(index.iter().all(|n| !n.database.starts_with("pg_")), "system schemas are hidden");
         let mine: Vec<_> = index.iter().filter(|n| n.database == s).map(|n| (n.name.as_str(), format!("{:?}", n.kind))).collect();
-        assert_eq!(mine, [(s.as_str(), "Database".into()), ("Odd name", "Table".into()), ("item", "Table".into()), ("v_item", "View".into())]);
+        assert_eq!(mine, [(s.as_str(), "Database".into()), ("Odd name", "Table".into()), ("item", "Table".into()), ("v_item", "View".into()), ("two()", "Function".into())]);
         assert!(b.column_nodes(&s).await.unwrap().iter().any(|n| n.name == "A;b" && n.parent.as_deref() == Some("Odd name")));
 
         let tables = b.tables(&s).await.unwrap();
@@ -345,6 +347,241 @@ async fn exports_stream_to_every_kind_of_file() {
         let e = export_query(&b, None, "SELECT g FROM generate_series(1, 5000) g", &options("csv"), Dest::File(&dir.join("c.csv")), Arc::new(CancelToken::new()), &mut |_| false).await;
         assert_eq!(e.err().as_deref(), Some("cancelled"));
         assert!(b.run(None, "SELECT 1").await.unwrap()[0].error.is_none());
+        let _ = std::fs::remove_dir_all(&dir);
+    })
+    .await;
+}
+
+fn col(name: &str, ty: &str) -> ColumnDef {
+    ColumnDef { name: name.into(), data_type: ty.into(), nullable: true, ..Default::default() }
+}
+
+fn index(name: &str, kind: IndexKind, columns: &[&str]) -> IndexDef {
+    IndexDef { name: name.into(), original_name: None, kind, columns: columns.iter().map(|c| IndexColumn { name: c.to_string(), length: None, desc: false }).collect() }
+}
+
+/// Apply a design and read the table back; the design read back must need no further change.
+async fn design(b: &PgBackend, s: &str, original: Option<&TableDef>, desired: &TableDef) -> TableDef {
+    let statements = ddl_statements(s, original, desired).expect("a valid design");
+    apply_ddl(b, &statements).await.unwrap_or_else(|e| panic!("{e}\n{}", statements.join(";\n")));
+    let (read, warnings) = read_table_def(b, s, &desired.name).await.unwrap();
+    assert!(warnings.is_empty(), "{warnings:?}");
+    assert_eq!(ddl_statements(s, Some(&read), &read).unwrap(), Vec::<String>::new(), "reading it back changes nothing");
+    read
+}
+
+#[tokio::test]
+async fn the_designer_creates_and_alters_tables() {
+    with_schema("design", |cfg, b, s| async move {
+        let parent = TableDef {
+            name: "Parent".into(),
+            columns: vec![ColumnDef { auto_increment: true, nullable: false, ..col("id", "integer") }, ColumnDef { nullable: false, ..col("code", "text") }],
+            indexes: vec![index("PRIMARY", IndexKind::Primary, &["id"]), index("parent_code", IndexKind::Unique, &["code"])],
+            ..Default::default()
+        };
+        design(&b, &s, None, &parent).await;
+        let mut item = TableDef {
+            name: "item".into(),
+            comment: "it's here".into(),
+            columns: vec![
+                ColumnDef { auto_increment: true, nullable: false, ..col("id", "bigint") },
+                ColumnDef { params: Some("20".into()), default: ColumnDefault::Literal("O'Neil".into()), comment: "who".into(), ..col("name", "character varying") },
+                ColumnDef { params: Some("10,2".into()), default: ColumnDefault::Expression("0".into()), nullable: false, ..col("price", "numeric") },
+                ColumnDef { generated: Some(Generated { expression: "price * 2".into(), stored: true }), ..col("twice", "numeric") },
+                ColumnDef { params: Some("3".into()), default: ColumnDefault::Expression("now()".into()), ..col("at", "timestamp with time zone") },
+                col("parent", "integer"),
+                col("tags", "text[]"),
+            ],
+            indexes: vec![index("PRIMARY", IndexKind::Primary, &["id"]), index("item_name", IndexKind::Index, &["name", "price"])],
+            foreign_keys: vec![ForeignKeyDef { name: "item_parent".into(), original_name: None, columns: vec!["parent".into()], ref_schema: None, ref_table: "Parent".into(), ref_columns: vec!["id".into()], on_delete: RefAction::Cascade, on_update: RefAction::NoAction }],
+            ..Default::default()
+        };
+        item.indexes[1].columns[1].desc = true;
+        let read = design(&b, &s, None, &item).await;
+        let got = |n: &str| read.columns.iter().find(|c| c.name == n).unwrap().clone();
+        assert!(got("id").auto_increment && !got("id").nullable);
+        assert_eq!((got("name").default.clone(), got("name").params.clone(), got("at").params.clone()), (ColumnDefault::Literal("O'Neil".into()), Some("20".into()), Some("3".into())));
+        assert!(got("twice").generated.is_some());
+        assert_eq!((read.comment.as_str(), read.foreign_keys[0].on_delete, read.indexes.len()), ("it's here", RefAction::Cascade, 2));
+        assert!(read.indexes[1].columns[1].desc);
+        b.run(Some(&s), "INSERT INTO \"Parent\" (code) VALUES ('a'); INSERT INTO item (parent, price) VALUES (1, 5), (1, 7)").await.unwrap();
+
+        // rename, exchange two names, retype with data, change defaults and nullability, add and drop things, rename the table
+        let mut new = read.clone();
+        new.name = "items".into();
+        new.comment = String::new();
+        let at = |d: &TableDef, n: &str| d.columns.iter().position(|c| c.name == n).unwrap();
+        let (i_name, i_price, i_tags, i_at) = (at(&new, "name"), at(&new, "price"), at(&new, "tags"), at(&new, "at"));
+        new.columns[i_name].name = "tags".into();
+        new.columns[i_tags].name = "name".into();
+        new.columns[i_price].name = "cost".into();
+        new.columns[i_price].params = Some("12,3".into());
+        new.columns[i_price].default = ColumnDefault::Literal("1".into());
+        new.columns[i_price].nullable = true;
+        new.columns[i_at].default = ColumnDefault::None;
+        new.columns[i_at].comment = "when".into();
+        let twice = at(&new, "twice");
+        new.columns.remove(twice);
+        new.columns.push(ColumnDef { default: ColumnDefault::Literal("n".into()), nullable: false, comment: "added".into(), ..col("note", "text") });
+        for i in &mut new.indexes {
+            for c in &mut i.columns {
+                c.name = match c.name.as_str() { "name" => "tags".into(), "price" => "cost".into(), other => other.into() };
+            }
+        }
+        new.indexes[1].name = "item_by_name".into();
+        new.indexes.push(index("item_note", IndexKind::Unique, &["id", "note"]));
+        new.foreign_keys[0].on_delete = RefAction::SetNull;
+        let statements = ddl_statements(&s, Some(&read), &new).unwrap();
+        assert!(statements.iter().any(|x| x.contains("RENAME COLUMN \"__renaming_0\"")), "{statements:#?}");
+        assert!(statements.iter().any(|x| x.starts_with("ALTER INDEX")), "only renamed, not rebuilt: {statements:#?}");
+        let after = design(&b, &s, Some(&read), &new).await;
+        let r = b.run(Some(&s), "SELECT id, tags, cost, note FROM items ORDER BY id").await.unwrap();
+        assert_eq!(r[0].sets[0].rows[0], vec![Some("1".to_string()), Some("O'Neil".into()), Some("5.000".into()), Some("n".into())], "the values moved with their columns");
+
+        // numbering switched off and on again continues after the highest number
+        let mut off = after.clone();
+        off.columns[0].auto_increment = false;
+        let off_read = design(&b, &s, Some(&after), &off).await;
+        let mut on = off_read.clone();
+        on.columns[0].auto_increment = true;
+        design(&b, &s, Some(&off_read), &on).await;
+        let r = b.run(Some(&s), "INSERT INTO items (parent) VALUES (1); SELECT max(id) FROM items").await.unwrap();
+        assert_eq!(r[1].sets[0].rows[0][0].as_deref(), Some("3"), "{r:?}");
+
+        // a failing step leaves the table as it was
+        let (before, _) = read_table_def(&b, &s, "items").await.unwrap();
+        let mut bad = before.clone();
+        bad.columns.push(col("extra", "text"));
+        bad.columns[at(&before, "tags")].data_type = "integer".into();
+        bad.columns[at(&before, "tags")].params = None;
+        let e = apply_ddl(&b, &ddl_statements(&s, Some(&before), &bad).unwrap()).await.unwrap_err();
+        assert!(e.contains("Nothing was changed"), "{e}");
+        assert_eq!(read_table_def(&b, &s, "items").await.unwrap().0, before);
+        let ro = PgBackend::new(ConnConfig { read_only: true, ..cfg });
+        assert!(apply_ddl(&ro, &["DROP TABLE x".into()]).await.is_err());
+        assert!(ddl_statements(&s, None, &TableDef { name: "t".into(), columns: vec![ColumnDef { auto_increment: true, ..col("a", "text") }], ..Default::default() }).is_err());
+
+        // a serial column reads as self numbering; what cannot be shown is reported and kept
+        b.run(Some(&s), "CREATE TABLE old (id serial PRIMARY KEY, a text CHECK (a <> ''), b int); CREATE INDEX lower_a ON old (lower(a))").await.unwrap();
+        let (old, warnings) = read_table_def(&b, &s, "old").await.unwrap();
+        assert!(old.columns[0].auto_increment && warnings.len() == 1 && warnings[0].contains("lower_a"), "{warnings:?}");
+        let mut plain = old.clone();
+        plain.columns[0].auto_increment = false;
+        apply_ddl(&b, &ddl_statements(&s, Some(&old), &plain).unwrap()).await.unwrap();
+        assert!(!read_table_def(&b, &s, "old").await.unwrap().0.columns[0].auto_increment);
+        assert!(b.indexes(&s, "old").await.unwrap().iter().any(|i| i.name == "lower_a"));
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn functions_triggers_views_and_plans() {
+    with_schema("objects", |cfg, b, s| async move {
+        let setup = format!(
+            "SET search_path TO {s};
+             CREATE TABLE \"Log ON t\" (n int);
+             CREATE TABLE t (n int);
+             CREATE FUNCTION area(w numeric, h numeric) RETURNS numeric LANGUAGE sql AS 'SELECT w * h';
+             CREATE FUNCTION area(r numeric) RETURNS numeric LANGUAGE sql AS 'SELECT 3 * r * r';
+             CREATE PROCEDURE put(v int) LANGUAGE sql AS $$ INSERT INTO t VALUES (v) $$;
+             CREATE FUNCTION logit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RETURN NEW; END $$;
+             CREATE TRIGGER \"Audit\" BEFORE INSERT ON \"Log ON t\" FOR EACH ROW EXECUTE FUNCTION logit();
+             CREATE VIEW v AS SELECT n FROM t;
+             CREATE MATERIALIZED VIEW mv AS SELECT n FROM t;
+             INSERT INTO t SELECT g FROM generate_series(1, 3000) g; ANALYZE t"
+        );
+        let r = b.run(None, &setup).await.unwrap();
+        assert!(r.iter().all(|r| r.error.is_none()), "{r:?}");
+        let index = b.index(false).await.unwrap();
+        let of = |kind: Kind| index.iter().filter(|n| n.database == s && n.kind == kind).map(|n| n.name.clone()).collect::<Vec<_>>();
+        assert_eq!(of(Kind::Function), ["area(r numeric)", "area(w numeric, h numeric)", "logit()"]);
+        assert!(of(Kind::Procedure).len() == 1 && of(Kind::Procedure)[0].starts_with("put(") && of(Kind::Procedure)[0].contains("v integer"), "{:?}", of(Kind::Procedure));
+        assert_eq!(of(Kind::Trigger), ["Audit ON Log ON t"]);
+
+        // every script runs again as it is
+        for (kind, name) in [(Kind::Function, "area(r numeric)".to_string()), (Kind::Procedure, of(Kind::Procedure)[0].clone()), (Kind::Trigger, "Audit ON Log ON t".into()), (Kind::View, "v".into()), (Kind::View, "mv".into())] {
+            let script = object_script(&b, kind, &s, &name).await.unwrap();
+            // as the app runs it: with the object's schema first in the search path
+            let r = b.run(Some(&s), &script).await.unwrap();
+            assert!(r.iter().all(|r| r.error.is_none()), "{name}: {script}\n{r:?}");
+        }
+        assert!(object_script(&b, Kind::Function, &s, "nope()").await.is_err());
+        assert!(drop_object_sql(&b, Kind::Function, &s, "area(r numeric); DROP TABLE t").await.is_err(), "only a name the server knows is used");
+        for (kind, name) in [(Kind::Trigger, "Audit ON Log ON t".to_string()), (Kind::Function, "area(r numeric)".into()), (Kind::Procedure, of(Kind::Procedure)[0].clone()), (Kind::View, "v".into()), (Kind::View, "mv".into())] {
+            let sql = drop_object_sql(&b, kind, &s, &name).await.unwrap();
+            assert!(b.run(None, &sql).await.unwrap()[0].error.is_none(), "{sql}");
+        }
+        let left = b.index(false).await.unwrap();
+        assert_eq!(left.iter().filter(|n| n.database == s && matches!(n.kind, Kind::Function)).count(), 2);
+
+        let plan = explain(&b, Some(&s), "SELECT * FROM t WHERE n = 5", false).await.unwrap();
+        assert!(plan.json.as_ref().unwrap().contains("\"Seq Scan\"") && plan.plan.rows[0][1].as_deref() == Some("t"));
+        assert!(plan.hints.iter().any(|h| h.message.contains("Sequential scan")), "{:?}", plan.hints);
+        assert!(plan.plan.rows[0][4].is_none(), "no measurements without Analyze");
+        let measured = explain(&b, Some(&s), "SELECT count(*) FROM t", true).await.unwrap();
+        assert!(measured.plan.rows[0][4].is_some() && measured.plan.rows[0][6].is_some());
+        // explaining a change shows its plan and changes nothing; measuring one is refused
+        assert!(explain(&b, Some(&s), "DELETE FROM t", false).await.is_ok());
+        assert!(explain(&b, Some(&s), "DELETE FROM t", true).await.is_err());
+        assert!(explain(&b, Some(&s), "WITH d AS (DELETE FROM t RETURNING *) SELECT * FROM d", true).await.is_err());
+        assert!(explain(&b, Some(&s), "SELECT 1; DELETE FROM t", false).await.is_err());
+        assert!(explain(&PgBackend::new(ConnConfig { read_only: true, ..cfg }), Some(&s), "SELECT 1", true).await.is_ok());
+        let r = b.run(Some(&s), "SELECT count(*) FROM t").await.unwrap();
+        assert_eq!(r[0].sets[0].rows[0][0].as_deref(), Some("3000"));
+    })
+    .await;
+}
+
+/// Needs pg_dump, pg_restore and psql at least as new as the server (MYLODB_PG_BIN names their folder if they are elsewhere).
+#[tokio::test]
+async fn a_backup_restores_into_an_empty_database() {
+    with_schema("dump", |cfg, b, s| async move {
+        let setup = format!(
+            "CREATE TABLE {s}.\"Odd table\" (id serial PRIMARY KEY, note text, raw bytea);
+             INSERT INTO {s}.\"Odd table\" (note, raw) VALUES ('é \\ ''x''', '\\x00ff'), (NULL, NULL);
+             CREATE VIEW {s}.v AS SELECT id FROM {s}.\"Odd table\";
+             CREATE FUNCTION {s}.two() RETURNS int LANGUAGE sql AS 'SELECT 2'"
+        );
+        assert!(b.run(None, &setup).await.unwrap().iter().all(|r| r.error.is_none()));
+        let copy = format!("mylodb_itest_restore_{}", std::process::id());
+        let dir = std::env::temp_dir().join(format!("mylodb_pgdump_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let cancel = AtomicBool::new(false);
+        for (format, file) in [(DumpFormat::Sql, "d.sql"), (DumpFormat::Custom, "d.dump")] {
+            let target = dir.join(file);
+            let mut lines = 0;
+            let made = dump(&b, &DumpOptions { schemas: vec![s.clone()], format, no_owner: true, ..Default::default() }, &target, &cancel, &mut |_| lines += 1).await;
+            let made = match made {
+                Err(e) if e.contains("not found on this computer") || e.contains("older than the server") => return eprintln!("SKIP: {e}"),
+                other => other.unwrap(),
+            };
+            assert!(made.bytes > 0 && lines > 0 && !target.with_extension("partial").exists());
+            assert_eq!(is_archive(&target).unwrap(), format == DumpFormat::Custom);
+            assert!(dump(&b, &DumpOptions::default(), &target, &cancel, &mut |_| {}).await.is_err(), "never over an existing file");
+
+            // a database of its own, dropped again below
+            assert!(b.run(None, &format!("CREATE DATABASE {copy}")).await.unwrap()[0].error.is_none());
+            let into = PgBackend::new(ConnConfig { database: Some(copy.clone()), ..cfg.clone() });
+            let restored = restore(&into, &target, &RestoreOptions { single_transaction: true, no_owner: true, ..Default::default() }, &cancel, &mut |_| {}).await;
+            let r = into.run(None, &format!("SELECT note, raw, {s}.two() FROM {s}.v JOIN {s}.\"Odd table\" USING (id) ORDER BY id")).await.unwrap();
+            // restoring on top fails and says why; as one transaction nothing is half done
+            let again = restore(&into, &target, &RestoreOptions { single_transaction: true, ..Default::default() }, &cancel, &mut |_| {}).await;
+            let ro = PgBackend::new(ConnConfig { database: Some(copy.clone()), read_only: true, ..cfg.clone() });
+            let refused = restore(&ro, &target, &RestoreOptions::default(), &cancel, &mut |_| {}).await;
+            drop((into, ro));
+            let dropped = b.run(None, &format!("DROP DATABASE {copy} WITH (FORCE)")).await.unwrap();
+            assert!(dropped[0].error.is_none(), "{dropped:?}");
+            restored.unwrap();
+            assert_eq!(r[0].sets[0].rows[0], vec![Some("é \\ 'x'".to_string()), Some("00FF".into()), Some("2".into())], "{r:?}");
+            let e = again.unwrap_err();
+            assert!(e.contains("already exists"), "{e}");
+            assert!(refused.unwrap_err().contains("read-only"));
+        }
+        let stopped = AtomicBool::new(true);
+        let target = dir.join("c.sql");
+        assert_eq!(dump(&b, &DumpOptions::default(), &target, &stopped, &mut |_| {}).await.unwrap_err(), "cancelled");
+        assert!(!target.exists() && !target.with_extension("partial").exists());
         let _ = std::fs::remove_dir_all(&dir);
     })
     .await;

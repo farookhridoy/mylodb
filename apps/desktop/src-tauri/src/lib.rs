@@ -603,6 +603,9 @@ async fn table_overview(state: tauri::State<'_, AppState>, id: i64, db: String, 
 /// The CREATE statement of a view, routine, trigger or event.
 #[tauri::command]
 async fn object_definition(state: tauri::State<'_, AppState>, id: i64, kind: Kind, db: String, name: String) -> Result<String, String> {
+    if let Some(pg) = pg_of(&state, id) {
+        return myq_postgres::object_script(&pg, kind, &db, &name).await.map_err(err);
+    }
     myq_driver::object_definition(&session_pool(&state, id)?, kind, &db, &name)
         .await
         .map_err(err)?
@@ -1204,8 +1207,14 @@ enum PlanOp {
 
 /// The statements for `op`, or the reason it cannot be done.
 #[tauri::command]
-fn build_plan(state: tauri::State<AppState>, id: i64, op: PlanOp) -> Result<Vec<String>, String> {
+async fn build_plan(state: tauri::State<'_, AppState>, id: i64, op: PlanOp) -> Result<Vec<String>, String> {
     use myq_schema::plan as p;
+    if let Some(pg) = pg_of(&state, id) {
+        return match op {
+            PlanOp::DropObject { db, kind, name } => Ok(vec![format!("{};", myq_postgres::drop_object_sql(&pg, kind, &db, &name).await.map_err(err)?)]),
+            _ => Err("This operation is not available for PostgreSQL yet; run it as SQL.".into()),
+        };
+    }
     // table names and the number of other objects of a database come from the session's index
     let tables_of = |db: &str| -> Result<(Vec<String>, usize), String> {
         let sessions = state.sessions.lock().unwrap();
@@ -1255,6 +1264,15 @@ async fn run_plan(state: tauri::State<'_, AppState>, id: i64, statements: Vec<St
         return Err("there is nothing to run".into());
     }
     let safety = state.sessions.lock().unwrap().get(&id).map(|s| s.safety).ok_or("not connected")?;
+    if let Some(pg) = pg_of(&state, id) {
+        let sql = statements.join("\n");
+        let started = std::time::Instant::now();
+        let results = pg.run_cancellable(None, &sql, Default::default(), safety.timeout_secs.map(Into::into)).await.map_err(err)?;
+        let ok = results.iter().all(|r| r.error.is_none());
+        let _ = state.record(id, sql.trim(), started.elapsed().as_millis() as u64, ok);
+        let _ = reindex(&state, id).await;
+        return Ok(results);
+    }
     let pool = session_pool(&state, id)?;
     let mut conn = pool.get_conn().await.map_err(err)?;
     let sql = statements.join("\n");
@@ -1464,6 +1482,51 @@ async fn backup_job(
     let result = myq_transfer::backup(&mut c, &options, &target, &mut progress, &guard.flag).await;
     let _ = state.record(id, &format!("BACKUP {}", options.databases.iter().map(|d| d.name.as_str()).collect::<Vec<_>>().join(", ")), 0, result.is_ok());
     result.map_err(err)
+}
+
+/// Progress for a PostgreSQL program: one step per line it prints.
+fn pg_lines(app: tauri::AppHandle, job_id: String, phase: &'static str) -> impl FnMut(&str) + Send {
+    let mut progress = job_progress(app, job_id);
+    let mut done = 0u64;
+    move |line: &str| {
+        done += 1;
+        progress(myq_transfer::Progress { phase: phase.into(), done, total: None, message: line.chars().take(200).collect() });
+    }
+}
+
+/// A file name for a backup: the name typed by the user, made safe, with the time.
+fn pg_backup_path(dir: &str, name: &str, format: myq_postgres::DumpFormat) -> std::path::PathBuf {
+    let safe: String = name.chars().map(|c| if c.is_alphanumeric() || matches!(c, '_' | '-' | '.' | ' ') { c } else { '_' }).collect();
+    let safe = if safe.trim().is_empty() { "backup".to_string() } else { safe.trim().to_string() };
+    let extension = if format == myq_postgres::DumpFormat::Custom { "dump" } else { "sql" };
+    std::path::Path::new(dir).join(format!("{safe}-{}.{extension}", now_local().format("%Y%m%d-%H%M%S")))
+}
+
+/// Back up a PostgreSQL database with `pg_dump`.
+#[tauri::command]
+async fn pg_backup_job(app: tauri::AppHandle, state: tauri::State<'_, AppState>, id: i64, job_id: String, options: myq_postgres::DumpOptions, dir: String, name: String) -> Result<myq_postgres::DumpResult, String> {
+    let pg = pg_of(&state, id).ok_or("this backup is for PostgreSQL connections")?;
+    let target = pg_backup_path(&dir, &name, options.format);
+    let guard = JobGuard::start(&state, &job_id);
+    let mut line = pg_lines(app, job_id, "Backing up");
+    let result = myq_postgres::dump(&pg, &options, &target, &guard.flag, &mut line).await;
+    let _ = state.record(id, &format!("BACKUP {}", target.display()), 0, result.is_ok());
+    result
+}
+
+/// Restore a PostgreSQL archive or SQL script into the connected database.
+#[tauri::command]
+async fn pg_restore_job(app: tauri::AppHandle, state: tauri::State<'_, AppState>, id: i64, job_id: String, path: String, options: myq_postgres::RestoreOptions) -> Result<myq_postgres::RestoreResult, String> {
+    guard_writable(&state, id, "restoring a backup")?;
+    let pg = pg_of(&state, id).ok_or("this restore is for PostgreSQL connections")?;
+    let result = {
+        let guard = JobGuard::start(&state, &job_id);
+        let mut line = pg_lines(app, job_id, "Restoring");
+        myq_postgres::restore(&pg, std::path::Path::new(&path), &options, &guard.flag, &mut line).await
+    };
+    let _ = state.record(id, &format!("RESTORE {path}"), 0, result.is_ok());
+    let _ = reindex(&state, id).await;
+    result
 }
 
 // ---- data compare and sync, and copying a database ----
@@ -1893,8 +1956,20 @@ async fn run_schedule(app: tauri::AppHandle, id: String, forced: bool) -> Result
             return Ok(format!("{}: {}{:.1} MB in {:.1} s{}", path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(), rows.map(|r| format!("{r} rows, ")).unwrap_or_default(), size as f64 / 1_048_576.0, started.elapsed().as_secs_f64(), if removed > 0 { format!("; removed {removed} old file(s)") } else { String::new() }));
         }
         if let Some(pg) = pg_of(&state, job.connection_id) {
-            if job.kind != "export" {
-                return Err("Backups are not available for PostgreSQL yet; schedule an export instead.".into());
+            if job.kind == "backup" {
+                // the job's "databases" are the connected database's schemas; compressed means PostgreSQL's own archive
+                let options = myq_postgres::DumpOptions {
+                    schemas: job.databases.clone(),
+                    format: if job.compress { myq_postgres::DumpFormat::Custom } else { myq_postgres::DumpFormat::Sql },
+                    content: if job.data { myq_postgres::DumpContent::All } else { myq_postgres::DumpContent::Structure },
+                    ..Default::default()
+                };
+                let target = pg_backup_path(&job.dir, &job.name, options.format);
+                let cancel = std::sync::atomic::AtomicBool::new(false);
+                let done = myq_postgres::dump(&pg, &options, &target, &cancel, &mut |_: &str| {}).await?;
+                let removed = myq_transfer::prune_files(std::path::Path::new(&job.dir), &job.name, job.keep as usize, &["sql", "dump"], false).unwrap_or_default().len();
+                let name = done.path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                return Ok(format!("{name}: {} schema(s), {:.1} MB in {:.1} s{}", options.schemas.len(), done.bytes as f64 / 1_048_576.0, done.elapsed_ms as f64 / 1000.0, if removed > 0 { format!("; removed {removed} old backup(s)") } else { String::new() }));
             }
             let ext = schedule::export_extension(&job.format).ok_or("unknown file format")?;
             let stamp = now_local().format("%Y%m%d-%H%M%S");
@@ -2254,6 +2329,9 @@ fn statement_at(state: tauri::State<AppState>, id: Option<i64>, sql: String, cur
 
 #[tauri::command]
 async fn explain_query(state: tauri::State<'_, AppState>, id: i64, database: Option<String>, sql: String, analyze: bool) -> Result<myq_profile::ExplainResult, String> {
+    if let Some(pg) = pg_of(&state, id) {
+        return myq_postgres::explain(&pg, database.as_deref(), &sql, analyze).await;
+    }
     let mut c = conn_for(&state, id).await?;
     myq_profile::explain(&mut c, database.as_deref(), &sql, analyze).await.map_err(err)
 }
@@ -2278,6 +2356,10 @@ async fn table_def(state: tauri::State<'_, AppState>, id: i64, db: String, table
         let def = tokio::task::spawn_blocking(move || myq_sqlite::read_table_def(&file, &table)).await.map_err(err)??;
         return Ok(TableDefResult { def, warnings: vec![] });
     }
+    if let Some(pg) = pg_of(&state, id) {
+        let (def, warnings) = myq_postgres::read_table_def(&pg, &db, &table).await?;
+        return Ok(TableDefResult { def, warnings });
+    }
     let mut c = conn_for(&state, id).await?;
     let (def, warnings) = myq_admin::read_table_def(&mut c, &db, &table).await.map_err(err)?;
     Ok(TableDefResult { def, warnings })
@@ -2299,8 +2381,14 @@ fn ddl_statements(db: &str, original: &Option<TableDef>, desired: &TableDef) -> 
 }
 
 #[tauri::command]
-fn ddl_preview(db: String, original: Option<TableDef>, desired: TableDef, sqlite: Option<bool>) -> DdlPreview {
-    let result = if sqlite == Some(true) { myq_sqlite::ddl_statements(original.as_ref(), &desired) } else { ddl_statements(&db, &original, &desired) };
+fn ddl_preview(db: String, original: Option<TableDef>, desired: TableDef, sqlite: Option<bool>, postgres: Option<bool>) -> DdlPreview {
+    let result = if postgres == Some(true) {
+        myq_postgres::ddl_statements(&db, original.as_ref(), &desired)
+    } else if sqlite == Some(true) {
+        myq_sqlite::ddl_statements(original.as_ref(), &desired)
+    } else {
+        ddl_statements(&db, &original, &desired)
+    };
     match result {
         Ok(statements) => DdlPreview { statements, errors: vec![] },
         Err(errors) => DdlPreview { statements: vec![], errors },
@@ -2345,6 +2433,17 @@ async fn refresh_index(state: tauri::State<'_, AppState>, id: i64) -> Result<Vec
 #[tauri::command]
 async fn ddl_apply(state: tauri::State<'_, AppState>, id: i64, db: String, original: Option<TableDef>, desired: TableDef) -> Result<Vec<String>, String> {
     guard_writable(&state, id, "changing a table definition")?;
+    if let Some(pg) = pg_of(&state, id) {
+        let statements = myq_postgres::ddl_statements(&db, original.as_ref(), &desired).map_err(|e| e.join("; "))?;
+        if statements.is_empty() {
+            return Ok(statements);
+        }
+        let result = myq_postgres::apply_ddl(&pg, &statements).await;
+        let _ = state.record(id, &statements.join(";\n"), 0, result.is_ok());
+        result?;
+        reindex(&state, id).await?;
+        return Ok(statements);
+    }
     if let Some((file, writable)) = sqlite_target(&state, id) {
         if !writable {
             return Err("This SQLite file is open read-only.".into());
@@ -2856,7 +2955,9 @@ pub fn run() {
             csv_create_table,
             import_csv_job,
             run_sql_source_job,
-            backup_job
+            backup_job,
+            pg_backup_job,
+            pg_restore_job
         ])
         .run(context())
         .expect("error while running MyLoDB");

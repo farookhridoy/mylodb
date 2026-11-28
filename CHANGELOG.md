@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+PostgreSQL, part two.
+
+**Added (PostgreSQL)**
+* **Functions, procedures and triggers** in the browser, with *Show / edit definition* and *Drop*; views too. New objects start from PostgreSQL templates.
+* **Table designer**: create and change tables with PostgreSQL's types, identity columns, generated columns, defaults, comments, primary and unique keys, indexes and foreign keys. Changes run in **one transaction**, so they apply completely or not at all. Indexes on expressions, partial indexes, deferrable constraints and checks are left unchanged, and the designer says so.
+* **Explain** and **Analyze** with the diagram. Analyze runs SELECT statements only, in a transaction that is rolled back.
+* **Backup and restore** (Transfer, and scheduled backups): a SQL script or a compressed archive of the whole database or chosen schemas. They use PostgreSQL's own `pg_dump`, `pg_restore` and `psql`, which you install yourself, at least as new as the server. A restore asks first (on production you type *production*) and by default is all or nothing.
+
+**Known limits (PostgreSQL)**
+* The designer cannot move columns, or change the expression of an existing generated column (PostgreSQL cannot).
+* Not available: CSV import, users, server tools, the Structure and Databases pages, Profile, formatting, error underlining, data search, diagrams, query builder, compare and copy.
+
 ## 0.12.0 (2026-11-28)
 
 PostgreSQL (phase 24 of the roadmap).

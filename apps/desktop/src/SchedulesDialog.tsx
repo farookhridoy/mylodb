@@ -40,7 +40,7 @@ function summary(j: Schedule) {
 }
 
 /** Scheduled jobs: a list, each with when it runs, what it reads or writes, and its log. */
-export default function SchedulesDialog(props: { connectionId: number; connectionName: string; databases: string[]; onClose(): void }) {
+export default function SchedulesDialog(props: { connectionId: number; connectionName: string; databases: string[]; /** The "databases" are schemas, and a compressed backup is pg_dump's archive. */ postgres?: boolean; onClose(): void }) {
   const [jobs, setJobs] = useState<Schedule[]>([]);
   const [edit, setEdit] = useState<Schedule | null>(null);
   const [open, setOpen] = useState<string | null>(null);
@@ -131,7 +131,7 @@ export default function SchedulesDialog(props: { connectionId: number; connectio
               <select value={edit.kind} aria-label="What it does" onChange={(e) => setEdit({ ...edit, kind: e.target.value as Schedule["kind"], databases: edit.databases.slice(0, 1) })}>
                 <option value="backup">Back up databases (SQL dump)</option><option value="export">Export the result of a query to a file</option><option value="import">Import a file</option></select></label>
             {edit.kind === "backup" ? (
-              <fieldset><legend>Databases</legend>
+              <fieldset><legend>{props.postgres ? "Schemas" : "Databases"}</legend>
                 <div className="sched-dbs">{props.databases.map((d) => (
                   <label key={d} className="check"><input type="checkbox" checked={edit.databases.includes(d)} onChange={(e) => setEdit({ ...edit, databases: e.target.checked ? [...edit.databases, d] : edit.databases.filter((x) => x !== d) })} /> {d}</label>
                 ))}</div>
@@ -173,7 +173,7 @@ export default function SchedulesDialog(props: { connectionId: number; connectio
               <span className="sched-dirpick"><input value={edit.dir} onChange={(e) => setEdit({ ...edit, dir: e.target.value })} placeholder="/Users/you/Backups" spellCheck={false} /><button type="button" onClick={chooseDir}>Choose…</button></span></label>
             <label>Keep the last <input type="number" min={1} max={999} value={edit.keep} onChange={(e) => setEdit({ ...edit, keep: Number(e.target.value) })} /> {edit.kind === "export" ? "files" : "backups"}</label>
             </>)}
-            {edit.kind === "backup" && <label className="check"><input type="checkbox" checked={edit.compress} onChange={(e) => setEdit({ ...edit, compress: e.target.checked })} /> Compress into a .zip</label>}
+            {edit.kind === "backup" && <label className="check"><input type="checkbox" checked={edit.compress} onChange={(e) => setEdit({ ...edit, compress: e.target.checked })} /> {props.postgres ? "Compressed archive (.dump) instead of a SQL script" : "Compress into a .zip"}</label>}
             {edit.kind === "backup" && <label className="check"><input type="checkbox" checked={edit.data} onChange={(e) => setEdit({ ...edit, data: e.target.checked })} /> Include the rows (not only the structure)</label>}
             <div className="actions"><button type="button" onClick={() => setEdit(null)}>Cancel</button><button className="primary" type="submit">Save</button></div>
           </form>

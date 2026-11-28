@@ -100,6 +100,12 @@ let counter = 0;
 const uid = () => `${Date.now().toString(36)}-${counter++}`;
 const newTab = (n: number, sql = "", database: string | null = null): QueryTab => ({ id: uid(), title: `Query ${n}`, sql, database });
 const quote = quoteIdent;
+const PG_TEMPLATES: Record<"view" | "function" | "procedure" | "trigger", (s: string) => string> = {
+  view: (s) => `CREATE VIEW ${quote(s)}.new_view AS\nSELECT 1 AS id;\n`,
+  function: (s) => `CREATE OR REPLACE FUNCTION ${quote(s)}.new_function(a integer)\nRETURNS integer\nLANGUAGE plpgsql\nAS $$\nBEGIN\n  RETURN a + 1;\nEND\n$$;\n`,
+  procedure: (s) => `CREATE OR REPLACE PROCEDURE ${quote(s)}.new_procedure(id integer)\nLANGUAGE plpgsql\nAS $$\nBEGIN\n  RAISE NOTICE '%', id;\nEND\n$$;\n`,
+  trigger: (s) => `CREATE OR REPLACE FUNCTION ${quote(s)}.new_trigger_function()\nRETURNS trigger\nLANGUAGE plpgsql\nAS $$\nBEGIN\n  RETURN NEW;\nEND\n$$;\n\nCREATE TRIGGER new_trigger\nBEFORE INSERT ON ${quote(s)}.table_name\nFOR EACH ROW EXECUTE FUNCTION ${quote(s)}.new_trigger_function();\n`,
+};
 
 export default function App() {
   const [connections, setConnections] = useState<SavedConnection[]>([]);
@@ -720,8 +726,7 @@ export default function App() {
     setActiveTab(t.id);
   };
   const openDesigner = (database: string, table: string | null) => {
-    if (notYetForPg("The table designer")) return;
-    const existing = tabs.find((t) => t.kind === "designer" && t.table?.db === database && t.table.name === table && table !== null);
+        const existing = tabs.find((t) => t.kind === "designer" && t.table?.db === database && t.table.name === table && table !== null);
     if (existing) return setActiveTab(existing.id);
     const t: QueryTab = { id: uid(), title: table ?? "New table", sql: "", database, kind: "designer", table: { db: database, name: table } };
     setTabs([...tabs, t]);
@@ -952,6 +957,7 @@ export default function App() {
   const pgObjectMenu = (e: React.MouseEvent, d: string, t: string) => {
     setTreeMenu({ x: e.clientX, y: e.clientY, items: [
       { label: "View Data", icon: "grid", onClick: () => openTable(d, t) },
+      { label: "Design table…", icon: "edit", onClick: () => openDesigner(d, t) },
       { label: "Export Data…", icon: "export", onClick: () => openTransfer({ tab: "export", db: d, table: t }) },
       { label: "Read data in SQL console", icon: "terminal", onClick: () => selectInEditor(d, t) },
       { label: lockedTable === t && selectedDb === d ? "Unlock the filter" : "Lock the filter to this table", icon: "filter", onClick: () => (lockedTable === t && selectedDb === d ? unlock() : lockTable(d, t)) },
@@ -1017,6 +1023,7 @@ export default function App() {
 
   /// A script that recreates the object: a DROP followed by the server's own CREATE, with DELIMITER where the body needs it.
   const definitionScript = (kind: Kind, d: string, name: string, ddl: string) => {
+    if (isPg) return ddl; // the server side already writes a script that can be run as it is
     const word = KIND_WORD[kind];
     const qn = `${quote(d)}.${quote(name)}`;
     if (kind === "view") return `${ddl.replace(/^CREATE\b/i, "CREATE OR REPLACE")};\n`;
@@ -1029,10 +1036,31 @@ export default function App() {
       addTab(definitionScript(kind, d, name, ddl), d, name);
     } catch (e) { setStatus(`Error: ${describeError(e)}`); }
   };
+  const dropPgObject = (d: string, kind: Kind, name: string) => openPlan({ op: "drop_object", db: d, kind, name }, { title: `Drop ${KIND_LABEL[kind]} ${name}`, confirmLabel: `Drop ${KIND_LABEL[kind]}`, summary: `The ${KIND_LABEL[kind]} ${d}.${name} will be removed. Nothing that depends on it is dropped with it: the server refuses instead.` });
+
   const objectMenu = (e: React.MouseEvent, d: string, kind: Kind, name: string) => {
     if (kind === "table") return tableMenu(e, d, name);
     e.preventDefault();
-    if (isPg) return pgObjectMenu(e, d, name);
+    if (isPg) {
+      if (kind === "view") return setTreeMenu({ x: e.clientX, y: e.clientY, items: [
+        { label: "View Data", icon: "grid", onClick: () => openTable(d, name) },
+        { label: "Show / edit definition", icon: "sql", onClick: () => showDefinition(d, kind, name) },
+        { label: "Export Data…", icon: "export", onClick: () => openTransfer({ tab: "export", db: d, table: name }) },
+        { separator: true },
+        { label: "Drop…", icon: "trash", danger: true, disabled: readOnly, onClick: () => dropPgObject(d, kind, name) },
+        { separator: true },
+        { label: "Copy name", icon: "copy", onClick: () => navigator.clipboard.writeText(name) },
+        { label: "Refresh", icon: "refresh", shortcut: "F5", onClick: () => reloadIndex() },
+      ] });
+      return setTreeMenu({ x: e.clientX, y: e.clientY, items: [
+        { label: "Show / edit definition", icon: "sql", onClick: () => showDefinition(d, kind, name) },
+        { separator: true },
+        { label: "Drop…", icon: "trash", danger: true, disabled: readOnly, onClick: () => dropPgObject(d, kind, name) },
+        { separator: true },
+        { label: "Copy name", icon: "copy", onClick: () => navigator.clipboard.writeText(name) },
+        { label: "Refresh", icon: "refresh", shortcut: "F5", onClick: () => reloadIndex() },
+      ] });
+    }
     if (!KIND_WORD[kind]) return;
     const items: MenuItem[] = [];
     if (kind === "view") items.push({ label: "View Data", icon: "grid", onClick: () => openTable(d, name, undefined, "data") }, { label: "View Properties", icon: "properties", onClick: () => openTable(d, name, undefined, "properties") }, { label: "Read data in SQL console", icon: "terminal", onClick: () => selectInEditor(d, name) }, { label: "Generate SELECT", icon: "sql", onClick: () => sample("select", d, name) }, { separator: true });
@@ -1068,7 +1096,17 @@ export default function App() {
     e.preventDefault();
     const items: MenuItem[] = [];
     if (isPg) {
-      if (d) items.push({ label: "New query console", icon: "terminal", onClick: () => addTab("", d) }, { separator: true });
+      if (d) items.push(
+        { label: "Create", icon: "plus", children: [
+          { label: "New table…", icon: "table", disabled: readOnly, onClick: () => openDesigner(d, null) },
+          ...(["view", "function", "procedure", "trigger"] as const).map((k) => ({ label: `New ${k}…`, icon: k as IconName, disabled: readOnly, onClick: () => addTab(PG_TEMPLATES[k](d), d, `New ${k}`) })),
+        ] },
+        { label: "New query console", icon: "terminal", onClick: () => addTab("", d) },
+        { separator: true },
+        { label: "Back up this schema…", icon: "export", onClick: () => openTransfer({ tab: "backup", db: d }) },
+        { label: "Restore a backup…", icon: "import", disabled: readOnly, onClick: () => openTransfer({ tab: "restore" }) },
+        { separator: true },
+      );
       items.push({ label: "Refresh", icon: "refresh", shortcut: "F5", onClick: () => reloadIndex() });
       return setTreeMenu({ x: e.clientX, y: e.clientY, items });
     }
@@ -1118,7 +1156,7 @@ export default function App() {
   };
 
   const analyse = async (kind: "explain" | "analyze" | "profile") => {
-    if (activeId === null || !editorTab || !editor.current || notYetForPg("The Explain and Profile views")) return;
+    if (activeId === null || !editorTab || !editor.current || (kind === "profile" && notYetForPg("Profiling"))) return;
     const tabId = editorTab.id;
     const database = editorTab.database;
     const sql = await editor.current.analysisTarget();
@@ -1362,7 +1400,7 @@ export default function App() {
                   <span className="sep" />
                   <button onClick={() => analyse("explain")} title="Explain the selected statement, or the one at the cursor"><Icon name="diagram" />Explain</button>
                   <button onClick={() => analyse("analyze")} disabled={caps?.explain_analyze.available === false} title={caps?.explain_analyze.available === false ? (caps.explain_analyze.reason ?? "Not available on this server") : "EXPLAIN ANALYZE: runs the SELECT and shows real timings"}><Icon name="pulse" />Analyze</button>
-                  <button onClick={() => analyse("profile")} title="Run the SELECT and show stage timings and the work it caused"><Icon name="clock" />Profile</button>
+                  {!isPg && <button onClick={() => analyse("profile")} title="Run the SELECT and show stage timings and the work it caused"><Icon name="clock" />Profile</button>}
                   {formatError && <span className="error small">{formatError}</span>}
                   <span className="grow" />
                   <label className="dbsel" title="The database this script runs in"><span className="lbl-db">Database</span>
@@ -1394,11 +1432,11 @@ export default function App() {
               </div>
             )}
             {tab.kind === "designer" && tab.table && (
-              <TableDesigner key={`${activeId}:${tab.id}`} sqlite={isSqlite} connectionId={activeId} db={tab.table.db} table={tab.table.name} initial={tab.initialTable} nodes={index} ensureColumns={ensureColumns}
+              <TableDesigner key={`${activeId}:${tab.id}`} sqlite={isSqlite} postgres={isPg} connectionId={activeId} db={tab.table.db} table={tab.table.name} initial={tab.initialTable} nodes={index} ensureColumns={ensureColumns}
                 onOpenData={(d, t) => openTable(d, t)}
                 readOnly={readOnly} onApplied={async (name) => { await reloadIndex(); patchTab(tab.id, { title: name, table: { db: tab.table!.db, name } }); }} />
             )}
-            {tab.kind === "transfer" && <TransferTools key={`${activeId}:${tab.id}`} connectionId={activeId} nodes={index} ensureColumns={ensureColumns} exportOnly={exportOnly} preset={tab.transfer ?? {}} onSchemaChanged={() => reloadIndex()} />}
+            {tab.kind === "transfer" && <TransferTools key={`${activeId}:${tab.id}`} connectionId={activeId} nodes={index} ensureColumns={ensureColumns} exportOnly={exportOnly} postgres={isPg} production={env === "production"} preset={tab.transfer ?? {}} onSchemaChanged={() => reloadIndex()} />}
             {tab.kind === "home" && (
               <HomePage key={`${activeId}:${tab.id}`} connectionId={activeId} name={connections.find((c) => c.id === activeId)?.name ?? "Server"} readOnly={readOnly} environment={env}
                 actions={[
@@ -1573,7 +1611,7 @@ export default function App() {
       )}
       {prefsOpen && <PreferencesDialog startPage={prefsPage} initial={prefs} theme={theme.pref} onTheme={theme.setPref} onChange={(p) => { setPrefs(p); setLivePrefs(p); }} onLive={setLivePrefs} onClose={() => { setLivePrefs(prefs); setPrefsOpen(false); setPrefsPage(undefined); }} />}
       {schedulesOpen && activeId !== null && (
-        <SchedulesDialog connectionId={activeId} connectionName={active?.name ?? `#${activeId}`} databases={databases} onClose={() => setSchedulesOpen(false)} />
+        <SchedulesDialog connectionId={activeId} connectionName={active?.name ?? `#${activeId}`} databases={databases} postgres={isPg} onClose={() => setSchedulesOpen(false)} />
       )}
       {copyDb && activeId !== null && (
         <CopyDatabaseDialog connections={connections.filter((c) => c.id !== null && openIds.includes(c.id))} sourceId={activeId} sourceDb={copyDb.db} onClose={() => setCopyDb(null)} onDone={(m) => { setStatus(m); reloadIndex(); }} />

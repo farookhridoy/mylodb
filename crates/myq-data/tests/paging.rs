@@ -193,7 +193,7 @@ async fn checks(cfg: ConnConfig, db: String) {
     let dir = std::env::temp_dir().join(format!("mylodb_itest_pg_{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let spec = PageSpec::default();
-    let opts = |format, gzip| ExportOptions { format, gzip, null_text: String::new(), name: None };
+    let opts = |format, gzip| ExportOptions { format, gzip, null_text: String::new(), name: None, postgres: false };
     let jsonl = dir.join("t.jsonl");
     let out = export_rows(&mut conn, &meta, &spec, &opts(ExportFormat::JsonLines, false), Dest::File(&jsonl), &mut no_progress).await.unwrap();
     assert_eq!(out.rows, 2345);
